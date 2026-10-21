@@ -10,7 +10,8 @@
  *          OUT CHAN   TRACK 1 .. 6                              OFF, 1 .. 16
  *          RECEIVE    NOTES, CC                                 ON / OFF
  *          SEND       NOTES, CC                                 ON / OFF
- *          PORTS      USB IN, TRS IN (the 3.5 mm MIDI IN jack)  ON / OFF
+ *          PORTS      USB IN                                    ON / OFF
+ *          (the SMK-37 has no MIDI IN jack: trs_in stays in the record, unused)
  *
  * And what the settings do in the main loop: MIDI in routed by channel to the tracks (midi_take), its CCs set the
  * tracks' level, pan, macros, filter and sends; the same sent out when they change (midi_poll). */
@@ -30,7 +31,7 @@ static const set_row_t SET_OUT[] = {SR("TRACK 1", out_ch[0], SK_CHAN), SR("TRACK
                                     SR("TRACK 5", out_ch[4], SK_CHAN), SR("TRACK 6", out_ch[5], SK_CHAN)};
 static const set_row_t SET_RCV[] = {SR("NOTES", rcv_note, SK_ONOFF), SR("CC", rcv_cc, SK_ONOFF)};
 static const set_row_t SET_SND[] = {SR("NOTES", send_note, SK_ONOFF), SR("CC", send_cc, SK_ONOFF)};
-static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF), SR("TRS IN", trs_in, SK_ONOFF)};
+static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF)};
 #define SET_NPART 5u
 static const struct { const char *name; const set_row_t *rows; uint8_t n; } SET_PART[SET_NPART] = {
     {"IN CHAN", SET_IN, NELEM(SET_IN)}, {"OUT CHAN", SET_OUT, NELEM(SET_OUT)}, {"RECEIVE", SET_RCV, NELEM(SET_RCV)},

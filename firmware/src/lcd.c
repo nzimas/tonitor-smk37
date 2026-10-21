@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* ST7789-class 240x240 panel on SPI1: PC9 CLK, PC10 DO, PC7 CS, PC8 D/C,
- * backlight PA2 active low. Polled DMA transfers; every source buffer must be
+/* ST7789-class 240x240 panel on SPI1 (the SMK-37 Pro's: PB6 CLK, PB7 DO, PC8 CS, PB5 D/C, no backlight control;
+ * the same init sequence as the FM-1's). Polled DMA transfers; every source buffer must be
  * in RAM. A pixel transfer is left running (lcd_busy): the next LCD access, or
  * a write to its source buffer (lcd_sync), waits for it, so the main loop works
  * while the last strip of a frame goes out. */
@@ -128,3 +128,4 @@ static void lcd_init(void)
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
 }
+

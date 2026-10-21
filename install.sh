@@ -1,11 +1,11 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
-# TONITOR: build, then install on the FM-1 connected over USB (any firmware it runs: M-VAVE's, SLOOP,
+# TONITOR: build, then install on the SMK-37 connected over USB (any firmware it runs: M-VAVE's, SLOOP,
 # Felucca, TONITOR, or the rescue mode).
 #   ./install.sh            build and install
 #   ./install.sh --no-build install build/tonitor.fwsc as it is
 #   ./install.sh FILE.fwsc  install that package (another firmware, or SLOOP to go back)
-#   ./install.sh --info     what the connected FM-1 runs
+#   ./install.sh --info     what the connected SMK-37 runs
 set -e
 cd "$(dirname "$0")"
 PY=.venv/bin/python

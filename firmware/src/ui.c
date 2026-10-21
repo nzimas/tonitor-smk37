@@ -43,11 +43,14 @@
  * each with a bar; the one just turned in black on white. Saving, loading, emptying a looper flash the
  * whole screen. The SESSIONS page shows the session chosen as a very large number. */
 
-/* the panel: which matrix button carries which printed label (as SLOOP's panel.c, default table) */
+/* the panel: which SMK-37 button (smk_input.h ids) carries which of the FM-1's labels. By row, as the FM-1's: its
+ * top row (the six tracks) on the top row ARP NOTE-REPEAT SCALE CHORD GLOBE BT, its bottom row (HOME SAVE ARP SEQ
+ * PLAY REC) on PATCH PARA FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+. The knobs: K1 is
+ * MASTER (a virtual pot, smk_input.h), K2 .. K4 SELECT, ALGORITHM, PRESETS, K5 .. K8 KNOB 1 .. 4 */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
 enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
-static const uint8_t PANEL_BTN[NB] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1};
-static const uint8_t PANEL_ENC[NE] = {0, 1, 6, 2, 3, 4, 5};
+static const uint8_t PANEL_BTN[NB] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 4, 5};
+static const uint8_t PANEL_ENC[NE] = {1, 2, 3, 4, 5, 6, 7};
 static const uint8_t LAYER_BTN[NLAYER] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 27u
 #define KEY_SHIFT 25u            /* the rightmost black key: pressed, the keys held latch; held, a latched key lets go */
@@ -1340,17 +1343,17 @@ static void ui_input(void)
 }
 
 /* ---------------------------------------------------------------- LEDs --- */
-static void led_dim_key(uint32_t id, int on)
+/* The SMK-37 has no LEDs under its keys, and its button LEDs are on / off: the FM-1's key lights are kept here,
+ * bit k = key k (key_lit: lit, key_glow: the glow), for the pads to show; the tracks' glow while they sound has no
+ * light yet */
+static uint32_t key_lit, key_glow;
+static void key_led(uint32_t k, int on)
 {
-    uint32_t p, r;
-    for (p = 0; p < FM1_NCOL; p++)
-        for (r = 1; r < 5u; r++)
-            if (FM1_KEYMAP[r][p] == (int8_t)id) {
-                if (on)
-                    fm1_led_dim[p] |= (uint8_t)(1u << r);
-                else
-                    fm1_led_dim[p] &= (uint8_t)~(1u << r);
-            }
+    key_lit = on ? key_lit | 1u << k : key_lit & ~(1u << k);
+}
+static void key_dim(uint32_t k, int on)
+{
+    key_glow = on ? key_glow | 1u << k : key_glow & ~(1u << k);
 }
 static void ui_leds(void)
 {
@@ -1358,7 +1361,6 @@ static void ui_leds(void)
     for (l = 0; l < NLAYER; l++) {
         fm1_led_key(PANEL_BTN[LAYER_BTN[l]], clip_from() == (int)l ? (fm1_ms / 250u) & 1u : l == ui.sel);   /* (on the
                                                                                                          * clipboard: it blinks) */
-        led_dim_key(PANEL_BTN[LAYER_BTN[l]], layer_sounding(l));   /* the others glow while they sound */
     }
     {
         const looper_t *p = &loop[ui.sel];
@@ -1378,39 +1380,39 @@ static void ui_leds(void)
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */
-            fm1_led_key(14u + k, w >= 0 && (uint32_t)w < loop[ui.sel].ntrk && !((loop[ui.sel].mute >> w) & 1u));
+            key_led(k, w >= 0 && (uint32_t)w < loop[ui.sel].ntrk && !((loop[ui.sel].mute >> w) & 1u));
         else
-            fm1_led_key(14u + k, w >= 0 && ((((ui.keys >> k) & 1u) && ui.key_layer[k] == ui.sel) ||
+            key_led(k, w >= 0 && ((((ui.keys >> k) & 1u) && ui.key_layer[k] == ui.sel) ||
                                             ((ui.latch[ui.sel] >> k) & 1u)));
     }
-    fm1_led_key(14u + KEY_SHIFT, (ui.keys >> KEY_SHIFT) & 1u);
-    fm1_led_key(14u + KEY_AMB, ui.path[ui.sel] == PATH_AMBIENT);
-    fm1_led_key(14u + KEY_EXP, ui.path[ui.sel] == PATH_EXP);
-    fm1_led_key(14u + KEY_EDIT, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (the balls: it blinks) */
+    key_led(KEY_SHIFT, (ui.keys >> KEY_SHIFT) & 1u);
+    key_led(KEY_AMB, ui.path[ui.sel] == PATH_AMBIENT);
+    key_led(KEY_EXP, ui.path[ui.sel] == PATH_EXP);
+    key_led(KEY_EDIT, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (the balls: it blinks) */
     {   /* the loops' direction and speed: shown only while the chosen track's loops play (PLAY lit) -- lit when
          * on, a glow when off; stopped, dark (they still answer) */
         const looper_t *lp = &loop[ui.sel];
         int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own, while it runs) */
         int on = blp || (lp->play && lp->ntrk);
         uint32_t dm = blp ? bl.dir[ui.sel] : lp->dmode, rt = blp ? bl.spd[ui.sel] : lp->rate;
-        fm1_led_key(14u + KEY_REV, on && dm == LD_REV);
-        fm1_led_key(14u + KEY_PEND, on && dm == LD_PEND);
-        fm1_led_key(14u + KEY_RAND, on && dm == LD_RAND);
-        fm1_led_key(14u + KEY_HALF, on && rt == LS_HALF);
-        fm1_led_key(14u + KEY_DOUBLE, on && rt == LS_DOUBLE);
-        led_dim_key(14u + KEY_REV, on);
-        led_dim_key(14u + KEY_PEND, on);
-        led_dim_key(14u + KEY_RAND, on);
-        led_dim_key(14u + KEY_HALF, on);
-        led_dim_key(14u + KEY_DOUBLE, on);
+        key_led(KEY_REV, on && dm == LD_REV);
+        key_led(KEY_PEND, on && dm == LD_PEND);
+        key_led(KEY_RAND, on && dm == LD_RAND);
+        key_led(KEY_HALF, on && rt == LS_HALF);
+        key_led(KEY_DOUBLE, on && rt == LS_DOUBLE);
+        key_dim(KEY_REV, on);
+        key_dim(KEY_PEND, on);
+        key_dim(KEY_RAND, on);
+        key_dim(KEY_HALF, on);
+        key_dim(KEY_DOUBLE, on);
     }
-    led_dim_key(14u + KEY_AMB, 1);               /* (the others with a function glow while off; SHIFT does not) */
-    led_dim_key(14u + KEY_EXP, 1);
-    led_dim_key(14u + KEY_EDIT, 1);
-    led_dim_key(14u + KEY_CHORD, 1);
-    led_dim_key(14u + KEY_ENV, 1);
-    fm1_led_key(14u + KEY_ENV, bl.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.env_page);   /* (BRICKLAYER: it blinks) */
-    fm1_led_key(14u + KEY_CHORD, ui.chord_on[ui.sel]);
+    key_dim(KEY_AMB, 1);               /* (the others with a function glow while off; SHIFT does not) */
+    key_dim(KEY_EXP, 1);
+    key_dim(KEY_EDIT, 1);
+    key_dim(KEY_CHORD, 1);
+    key_dim(KEY_ENV, 1);
+    key_led(KEY_ENV, bl.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.env_page);   /* (BRICKLAYER: it blinks) */
+    key_led(KEY_CHORD, ui.chord_on[ui.sel]);
 }
 
 /* -------------------------------------------------------------- screen --- */

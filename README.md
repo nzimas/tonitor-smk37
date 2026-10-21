@@ -7,6 +7,11 @@
 
 <p align="center"><b>An alternative firmware for the M-VAVE FM-1, for electroacoustic experimentation, live ambient music and sound exploration.</b></p>
 
+> **This tree is the M-VAVE SMK-37 Pro port.** It started from Tonitor 0.53 for the FM-1
+> ([nzimas/tonitor](https://github.com/nzimas/tonitor), commit `c39d18f`) and goes on separately from it.
+> Work in progress: the manual below still describes the FM-1. The SMK-37's hardware notes and its flash
+> backup are in [docs/smk37](docs/smk37/).
+
 <p align="center">
   <a href="https://nzimas.github.io/tonitor/install.html"><b>Install via browser</b></a> ·
   <a href="https://nzimas.github.io/tonitor/manual.html">Manual</a> ·

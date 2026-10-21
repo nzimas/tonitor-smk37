@@ -16,7 +16,11 @@ static int bk_wire(const uint8_t *p, uint32_t n);   /* one F0 .. F7 message to t
 static void bk_done(uint32_t num);                  /* a record put back (ui.c: the screen) */
 
 #define BK_DATA 256u
-static uint8_t bk_msg[7u + 1u + SES_MAX * 6u], bk_out[2u + (sizeof bk_msg * 8u + 6u) / 7u];
+/* a message: head (6), body, checksum (1); the body the larger of the list (1 + 6 a record) and a read's piece
+ * (8 + BK_DATA) -- on the SMK-37 (40 records) the read's */
+#define BK_LIST (1u + SES_MAX * 6u)
+#define BK_READ (8u + BK_DATA)
+static uint8_t bk_msg[7u + (BK_LIST > BK_READ ? BK_LIST : BK_READ)], bk_out[2u + (sizeof bk_msg * 8u + 6u) / 7u];
 static struct {
     uint8_t on;                  /* a write under way */
     uint16_t num;

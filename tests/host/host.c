@@ -60,6 +60,12 @@ static void fmt_int(char *b, int32_t v) { fmt_fix(b, v, 0); }
 /* the screen: a framebuffer instead of the panel */
 static uint16_t fb[240 * 240];
 static void lcd_sync(void) {}
+/* the pads' LEDs (gfx.c padled_flush): the last frame sent, its length */
+static uint8_t host_padled[1024];
+static uint32_t host_padled_n;
+static void fm1_padled_send(const void *p, uint32_t n) { memcpy(host_padled, p, n); host_padled_n = n; }
+static void fm1_lcd_wait(void) {}
+static void fm1_padled_done(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
 {
     uint32_t i, j;
@@ -127,16 +133,10 @@ static uint32_t midi_in_q[MQ];
 static volatile uint32_t mi_w, mi_r;
 #include "layers.c"
 
-/* the panel */
-#define FM1_NCOL 11u
-static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {
-    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}, {5, 11, 4, 10, 3, 9, 2, 8, -1, -1, -1},
-    {34, 35, 36, 37, 38, 40, 39, 13, 7, 6, 12}, {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
-    {0, 1, 15, 14, 17, 16, 19, 18, 20, 21, 22}, {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+/* the panel (the SMK-37's ids: smk_input.h; its 8 knobs, K1 MASTER) */
 static struct { uint32_t notes, buttons; } fm1_in;
 static uint32_t host_press;
-static int32_t host_enc[7];
-static uint8_t fm1_led_dim[FM1_NCOL];
+static int32_t host_enc[8];
 static uint32_t fm1_input_edges(uint32_t *rel)
 {
     uint32_t p = host_press;
@@ -154,6 +154,7 @@ static int32_t fm1_enc_take(uint32_t e)
 static uint8_t host_led[64];
 static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uint8_t)!!on; }
 #include "ui.c"
+static int key_on(uint32_t k) { return (int)((key_lit >> k) & 1u); }   /* (the FM-1's key lights, ui.c) */
 #include "sessions.c"
 #include "setup.c"
 #include "backup.c"
@@ -904,7 +905,7 @@ static int cmd_sessions(const char *dir)
     rnd_t r;
     rnd_seed(&r, 99);
     memset(host_flash, 0xFF, sizeof host_flash);
-    for (i = SES_LO; i < SES_LO + 20u * 4096u; i++)   /* SLOOP's projects there: garbage to the sessions */
+    for (i = SES_LO; i < SES_LO + 20u * 4096u; i++)   /* the stock firmware's data there: garbage to the sessions */
         host_flash[i] = (uint8_t)rnd_next(&r);
     layers_init();
     ui_init();
@@ -912,7 +913,7 @@ static int cmd_sessions(const char *dir)
     ses_scan(1);
     master_q12 = 4096;
     if (ses.n) {
-        printf("FAIL sessions: found %u in SLOOP's data\n", ses.n);
+        printf("FAIL sessions: found %u in the stock firmware's data\n", ses.n);
         fail++;
     }
     /* a machine: layer 2 ANIMA an octave up, quieter, panned, more reverb; the reverb larger; a loop on 3 */
@@ -1104,8 +1105,13 @@ static int cmd_sessions(const char *dir)
             break;
     }
     printf("sessions: %u saved before %s\n", ses.n, ui.flash_l1);
-    if (ses.n != SES_SLOTS)
-        printf("FAIL sessions: %u sessions when the slots were full\n", ses.n), fail++;
+    {   /* (the SMK-37's 40 sectors fill before the 64 slots do: full is when no sector is left for one more) */
+        uint32_t s, nfree = 0;
+        for (s = 0; s < SES_NSECT; s++)
+            nfree += !ses.used[s];
+        if (ses.n > SES_SLOTS || nfree > 2u)
+            printf("FAIL sessions: FULL with %u sessions and %u sectors free\n", ses.n, nfree), fail++;
+    }
     if (!str_eq(ui.flash_l1, "FULL"))
         printf("FAIL sessions: no FULL when the flash is full\n"), fail++;
     /* a save cut short: two copies of session 1; the newer one wins at the next boot */
@@ -1179,6 +1185,10 @@ static int cmd_sessions(const char *dir)
         slot = ses_find(50);
         if (slot >= 0) {
             ses_kill(ses.sect[slot], ses.nsect[slot]);
+            ses_scan(1);
+        }
+        while (ses_alloc(2) < 0 && ses.n) {      /* (the SMK-37's 40 sectors are full here: room for it) */
+            ses_kill(ses.sect[ses.n - 1u], ses.nsect[ses.n - 1u]);
             ses_scan(1);
         }
         slot = ses_alloc(2);
@@ -1821,14 +1831,14 @@ static int cmd_latch(void)
     run_blocks(50, 0);
     press_phys(KEY_SHIFT, 1);
     ui_leds();
-    if (!host_led[14u + KEY_SHIFT])
+    if (!key_on(KEY_SHIFT))
         printf("FAIL latch: SHIFT does not light\n"), fail++;
     press_phys(KEY_SHIFT, 0);
     press_key(0, 0);
     run_blocks(200, 0);
     ui_leds();
-    if (!lgate(0) || !host_led[14u + k0] || host_led[14u + KEY_SHIFT])
-        printf("FAIL latch: the key is not held and lit after it is let go (gate %d, lit %d)\n", lgate(0), host_led[14u + k0]), fail++;
+    if (!lgate(0) || !key_on(k0) || key_on(KEY_SHIFT))
+        printf("FAIL latch: the key is not held and lit after it is let go (gate %d, lit %d)\n", lgate(0), key_on(k0)), fail++;
     press_key(0, 1);                             /* pressed again, no SHIFT: still latched */
     press_key(0, 0);
     run_blocks(200, 0);
@@ -1845,7 +1855,7 @@ static int cmd_latch(void)
     press_btn(B_SEL);                            /* layer 2: dark, and the key plays there as usual */
     run_blocks(10, 0);
     ui_leds();
-    if (host_led[14u + k0])
+    if (key_on(k0))
         printf("FAIL latch: layer 1's latch is lit on layer 2\n"), fail++;
     press_key(0, 1);
     run_blocks(100, 0);
@@ -1863,7 +1873,7 @@ static int cmd_latch(void)
     press_phys(KEY_SHIFT, 0);
     run_blocks(100, 0);
     ui_leds();
-    if (lgate(0) || host_led[14u + k0] || ui.latch[0])
+    if (lgate(0) || key_on(k0) || ui.latch[0])
         printf("FAIL latch: SHIFT and the lit key do not let it go\n"), fail++;
     press_key(1, 1);                             /* two held, SHIFT: both latch; a session load lets go of both */
     press_key(3, 1);
@@ -1892,7 +1902,7 @@ static int cmd_latch(void)
         ses_load_slot(2);
         run_blocks(100, 0);
         ui_leds();
-        if (ui.latch[0] != keep || nsounding(0) < 2u || !lgate(0) || !host_led[14u + 2u])
+        if (ui.latch[0] != keep || nsounding(0) < 2u || !lgate(0) || !key_on(2u))
             printf("FAIL latch: a session does not bring its latched notes back, sounding and lit\n"), fail++;
         if (gran[2].seed != gs)
             printf("FAIL latch: a session does not keep the granulator's character\n"), fail++;
@@ -2152,7 +2162,7 @@ static int cmd_paths(const char *dir)
     press_phys(KEY_AMB, 1);
     press_phys(KEY_AMB, 0);
     ui_leds();
-    if (ui.path[0] != PATH_AMBIENT || !host_led[14u + KEY_AMB] || host_led[14u + KEY_EXP])
+    if (ui.path[0] != PATH_AMBIENT || !key_on(KEY_AMB) || key_on(KEY_EXP))
         printf("FAIL paths: the AMBIENT key does not choose it, lit\n"), fail++;
     for (i = 0; i < 6u; i++) {
         press_btn(B_HOME);
@@ -2172,7 +2182,7 @@ static int cmd_paths(const char *dir)
     press_btn(B_SEL);
     run_blocks(10, 0);
     ui_leds();
-    if (ui.path[0] != PATH_EXP || ui.path[1] != PATH_OPEN || host_led[14u + KEY_AMB] || host_led[14u + KEY_EXP])
+    if (ui.path[0] != PATH_EXP || ui.path[1] != PATH_OPEN || key_on(KEY_AMB) || key_on(KEY_EXP))
         printf("FAIL paths: a path is not the layer's own\n"), fail++;
     press_btn(B_FX);
     press_btn(B_HOME);
@@ -2180,7 +2190,7 @@ static int cmd_paths(const char *dir)
     press_phys(KEY_EXP, 1);                      /* the lit one again: open */
     press_phys(KEY_EXP, 0);
     ui_leds();
-    if (ui.path[0] != PATH_OPEN || host_led[14u + KEY_EXP])
+    if (ui.path[0] != PATH_OPEN || key_on(KEY_EXP))
         printf("FAIL paths: the lit key again does not go back to the open path\n"), fail++;
     press_phys(KEY_AMB, 1);
     press_phys(KEY_AMB, 0);
@@ -2579,7 +2589,7 @@ static int cmd_macros(const char *dir)
     press_phys(KEY_EDIT, 1);
     press_phys(KEY_EDIT, 0);
     ui_leds();
-    if (!ui.edit || !host_led[14u + KEY_EDIT])
+    if (!ui.edit || !key_on(KEY_EDIT))
         printf("FAIL macros: the EDIT key does not turn EDIT on, lit\n"), fail++;
     host_enc[PANEL_ENC[EN_K1]] = 10;
     host_enc[PANEL_ENC[EN_K3]] = -5;
@@ -3640,7 +3650,7 @@ static int cmd_loopmodes(void)
     loop_to(0, 200);                                  /* E3 sounding: backwards from here */
     lm_key(KEY_REV);
     ui_leds();
-    if (loop[0].dmode != LD_REV || !host_led[14u + KEY_REV] || strcmp(ui.msg, "REVERSE"))
+    if (loop[0].dmode != LD_REV || !key_on(KEY_REV) || strcmp(ui.msg, "REVERSE"))
         printf("FAIL loopmodes: the 4th black key does not turn REVERSE on, lit\n"), fail++;
     if (lm_sounds(0, e3) != 1u)
         printf("FAIL loopmodes: turned round mid-note, E3 does not sound on (once)\n"), fail++;
@@ -3664,7 +3674,7 @@ static int cmd_loopmodes(void)
         printf("FAIL loopmodes: half speed, its period is %u (twice %u)\n", per, len), fail++;
     lm_key(KEY_DOUBLE);                               /* double: half is let go */
     ui_leds();
-    if (loop[0].rate != LS_DOUBLE || host_led[14u + KEY_HALF] || !host_led[14u + KEY_DOUBLE])
+    if (loop[0].rate != LS_DOUBLE || key_on(KEY_HALF) || !key_on(KEY_DOUBLE))
         printf("FAIL loopmodes: DOUBLE does not replace HALF\n"), fail++;
     per = lm_period(0);
     if (per < len / 2u - 2u || per > len / 2u + 2u)
@@ -3690,7 +3700,7 @@ static int cmd_loopmodes(void)
         uint32_t last = 0, ce = 0, cc = 0, ee = 0, ec = 0, two = 0, onsets = 0, gaps = 0, gapsum = 0, since = 0;
         lm_key(KEY_RAND);
         ui_leds();
-        if (loop[0].dmode != LD_RAND || !host_led[14u + KEY_RAND] || strcmp(ui.msg, "RANDOM"))
+        if (loop[0].dmode != LD_RAND || !key_on(KEY_RAND) || strcmp(ui.msg, "RANDOM"))
             printf("FAIL loopmodes: the 6th black key does not turn RANDOM on, lit\n"), fail++;
         for (b = 0; b < 30000u; b++) {
             uint32_t c = lm_sounds(0, c3), e = lm_sounds(0, e3), now = c ? c3 : e ? e3 : 0;
@@ -4042,15 +4052,7 @@ static int cmd_delay(const char *dir)
 }
 
 /* the black keys with a function glow while off (lit when on); SHIFT and the keys with none stay dark */
-static int key_glows(uint32_t k)
-{
-    uint32_t p, r;
-    for (p = 0; p < FM1_NCOL; p++)
-        for (r = 1; r < 5u; r++)
-            if (FM1_KEYMAP[r][p] == (int8_t)(14u + k))
-                return (fm1_led_dim[p] >> r) & 1u;
-    return -1;
-}
+static int key_glows(uint32_t k) { return (int)((key_glow >> k) & 1u); }   /* (ui.c: kept for the pads) */
 static int cmd_glow(void)
 {
     static const uint8_t FN[10] = {KEY_AMB, KEY_EXP, KEY_CHORD, KEY_REV, KEY_PEND, KEY_RAND, KEY_HALF, KEY_DOUBLE, KEY_ENV, KEY_EDIT};
@@ -4082,12 +4084,12 @@ static int cmd_glow(void)
     }
     lm_key(KEY_REV);                             /* playing, REVERSE on: lit; stopped: dark */
     ui_leds();
-    if (!host_led[14u + KEY_REV])
+    if (!key_on(KEY_REV))
         printf("FAIL glow: REVERSE on while the loops play is not lit\n"), fail++;
     press_btn(B_PLAY);
     run_blocks(3, 0);
     ui_leds();
-    if (host_led[14u + KEY_REV] || key_glows(KEY_REV))
+    if (key_on(KEY_REV) || key_glows(KEY_REV))
         printf("FAIL glow: the loops stopped, REVERSE is still lit\n"), fail++;
     printf("glow: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
@@ -4139,7 +4141,7 @@ static int cmd_chords(const char *dir)
     press_btn(B_FX);
     ch_hold_key(KEY_CHORD, 700);                     /* held: chord mode on */
     ui_leds();
-    if (!ui.chord_on[0] || !host_led[14u + KEY_CHORD])
+    if (!ui.chord_on[0] || !key_on(KEY_CHORD))
         printf("FAIL chords: holding the 3rd black key does not turn chord mode on, lit\n"), fail++;
     ch_hold_key(KEY_CHORD, 100);                     /* (the screen at SUS4: SU4 under CHO) */
     ch_hold_key(KEY_CHORD, 100);
@@ -4203,7 +4205,7 @@ static int cmd_chords(const char *dir)
         for (k1 = 0; k1 < NKEY && white_ix(k1) != 1; k1++)
             ;
         ui_leds();
-        if (((ui.latch[0] >> k0) & 1u) || !((ui.latch[0] >> k1) & 1u) || !host_led[14u + k1] || host_led[14u + k0])
+        if (((ui.latch[0] >> k0) & 1u) || !((ui.latch[0] >> k1) & 1u) || !key_on(k1) || key_on(k0))
             printf("FAIL chords: the latched key lit does not move up a white key\n"), fail++;
     }
     shift_oct(0);
@@ -4346,7 +4348,7 @@ static int cmd_env(const char *dir)
         run_blocks(20, 0);
         lm_key(KEY_ENV);
         ui_leds();
-        if (!ui.env_page || !host_led[14u + KEY_ENV] || ui.env_on[0][e])
+        if (!ui.env_page || !key_on(KEY_ENV) || ui.env_on[0][e])
             printf("FAIL env: the key does not open the page, lit, as drawn\n"), fail++;
         ui_draw();
         nat = env_shown();
@@ -4731,10 +4733,10 @@ static int cmd_balls(const char *dir)
         printf("FAIL balls: SHIFT + EDIT does not turn them on (or turns EDIT on)\n"), fail++;
     ui_leds();
     {
-        int a = host_led[14u + KEY_EDIT];
+        int a = key_on(KEY_EDIT);
         fm1_ms += 250;
         ui_leds();
-        if (a == host_led[14u + KEY_EDIT])
+        if (a == key_on(KEY_EDIT))
             printf("FAIL balls: EDIT does not blink\n"), fail++;
     }
     memset(bb.hits, 0, sizeof bb.hits);               /* on, they wait for PLAY */
@@ -5664,10 +5666,10 @@ static int cmd_bricks(const char *dir)
         printf("FAIL bricks: SHIFT + the envelope key does not start it (or touches the envelope)\n"), fail++;
     ui_leds();
     {
-        int a = host_led[14u + KEY_ENV];
+        int a = key_on(KEY_ENV);
         fm1_ms += 250;
         ui_leds();
-        if (a == host_led[14u + KEY_ENV])
+        if (a == key_on(KEY_ENV))
             printf("FAIL bricks: the envelope key does not blink\n"), fail++;
     }
     if (bl.run[0])
@@ -5740,7 +5742,7 @@ static int cmd_bricks(const char *dir)
         ui_input();
         lm_key(KEY_REV);
         ui_leds();
-        if (bl.dir[0] != LD_REV || loop[0].dmode != LD_FWD || !host_led[14u + KEY_REV])
+        if (bl.dir[0] != LD_REV || loop[0].dmode != LD_FWD || !key_on(KEY_REV))
             printf("FAIL bricks: REVERSE on its page is not its own (or not lit)\n"), fail++;
         for (j = 0; j < 6u; j++) {
             uint8_t was = bl.last[0];
@@ -6157,7 +6159,7 @@ static int cmd_overdubs(const char *dir)
     fm1_ms += 500;
     ui_input();
     ui_leds();
-    if (!ui.ovd || !host_led[14u + 0] || !host_led[14u + 2] || !host_led[14u + 4] || host_led[14u + 5])
+    if (!ui.ovd || !key_on(0) || !key_on(2) || !key_on(4) || key_on(5))
         printf("FAIL overdubs: PLAY held does not show the three loops lit on the white keys\n"), fail++;
     press_key(2, 1);                                  /* loop 3 out (white key 2, the third) */
     run_blocks(5, 0);

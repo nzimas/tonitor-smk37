@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * TONITOR -- a firmware for the M-VAVE FM-1 for acousmatic and electroacoustic music.
+ * TONITOR -- a firmware for the M-VAVE SMK-37 Pro for acousmatic and electroacoustic music (ported from the
+ * FM-1 version, Tonitor 0.53).
  * One compilation unit (the HAL is header-only); the order matters.
  *
  * Built on Felucca (Leo Kuroshita, Hügelton Instruments) and SLOOP (isod89), GPL-3.0: the HAL, the boot,
- * the USB stack, the update entry and loader, the rescue mode. FM is msfa (Google, Pascal Gauthier,
+ * the USB stack, the update entry and loader, the rescue mode; the SMK-37 board layer from Felucca's and SLOOP's
+ * smk37 branches (M. Geisler, genkigenki). FM is msfa (Google, Pascal Gauthier,
  * Apache-2.0) in Felucca's integer port. ANIMA is a fixed-point port of Vascular's anima. */
 #include <stdint.h>
 #ifndef TONITOR_ID
@@ -33,10 +35,9 @@
 #include "fm1_core1_bar.h"
 #include "fm1_multicore.h"
 #include "fm1_guard.h"
-#include "fm1_input.h"
+#include "smk_input.h"            /* keys, buttons, knobs, pads, faders, wheels; the battery; K1 as MASTER */
 #include "fm1_timer.h"
 #include "fm1_audio.h"
-#include "fm1_adc.h"
 #include "fm1_lcd_hw.h"
 #include "tonitor_tables.h"
 
@@ -58,7 +59,6 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "bayarea.c"
 #include "hive.c"
 #include "usb.c"
-#include "midi_uart.c"
 #include "reverb.c"
 #include "layers.c"
 #include "ui.c"

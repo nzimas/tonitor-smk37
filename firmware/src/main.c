@@ -139,8 +139,6 @@ void fm1_timer5_irq(void)
     }
     if (sub % 5u == 0u)
         owed |= 1u;
-    if (sub % 5u == 2u)
-        uart_midi_poll();                        /* (the TRS jack, 2 kHz, nested in the audio too) */
     if (++sub == 10u)
         sub = 0;
     if (dbg.in_audio) {
@@ -378,6 +376,15 @@ static void bench_blocks(void)
 }
 #endif
 
+/* the unit's key and pad velocity curves (USRTRIM 0xC1000, read only; the defaults unless its marker and curves
+ * check out: smk_input.h smk_trim_load). On the stack: read once, at boot */
+static void smk_trim_read(void)
+{
+    uint8_t rec[0x22Cu];
+    if (!st_read(SMK_TRIM_FLASH, rec, sizeof rec))
+        smk_trim_load(rec);
+}
+
 static void fm1_main(void)
 {
     int32_t knob = 512 * 16, batt_acc = 0;
@@ -395,9 +402,12 @@ static void fm1_main(void)
     bench_blocks();
 #endif
     lcd_init();
+    padled_flush();                                  /* the pads dark (they keep their colour over a reset) */
     splash();
     fm1_input_init();
     fm1_adc_init();
+    if (flash_ok)
+        smk_trim_read();
     layers_init();
     ui_init();
     sounds_init();                                   /* a sound of each engine for every layer (~0.2 s) */
@@ -411,7 +421,6 @@ static void fm1_main(void)
         say("1 CORE", 4000);
     audio_init();
     usb_start();
-    uart_midi_init();                                /* the TRS MIDI IN jack (before TIMER5: PORTH) */
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();
@@ -466,6 +475,7 @@ static void fm1_main(void)
         setup_poll();                                /* (GLOBAL SETUP left: its changes written) */
         midi_poll();                                 /* (the tracks' CCs sent as they change) */
         ui_leds();
+        padled_flush();                              /* the pads' colours, between LCD transfers */
         ui_draw();
 #if TELEMETRY
         {

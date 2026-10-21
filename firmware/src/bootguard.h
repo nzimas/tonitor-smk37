@@ -26,6 +26,6 @@ static uint32_t bootguard_begin(bootguard_t *b)
 }
 static int bootguard_manual(uint32_t buttons)
 {
-    return (buttons & 3u) == 1u;     /* physical OCT- alone; both keep calibration */
+    return (buttons & FM1_OCT_BOTH) == 1u << FM1_BTN_OCT_DOWN;     /* OCTAVE- alone; both: the UBOOT combo */
 }
 #endif
