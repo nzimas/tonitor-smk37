@@ -7,7 +7,7 @@
  * Apache-2.0) in Felucca's integer port. ANIMA is a fixed-point port of Vascular's anima. */
 #include <stdint.h>
 #ifndef TONITOR_ID
-#define TONITOR_ID "FM-1_700"    /* the package identity (tools/build.py sets it) */
+#define TONITOR_ID "SMK-37 Pro_700"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
 #define TONITOR_VERSION "0.53"

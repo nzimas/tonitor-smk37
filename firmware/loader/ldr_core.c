@@ -9,7 +9,7 @@
  *   2. checks that the package's app area decrypts with THIS chip's key
  *      (taken from isd_config.ini in the device's own flash head), so a
  *      package for another key is refused before anything is erased;
- *   3. writes ONLY the app area [0x4000, 0x93000), sector by sector, skipping
+ *   3. writes ONLY the app area [0x4000, 0x9D000), sector by sector, skipping
  *      sectors that are already equal, and verifies each one; the flash head
  *      (SPL, isd_config) is never written;
  *   4. checks the CRC16 the package stores for flash.bin against everything it
@@ -29,9 +29,13 @@
  *   ldr_progress(done, total)
  * plus the ota.c hooks (frames, time, idle). */
 #define LDR_APP_LO 0x4000u
-#define LDR_APP_HI 0x93000u
-#define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
-#define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals */
+/* SMK-37 Pro (after SLOOP's smk37 branch): app area up to the stock PRCT end; records only in the VM, so
+ * ldr_records_drop can never erase BTIF / USRTRIM (0xC0000..0xC1FFF, the key calibration) or anything above */
+#define LDR_APP_HI 0x9D000u
+#define LDR_REC_LO 0x9D000u
+#define LDR_REC_HI 0xC0000u
+_Static_assert(LDR_APP_HI <= LDR_REC_LO && LDR_REC_HI <= 0xC0000u && LDR_APP_LO >= 0x4000u,
+               "SMK loader windows must stay below BTIF / USRTRIM and above the head");
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);

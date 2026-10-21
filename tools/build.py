@@ -37,7 +37,7 @@ DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
-PRODUCT = "FM-1_700"                # package identity; release builds are FM-1_7XY
+PRODUCT = "SMK-37 Pro_700"          # package identity; release builds are SMK-37 Pro_7XY
 VERSION = "0.53"
 
 
@@ -250,7 +250,7 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_7XY, version string X.Y")
+    ap.add_argument("--release", metavar="X.Y", help="release build: identity SMK-37 Pro_7XY, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "tonitor.fwsc"
@@ -258,7 +258,7 @@ def main():
         m = re.fullmatch(r"(\d)\.(\d)", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, one digit each")
-        PRODUCT = "FM-1_7" + m[1] + m[2]
+        PRODUCT = "SMK-37 Pro_7" + m[1] + m[2]
         VERSION = a.release
         name = f"tonitor-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk or os.environ.get("AC79_SDK", str(Path.home() / "fw-AC79_AIoT_SDK"))

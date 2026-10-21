@@ -2,7 +2,8 @@
  * TONITOR: sessions -- the whole machine at a moment: every layer's engine, both its sounds, its octave,
  * level, pan and reverb send, its loop; the reverb; the layer chosen.
  *
- * In flash, in the area SLOOP keeps its projects in (0x97000 .. 0xE0000, 73 sectors of 4 KiB). A session is
+ * In flash, in the SMK-37's USRFLASH (0xC2000 .. 0xEA000, 40 sectors of 4 KiB: FL_SES, hal/fm1_flash_map.h; the
+ * stock firmware's settings until the first save, see ses_stock_release). A session is
  * one record, from the start of a sector over as many as it needs:
  *   head (32 B): magic, its number, its length, a sequence number (the newest copy wins), the format, the
  *                sizes of the sound structures it holds, a CRC of the head and one of the rest
@@ -16,15 +17,16 @@
  * so a save takes sectors already blank if it can, and the main loop blanks free dirty sectors one at a
  * time while nothing sounds (ses_idle). */
 
-#define SES_LO 0x00097000u
-#define SES_HI 0x000E0000u
+#include "fm1_flash_map.h"         /* FL_SES_LO, FL_SES_HI */
+#define SES_LO FL_SES_LO
+#define SES_HI FL_SES_HI
 #define SES_SECT 4096u
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x31534341u    /* "ACS1" */
 #define SES_FORMAT 24u           /* 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
                                   * the latched notes; 7: the loops held out; 6: the macros; 5: the generations; 4: the paths; 3: a CALIGULA design a layer; 2: up to ten loops
                                   * a layer (1: one) */
-#define SES_MAX 73u              /* records in the list (one a sector at most) */
+#define SES_MAX 40u              /* records in the list (one a sector at most) */
 #define SES_SLOTS 64u            /* the slots: sessions 1 .. 64 */
 /* the largest session: the head, the globals, six layers with their sounds and full loopers (~54 KiB) */
 #define SES_BUF (32u + 8u + NLAYER * (16u + NENG * NMAC + 2u + 36u + sizeof(fm_patch_t) + sizeof(an_design_t) + sizeof(cal_design_t) + \

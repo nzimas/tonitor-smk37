@@ -214,7 +214,7 @@ static int fl_erase4k_quiet(uint32_t off, uint32_t *took)
     return rc;
 }
 
-#define OTA_IDENTITY (recovery_active ? "FM-1_000" : TONITOR_ID)
+#define OTA_IDENTITY (recovery_active ? "SMK-37 Pro_000" : TONITOR_ID)
 #include "ota.c"
 /* backup.c's hooks: a message to the host, and a record put back (the screen says so) */
 static int bk_wire(const uint8_t *p, uint32_t n) { return ota_wire_send(p, n); }
@@ -289,6 +289,25 @@ static void ota_commit(const uint8_t *parm)
 }
 #include "recovery.c"
 
+/* The sessions' area is the stock firmware's USRFLASH (its settings and presets), which it trusts while its end
+ * marker "usrdata" sits at 0xEAFF8. Before Tonitor first writes there the marker's sector is erased (once; after
+ * Felucca's st_stock_release), so a return to the stock firmware rebuilds its own settings. */
+static uint8_t ses_stock_done;
+static void ses_stock_release(void)
+{
+    static const uint8_t TAG[8] = {'u', 's', 'r', 'd', 'a', 't', 'a', 0};
+    uint8_t t[8];
+    uint32_t i, took;
+    if (ses_stock_done || st_read(FL_STOCKTAG_OFF, t, 8))
+        return;
+    for (i = 0; i < 8u; i++)
+        if (t[i] != TAG[i]) {
+            ses_stock_done = 1;
+            return;
+        }
+    if (!fl_erase4k_quiet(FL_STOCKTAG_LO, &took))
+        ses_stock_done = 1;
+}
 /* the sessions' flash (sessions.c): their area only */
 static int ses_flash_read(uint32_t off, void *p, uint32_t n) { return st_read(off, p, n); }
 static int ses_flash_erase(uint32_t off)
@@ -296,12 +315,14 @@ static int ses_flash_erase(uint32_t off)
     uint32_t took;
     if (!FL_IN(off, 0x1000u, SES_LO, SES_HI) || (off & 0xFFFu))
         return -8;
+    ses_stock_release();
     return fl_erase4k_quiet(off, &took);
 }
 static int ses_flash_prog(uint32_t off, const void *p, uint32_t n)
 {
     if (!FL_IN(off, n, SES_LO, SES_HI))
         return -8;
+    ses_stock_release();
     return fl_write(off, p, n);
 }
 
@@ -363,7 +384,7 @@ static void fm1_main(void)
     uint32_t healthy_since, t_both = 0, batt_at = 0;
     {
         uint32_t f = irq_save();
-        flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;   /* the expected 1 MiB part */
+        flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());   /* the expected 1 MiB part */
         irq_restore(f);
     }
     if (flash_ok)
