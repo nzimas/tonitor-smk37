@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments (the update protocol, tools/fm1_install.py)
-// TONITOR: the FM-1 update over Web MIDI, in the browser -- a port of tools/fm1_install.py.
+// TONITOR: the SMK-37 update over Web MIDI, in the browser -- a port of tools/fm1_install.py.
 //
 // Step 1: the running firmware reads parts of the package and starts the update loader. Step 2: the loader
 // reads the whole package and writes it. In both the device asks (SysEx read requests on the logical image)
@@ -14,9 +14,10 @@ export const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 export const FINISH_CHECK = 0xE0000000, FINISH_WRITE = 0xF0000000;
 const MAXDATA = 512, BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
 const LOADER_MARK = "FELUCCA-LOADER-1";
-// never probe other gear: the FM-1 under TONITOR (or ACOUSMA, its working name), SLOOP / Felucca, CLIPPER,
+// never probe other gear: the SMK-37 (stock: "SMK-37 Pro-Private") and the FM-1 under TONITOR (or ACOUSMA, its
+// working name), SLOOP / Felucca, CLIPPER,
 // the update loaders, the stock firmware
-export const PORT_RE = /fm-1|tonitor|acousma|felucca|sloop|clipper|ota|composite|sinco|usb-midi/i;
+export const PORT_RE = /smk|fm-1|tonitor|acousma|felucca|sloop|clipper|ota|composite|sinco|usb-midi/i;
 
 // milliseconds; the tests shorten them
 export const DELAY = {
@@ -398,7 +399,7 @@ export class Updater {
       dev.link.close();
       throw new InstallError("model", `The device is ${dev.id.text}; this firmware is for ${product}.`);
     }
-    if (dev.id.loader && !/^ota-FM-1_9\d\d$/i.test(dev.id.text)) {
+    if (dev.id.loader && !/^ota-(SMK-37 Pro|FM-1)_9\d\d$/i.test(dev.id.text)) {   // (our loader: SLOOP's)
       dev.link.close();   // another firmware's loader: its image layout may differ
       throw new InstallError("foreign", `The FM-1 is in the update mode of another firmware (${dev.id.text}). ` +
         "Finish that update with its own updater (M-UPGRADE), then install again.");

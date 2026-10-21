@@ -86,7 +86,7 @@ class FakeFM1 {
     this.access = { inputs: new Map(), outputs: new Map() };
     this.other = new Port("IAC Driver Bus 1", { rx() {} });   // gear that must never be probed
     this.access.inputs.set("x", this.other);
-    this.plug(ident.startsWith("ota-") ? "FM-1 OTA" : "FM-1 Tonitor");
+    this.plug(ident.startsWith("ota-") ? "SMK-37 Pro OTA" : "SMK-37 Pro-Private");
   }
   plug(name) {
     this.inp = new Port(name, this);
@@ -110,7 +110,7 @@ class FakeFM1 {
     this.unplug();
     setTimeout(() => {
       this.ident = as;
-      this.plug(as.startsWith("ota-") ? "FM-1 OTA" : "FM-1 Tonitor");
+      this.plug(as.startsWith("ota-") ? "SMK-37 Pro OTA" : "SMK-37 Pro-Private");
     }, after_ms);
   }
   rx(pkt) {
@@ -134,7 +134,7 @@ class FakeFM1 {
       for (const a of [0, 0x40, 0x1000]) await this.ask(a, 64);
       if (this.opts.stopInCheck) return;
       await this.ask(ota.FINISH_CHECK, 8);
-      this.restart("ota-FM-1_900", 20);
+      this.restart("ota-SMK-37 Pro_900", 20);
       return;
     }
     for (let a = 0; a < image.length; a += 512) {
@@ -164,25 +164,26 @@ async function run(dev, fm1) {
 }
 
 {   /* a whole install, from the running firmware */
-  const fm1 = new FakeFM1("FM-1_700", "FM-1_700");
+  const fm1 = new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700");
   const r = await run(null, fm1);
-  check(r.text === "FM-1_700", `install: ${r.err || ""} ${r.msg || ""}`);
+  check(r.text === "SMK-37 Pro_700", `install: ${r.err || ""} ${r.msg || ""}`);
   check(JSON.stringify(Array.from(fm1.written)) === JSON.stringify(Array.from(image)), "install: the loader was not given the image");
   check(["start", "check", "loader", "write", "reboot", "done"].every((s) => r.steps.includes(s)), `install: steps ${[...new Set(r.steps)]}`);
 }
 {   /* an FM-1 left in update mode: the write is finished */
-  const fm1 = new FakeFM1("ota-FM-1_900", "FM-1_700");
+  const fm1 = new FakeFM1("ota-SMK-37 Pro_900", "SMK-37 Pro_700");
   const r = await run(null, fm1);
-  check(r.text === "FM-1_700" && !r.steps.includes("check"), `resume: ${r.err || ""} ${r.steps}`);
+  check(r.text === "SMK-37 Pro_700" && !r.steps.includes("check"), `resume: ${r.err || ""} ${r.steps}`);
 }
 {   /* another model, another firmware's loader, a stop before anything is written, a cable pulled while writing,
      * another identity after it */
   const cases = [
     [new FakeFM1("FM-2_100", "FM-2_100"), "model"],
-    [new FakeFM1("ota-FM-1_500", "FM-1_700"), "foreign"],
-    [new FakeFM1("FM-1_700", "FM-1_700", { stopInCheck: true }), "stopped"],
-    [new FakeFM1("FM-1_700", "FM-1_700", { unplugAt: 0x8000 }), "lost"],
-    [new FakeFM1("FM-1_700", "FM-1_906"), "mismatch"],
+    [new FakeFM1("ota-SMK-37 Pro_500", "SMK-37 Pro_700"), "foreign"],
+    [new FakeFM1("FM-1_700", "FM-1_700"), "model"],              /* an FM-1: never the SMK-37's package */
+    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700", { stopInCheck: true }), "stopped"],
+    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700", { unplugAt: 0x8000 }), "lost"],
+    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_706"), "mismatch"],
   ];
   for (const [fm1, want] of cases) {
     const r = await run(null, fm1);
