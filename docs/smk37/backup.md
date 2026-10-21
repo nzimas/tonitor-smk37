@@ -54,8 +54,20 @@ held for 5 seconds also enter UBOOT.)
    If anything else is printed, stop: nothing is installed until the layout is understood.
 
 5. Copy `backup/` to two other places.
-6. Switch the keyboard off and on. It is now in TONITOR's update loader: install TONITOR
-   (`./install.sh`), or put the stock firmware back with M-VAVE's SMK-37 Pro package.
+6. Switch the keyboard off and on. The kit expects it to start in TONITOR's update loader (its update record
+   still there); a unit on stock firmware 013 started its stock firmware again instead, unchanged
+   (2026-10-21). Either way, `./install.sh` installs TONITOR from there.
+
+## What one unit showed (SMK-37 Pro, stock 013, 2026-10-21)
+
+- Chip key `980F`, flash `EB6014`; each full read 2.3 s.
+- `trimdat` at `0xC1224`; `usrdata` at `0xEAFF8`; `0xFF000-0xFFFFF` blank.
+- The region table is not v016's: the app area ends at `0x9C000` (v016: `0x9D000`) and the VM starts there; BTIF,
+  USRTRIM, USRFLASH and USR are where v016 has them. Sector `0x9C000` was blank, so TONITOR's package (app area
+  to `0x9D000`) writes nothing that was in use there.
+- The stock firmware staged TONITOR's update loader at `0xBD000`, its update record at `0xBEF00`
+  (`ota-SMK-37 Pro_013`): inside the VM, below BTIF, as TONITOR's own staging (`0xBB000-0xBFFFF`).
+- Nothing was ever written in `0xEB000-0xF3FFF` or `0xFE000-0xFEFFF`.
 
 A dump can be checked again at any time, without the keyboard:
 
