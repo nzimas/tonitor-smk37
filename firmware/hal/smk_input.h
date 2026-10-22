@@ -93,7 +93,7 @@ static const uint8_t SMK_PADMUX[8] = {1, 2, 3, 0, 4, 7, 5, 6};
 static const uint8_t SMK_FADMUX[4] = {1, 2, 3, 0};
 enum { SMK_ADC_PADA = 1, SMK_ADC_PADB = 8, SMK_ADC_MUXC = 2 };
 /* TONITOR: the top row of pads (hardware pads 0..7) are buttons: pad p is button SMK_PADBTN0 + p in fm1_in.buttons,
- * with its edges (a hit's velocity in pad_vel); the bottom row (8..15) reports its pressure only, for now */
+ * with its edges (a hit's velocity in pad_vel); the bottom row (8..15) its hits (smk_pad_take) and pressure */
 #define SMK_PADBTN0 24u
 static uint8_t smk_pad_on[SMK_NPAD];
 
@@ -109,6 +109,7 @@ static volatile struct {
                                   * words: the target has no variable 64-bit shift) */
     uint8_t key_vel[FM1_NKEY];   /* MIDI velocity 1..127 of each key's last press */
     uint8_t pad_vel[SMK_NPAD];   /* .. each pad's last hit */
+    uint32_t pad_hits;           /* the bottom row's hits since the last smk_pad_take(): bit p = pad p (8 .. 15) */
     uint8_t raw[FM1_NCOL];       /* last frame, rows packed, 1 = closed */
     uint8_t cnt[FM1_NBTN];       /* button debounce */
     uint8_t ks_last[FM1_NKEY], ks_stab[FM1_NKEY], ks_rel[FM1_NKEY];
@@ -406,8 +407,11 @@ static void smk__padq(uint32_t pad, uint32_t vel)     /* a pad hit (vel) or rele
     smk_pad_on[pad] = (uint8_t)(vel != 0u);
     if (vel)
         fm1_in.pad_vel[pad] = (uint8_t)vel;
-    if (pad >= 8u)
+    if (pad >= 8u) {
+        if (vel)
+            fm1_in.pad_hits |= 1u << pad;
         return;
+    }
     if (vel) {
         fm1_in.buttons |= bit;
         fm1_in.pressed |= bit;
@@ -577,6 +581,16 @@ static uint32_t fm1_input_edges(uint32_t *released)
     fm1_in.pressed = fm1_in.released = 0;
     fm1__unlock(k);
     return p;
+}
+
+/* the bottom row's hits since the last call (bit p = pad p, 8 .. 15) */
+static uint32_t smk_pad_take(void)
+{
+    uint32_t k = fm1__lock();
+    uint32_t h = fm1_in.pad_hits;
+    fm1_in.pad_hits = 0;
+    fm1__unlock(k);
+    return h;
 }
 
 /* LED of button id (0..17); note keys have no LED on the SMK (the pads show the step grid) */

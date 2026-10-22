@@ -141,6 +141,8 @@ static volatile uint32_t mi_w, mi_r;
 #define HOST_FN 1                 /* (ui.c: the black-key functions from host_fn) */
 static struct { uint32_t keyw[2], buttons; uint8_t key_vel[37]; } fm1_in;
 static uint32_t host_press;
+static uint32_t host_pads;                   /* (the bottom row's hits: smk_pad_take) */
+static uint32_t smk_pad_take(void) { uint32_t h = host_pads; host_pads = 0; return h; }
 static int32_t host_enc[8];
 static uint32_t fm1_input_edges(uint32_t *rel)
 {
@@ -4170,6 +4172,13 @@ static int ch_is(uint32_t l, uint32_t src, uint32_t a, uint32_t b, uint32_t c)
     uint32_t n[8];
     return ch_notes(l, src, n) == 3u && n[0] == a && n[1] == b && n[2] == c;
 }
+/* the bottom row's pad j hit (8 + j), as the chord pads read it */
+static void ch_pad(uint32_t j)
+{
+    host_pads |= 1u << (8u + j);
+    ui_input();
+    run_blocks(2, 0);
+}
 static void ch_hold_key(uint32_t k, uint32_t ms)
 {
     uint32_t t;
@@ -4183,7 +4192,7 @@ static void ch_hold_key(uint32_t k, uint32_t ms)
 }
 static int cmd_chords(const char *dir)
 {
-    uint32_t fail = 0, c3 = scale_note(0, 0), n[8];
+    uint32_t fail = 0, c3, n[8];
     char path[512];
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
@@ -4192,21 +4201,23 @@ static int cmd_chords(const char *dir)
     ui.root = 0;
     lx_post();
     press_btn(B_FX);
-    ch_hold_key(KEY_CHORD, 700);                     /* held: chord mode on */
+    c3 = key_note_of(0, 0);                          /* (the lowest key: the root) */
+    ch_hold_key(KEY_CHORD, 100);                     /* pressed: chord mode on */
     ui_leds();
-    if (!ui.chord_on[0] || !key_on(KEY_CHORD))
-        printf("FAIL chords: holding the 3rd black key does not turn chord mode on, lit\n"), fail++;
-    ch_hold_key(KEY_CHORD, 100);                     /* (the screen at SUS4: SU4 under CHO) */
-    ch_hold_key(KEY_CHORD, 100);
-    ch_hold_key(KEY_CHORD, 100);
-    ch_hold_key(KEY_CHORD, 100);
+    if (!ui.chord_on[0] || !key_on(KEY_CHORD) || ui.pad_page != PP_NONE)
+        printf("FAIL chords: pressing CHORD does not turn chord mode on, lit (pads %u)\n", ui.pad_page), fail++;
+    ch_hold_key(KEY_CHORD, 700);                     /* held: the chords on the bottom row of pads */
+    if (ui.pad_page != PP_CHORD || !ui.chord_on[0])
+        printf("FAIL chords: holding CHORD does not put the chords on the pads (pads %u, on %u)\n", ui.pad_page, ui.chord_on[0]), fail++;
+    ch_pad(4);                                       /* (the screen at SUS4: SU4 under CHO) */
+    if (ui.chord_form[0] != 4u)
+        printf("FAIL chords: pad 5 does not choose SUS4 (%u)\n", ui.chord_form[0]), fail++;
     ui.msg_until = fm1_ms;
     ui.force = 1;
     ui_draw();
     snprintf(path, sizeof path, "%s/screen-38-chords.ppm", dir);
     ppm(path);
-    while (ui.chord_form[0] != 0u)
-        ch_hold_key(KEY_CHORD, 100);
+    ch_pad(0);
     press_key(0, 1);                                 /* C: C E G */
     run_blocks(3, 0);
     if (!ch_is(0, SRC_KEY, c3, c3 + 4u, c3 + 7u))
@@ -4228,17 +4239,16 @@ static int cmd_chords(const char *dir)
     run_blocks(3, 0);
     if (ch_notes(0, SRC_KEY, n))
         printf("FAIL chords: notes hang after both keys are let go (%u)\n", ch_notes(0, SRC_KEY, n)), fail++;
-    ch_hold_key(KEY_CHORD, 100);                     /* pressed: INV 1 -- C: E G C' */
+    ch_pad(1);                                       /* pad 2: INV 1 -- C: E G C' */
     if (ui.chord_form[0] != 1u || strcmp(ui.msg, "INV 1"))
-        printf("FAIL chords: pressing the key does not step to INV 1\n"), fail++;
+        printf("FAIL chords: pad 2 does not choose INV 1\n"), fail++;
     press_key(0, 1);
     run_blocks(3, 0);
     if (!ch_is(0, SRC_KEY, c3 + 4u, c3 + 7u, c3 + 12u))
         printf("FAIL chords: INV 1 on C is not E G C\n"), fail++;
     press_key(0, 0);
     run_blocks(3, 0);
-    while (ui.chord_form[0] != 0u)                   /* back to TRIAD */
-        ch_hold_key(KEY_CHORD, 100);
+    ch_pad(0);                                       /* back to TRIAD */
     /* a latched chord, moved with its track and with every track, then let go */
     press_key(0, 1);
     run_blocks(2, 0);
@@ -4251,23 +4261,17 @@ static int cmd_chords(const char *dir)
     shift_track_oct(B_FX, 1);
     if (!ch_is(0, SRC_KEY, c3 + 2u, c3 + 5u, c3 + 9u))
         printf("FAIL chords: SHIFT + track + OCT+ does not move the latched chord to D F A\n"), fail++;
-    {   /* the lit key moved along with it: from white key 0 to white key 1 */
-        uint32_t k0, k1;
-        for (k0 = 0; k0 < NKEY && white_ix(k0) != 0; k0++)
-            ;
-        for (k1 = 0; k1 < NKEY && white_ix(k1) != 1; k1++)
-            ;
+    {   /* the latched key moved along with it: from key 0 to key 1 (the keys contiguous steps) */
+        uint32_t k0 = 0, k1 = 1;
         ui_leds();
         if (((ui.latch[0][0] >> k0) & 1u) || !((ui.latch[0][0] >> k1) & 1u) || !key_on(k1) || key_on(k0))
-            printf("FAIL chords: the latched key lit does not move up a white key\n"), fail++;
+            printf("FAIL chords: the latched key does not move up a key\n"), fail++;
     }
     shift_oct(0);
     if (!ch_is(0, SRC_KEY, c3, c3 + 4u, c3 + 7u))
         printf("FAIL chords: SHIFT + OCT- does not move the latched chord back\n"), fail++;
     {
-        uint32_t k0;
-        for (k0 = 0; k0 < NKEY && white_ix(k0) != 0; k0++)
-            ;
+        uint32_t k0 = 0;
         press_phys(KEY_SHIFT, 1);
         press_phys(k0, 1);
         press_phys(k0, 0);
@@ -4277,7 +4281,7 @@ static int cmd_chords(const char *dir)
             printf("FAIL chords: SHIFT + the lit key does not let the chord go (%u)\n", ch_notes(0, SRC_KEY, n)), fail++;
     }
     /* a single note latched (chords off), moved with its track */
-    ch_hold_key(KEY_CHORD, 700);
+    ch_hold_key(KEY_CHORD, 100);
     press_key(4, 1);
     run_blocks(2, 0);
     press_phys(KEY_SHIFT, 1);
@@ -4287,12 +4291,12 @@ static int cmd_chords(const char *dir)
     ui.lx = 0;
     ui.lxt[0] = 0;
     shift_track_oct(B_FX, 1);
-    if (ch_notes(0, SRC_KEY, n) != 1u || n[0] != scale_note(5, 0))
+    if (ch_notes(0, SRC_KEY, n) != 1u || n[0] != scale_note(5, oct_eff(0)))
         printf("FAIL chords: a latched note does not move with its track (%u)\n", n[0]), fail++;
     /* loops record chords; a session keeps a latched chord */
-    ch_hold_key(KEY_CHORD, 700);
+    ch_hold_key(KEY_CHORD, 100);
     press_btn(B_SEL);
-    ch_hold_key(KEY_CHORD, 700);
+    ch_hold_key(KEY_CHORD, 100);
     if (!ui.chord_on[1] || !ui.chord_on[0])
         printf("FAIL chords: chord mode is not each track's\n"), fail++;
     press_btn(B_REC);

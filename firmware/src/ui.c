@@ -88,16 +88,20 @@ static uint32_t vel_apply(uint32_t v)
 /* SHIFT: the KNOB BANK button, held */
 static int shift_held(void) { return (int)((fm1_in.buttons >> SMK_BTN_KNOB_BANK) & 1u); }
 /* the functions the FM-1 had on its black keys (fn_keys(): bit FN_x held): the two paths on pads 7 and 8 of the top
- * row; the others no control of their own yet (the bottom row of pads, later) */
+ * row, CHORD on the first button of the top row; the others no control of their own yet */
 enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_HALF, FN_DOUBLE };
 #define PAD_AMB 6u                       /* (top row, hardware pads 0 .. 7: the 7th and the 8th) */
+#define BTN_CHORD 6u                     /* CHORD: the first button of the top row (smk_input.h's ARP): pressed, chord
+                                          * mode on or off; held, the chords on the bottom row of pads */
+enum { PP_NONE, PP_CHORD };              /* the bottom row of pads: free, the chords */
 #define PAD_EXP 7u
 #ifdef HOST_FN
 static uint32_t host_fn;                 /* (the host tests: the functions, held) */
 #endif
 static uint32_t fn_keys(void)
 {
-    uint32_t b = fm1_in.buttons, f = ((b >> (SMK_PADBTN0 + PAD_AMB)) & 1u) << FN_AMB | ((b >> (SMK_PADBTN0 + PAD_EXP)) & 1u) << FN_EXP;
+    uint32_t b = fm1_in.buttons, f = ((b >> (SMK_PADBTN0 + PAD_AMB)) & 1u) << FN_AMB | ((b >> (SMK_PADBTN0 + PAD_EXP)) & 1u) << FN_EXP |
+                                    ((b >> BTN_CHORD) & 1u) << FN_CHORD;
 #ifdef HOST_FN
     f |= host_fn;
 #endif
@@ -150,7 +154,9 @@ static struct {
     uint8_t chord_on[NLAYER], chord_form[NLAYER];   /* each track's chord mode, and its form (CH_*) */
     uint8_t key_form[NKEY];      /* a key down: the chord it holds (form + 1; 0: a note) */
     uint8_t latch_form[NLAYER][NKEY];   /* .. a latched key's */
-    uint8_t cho_down, cho_done;  /* the chord key down since cho_t0; held long enough: done */
+    uint8_t cho_down, cho_done;  /* the chord button down since cho_t0; held long enough: done */
+    uint8_t pad_page;            /* what the bottom row of pads shows and does: PP_* (a top-row button held opens its
+                                  * own, held again closes it) */
     uint8_t edit_down, edit_done;   /* EDIT down since edit_t0 (let go soon: EDIT; held: the balls' page) */
     uint32_t edit_t0;
     uint8_t bb_page;             /* the chosen track's balls' page is up (it closes as the other pages do) */
@@ -345,9 +351,10 @@ static uint32_t scale_mask(void)
 }
 /* the chord forms: three notes, as steps of the scale from the key's note (so in the scale, their quality as the
  * scale gives it) */
-#define CH_N 7u
-static const int8_t CH_STEP[CH_N][3] = {{0, 2, 4}, {2, 4, 7}, {-3, 0, 2}, {0, 1, 4}, {0, 3, 4}, {0, 4, 9}, {0, 3, 6}};
-static const char *const CH_NAME[CH_N] = {"TRIAD", "INV 1", "INV 2", "SUS2", "SUS4", "OPEN", "FOURTHS"};
+#define CH_N 8u                          /* (one a pad of the bottom row) */
+static const int8_t CH_STEP[CH_N][3] = {{0, 2, 4}, {2, 4, 7}, {-3, 0, 2}, {0, 1, 4}, {0, 3, 4}, {0, 4, 9}, {0, 3, 6},
+                                        {0, 4, 8}};
+static const char *const CH_NAME[CH_N] = {"TRIAD", "INV 1", "INV 2", "SUS2", "SUS4", "OPEN", "FOURTHS", "FIFTHS"};
 static void chord_notes(uint32_t root, uint32_t form, uint32_t *n)
 {
     uint32_t i, m = scale_mask();
@@ -1234,7 +1241,16 @@ static void ui_input(void)
             mac_apply(ui.sel);
         }
     }
-    fk = fn_keys();                              /* (the FM-1's black-key functions: no control yet, fn_keys) */
+    {   /* the bottom row of pads: the chosen track's chord, pad 1 .. 8 */
+        uint32_t h = smk_pad_take() >> 8, j;
+        for (j = 0; j < CH_N && ui.pad_page == PP_CHORD; j++)
+            if ((h >> j) & 1u) {
+                ui.chord_form[ui.sel] = (uint8_t)j;
+                say(CH_NAME[j], 900);
+                ui.force = 1;                    /* (its name under CHO) */
+            }
+    }
+    fk = fn_keys();                              /* (the black-key functions: fn_keys) */
     fch = fk ^ ui.fkeys;
     if (ui.bl_page && bl.on[ui.sel]) {           /* BRICKLAYER's page: the same keys, its own direction and speed */
         uint32_t l = ui.sel;
@@ -1263,26 +1279,23 @@ static void ui_input(void)
             say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
     }
-    if ((fch & fk) >> FN_CHORD & 1u) {         /* the chord key: held, chord mode on or off; pressed, the next form */
+    if ((fch & fk) >> FN_CHORD & 1u) {         /* the chord button: pressed, chord mode on or off; held, its chords on
+                                                  * the bottom row of pads (held again: the pads freed) */
         ui.cho_down = 1;
         ui.cho_done = 0;
         ui.cho_t0 = fm1_ms;
     }
     if (ui.cho_down && (fk >> FN_CHORD & 1u) && !ui.cho_done && (uint32_t)(fm1_ms - ui.cho_t0) >= 600u) {
         ui.cho_done = 1;
-        ui.chord_on[ui.sel] = (uint8_t)!ui.chord_on[ui.sel];
-        say(ui.chord_on[ui.sel] ? "CHORDS" : "CHORDS OFF", 1200);
-        ui.force = 1;
+        ui.pad_page = (uint8_t)(ui.pad_page == PP_CHORD ? PP_NONE : PP_CHORD);
+        say(ui.pad_page == PP_CHORD ? "CHORD PADS" : "PADS FREE", 900);
     }
     if (ui.cho_down && !(fk >> FN_CHORD & 1u)) {
         ui.cho_down = 0;
-        if (!ui.cho_done) {
-            if (ui.chord_on[ui.sel]) {
-                ui.chord_form[ui.sel] = (uint8_t)((ui.chord_form[ui.sel] + 1u) % CH_N);
-                say(CH_NAME[ui.chord_form[ui.sel]], 1200);
-                ui.force = 1;                    /* (its name under CHO) */
-            } else
-                say("CHORDS OFF", 900);
+        if (!ui.cho_done) {                      /* (pressed, not held) */
+            ui.chord_on[ui.sel] = (uint8_t)!ui.chord_on[ui.sel];
+            say(ui.chord_on[ui.sel] ? CH_NAME[ui.chord_form[ui.sel]] : "CHORDS OFF", 1200);
+            ui.force = 1;
         }
     }
     if ((fch & fk) >> FN_ENV & 1u) {           /* with SHIFT: BRICKLAYER on (its page up) or off */
@@ -1433,8 +1446,9 @@ static uint32_t key_lit[2], fn_lit, fn_glow;
 static void fn_led(uint32_t f, int on) { fn_lit = on ? fn_lit | 1u << f : fn_lit & ~(1u << f); }
 static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_glow & ~(1u << f); }
 /* the top row of pads: the six tracks, each in its colour -- the chosen one full, the others dim (on the clipboard:
- * blinking); then the AMBIENT and EXPERIMENTAL paths (white); the bottom row dark */
+ * blinking); then the AMBIENT and EXPERIMENTAL paths (white); the bottom row, its page's (the chords: blue) or dark */
 #define C_PATH RGB(255, 255, 255)        /* (both paths white: unlike any track's colour) */
+#define C_CHORD RGB(40, 80, 255)         /* (the chords, the bottom row: blue) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1448,7 +1462,9 @@ static void pads_show(void)
         if (p < NLAYER) {
             int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
-        } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
+        } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
+            pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
+        else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
             pad_rgb(p, C_PATH,
                     ui.path[ui.sel] == (p == PAD_AMB ? PATH_AMBIENT : PATH_EXP) ? 256u : PAD_DIM);
         else
@@ -1479,6 +1495,7 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct[ui.sel] > 0);
     pads_show();
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
+    fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */
@@ -1574,7 +1591,7 @@ static void draw_number(void)
             cv_text(236 - text_w(&FONT_S, "VAR"), 2 + FONT_S.h + 4, &FONT_S, "VAR", C_WHITE);
         }
         if (ui.chord_on[ui.sel]) {               /* chord mode: CHO, top left; the form under it, smaller and dimmer */
-            static const char *const AB[CH_N] = {"TRI", "IN1", "IN2", "SU2", "SU4", "OPN", "4TH"};
+            static const char *const AB[CH_N] = {"TRI", "IN1", "IN2", "SU2", "SU4", "OPN", "4TH", "5TH"};
             const char *ab = AB[ui.chord_form[ui.sel] % CH_N];
             int32_t cw = text_w(&FONT_S, "CHO");
             cv_text(4, 2, &FONT_S, "CHO", C_WHITE);
