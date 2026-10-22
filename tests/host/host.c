@@ -1814,7 +1814,7 @@ static int cmd_caligula(const char *dir)
         press_btn(B_REC);
         press_key(2, 1);
         run_blocks(300, 0);
-        if (!cal_rt[3].nheld || !cal_rt[3].live || cal_rt[3].note[0] != scale_note(2, 0))
+        if (!cal_rt[3].nheld || !cal_rt[3].live || cal_rt[3].note[0] != key_note_of(2, 3))
             printf("FAIL caligula: a key does not play it at its note\n"), fail++;
         press_key(2, 0);
         run_blocks(200, 0);
@@ -1848,7 +1848,8 @@ static int cmd_caligula(const char *dir)
         }
         run_blocks(40, 0);
         press_btn(B_FX);
-        press_key(0, 1);
+        press_key(0, 1);                             /* (C2, the lowest key in major: where the organism once rang on
+                                                      * in a small residue and never went quiet -- cal.c's death test) */
         press_btn(B_SEL);
         run_blocks(300, 0);
         for (n = 0; n < 4u; n++) {                   /* hit after hit, an overload at each */
@@ -2773,10 +2774,13 @@ static void play_btn(uint32_t held_ms, int key_w)
     ui_input();
     fm1_ms += held_ms;
     ui_input();
-    if (key_w >= 0) {
-        press_key((uint32_t)key_w, 1);
+    if (key_w >= 0) {                                 /* (white key key_w from C3: its place on the keyboard) */
+        uint32_t k = 0;
+        while (white_ix(k) != key_w)
+            k++;
+        press_phys(k, 1);
         run_blocks(5, 0);
-        press_key((uint32_t)key_w, 0);
+        press_phys(k, 0);
     }
     fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
     ui_input();
@@ -3179,7 +3183,7 @@ static int cmd_ties(void)
         press_key(0, 0);
         loop_to(0, 10);
         for (k = 0; k < NVOICE; k++)
-            if (vox[k].gate && vox_owner(&vox[k]) == 0u && vox[k].src == SRC_LOOP && vox[k].note == scale_note(0, 0)) {
+            if (vox[k].gate && vox_owner(&vox[k]) == 0u && vox[k].src == SRC_LOOP && vox[k].note == key_note_of(0, 0)) {
                 v0 = k;
                 born = vox[k].born;
             }
@@ -3190,7 +3194,7 @@ static int cmd_ties(void)
             if (e == ENG_CAL) {
                 if (!cal_rt[0].nheld)
                     broke++;
-            } else if (!vox[v0].gate || vox[v0].born != born || vox[v0].note != scale_note(0, 0))
+            } else if (!vox[v0].gate || vox[v0].born != born || vox[v0].note != key_note_of(0, 0))
                 broke++;
         }
         if (broke)
@@ -3198,7 +3202,7 @@ static int cmd_ties(void)
         /* the other note does go and come back each time round */
         loop_to(0, 230);
         n = loop_sounding(0, &lo, &hi);
-        if (e != ENG_CAL && (n != 2u || hi != scale_note(3, 0)))
+        if (e != ENG_CAL && (n != 2u || hi != key_note_of(3, 0)))
             printf("FAIL ties: %u: the note let go before the end does not come back (%u notes)\n", e, n), fail++;
         /* out just as it goes round: nothing left hanging */
         loop_to(0, loop[0].trk[0].len - 1u);
@@ -3733,12 +3737,13 @@ static uint32_t lm_period(uint32_t l)                  /* blocks between two goi
 }
 static int cmd_loopmodes(void)
 {
-    uint32_t fail = 0, c3 = scale_note(0, 0), e3 = scale_note(2, 0), g3 = scale_note(4, 0), b, len, per, bad, hang;
+    uint32_t fail = 0, c3 = key_note_of(0, 0), e3 = key_note_of(2, 0), g3 = key_note_of(4, 0), b, len, per, bad, hang;
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
     press_btn(B_FX);
-    press_btn(B_REC);                                 /* C3 0 .. 100, E3 150 .. 250, closed at 300 */
+    press_btn(B_REC);                                 /* C3 0 .. 100, E3 150 .. 250, closed at 300 (c3, e3, g3:
+                                                       * keys 0, 2, 4 -- the scale's steps 0, 2, 4 from the lowest key) */
     press_key(0, 1);
     run_blocks(100, 0);
     press_key(0, 0);
@@ -3763,11 +3768,11 @@ static int cmd_loopmodes(void)
     run_blocks(20, 0);
     if (loop[0].trk[0].dir != -1 || loop[0].trk[0].pos > 185)
         printf("FAIL loopmodes: it does not go backwards (dir %d, pos %d)\n", loop[0].trk[0].dir, loop[0].trk[0].pos), fail++;
-    while (loop[0].trk[0].pos > 120)
+    for (b = 0; loop[0].trk[0].pos > 120 && b < 100000u; b++)
         run_blocks(1, 0);
     if (lm_sounds(0, e3) || lm_sounds(0, c3))
         printf("FAIL loopmodes: backwards at 120, a note sounds (E3 %u, C3 %u)\n", lm_sounds(0, e3), lm_sounds(0, c3)), fail++;
-    while (loop[0].trk[0].pos > 60)
+    for (b = 0; loop[0].trk[0].pos > 60 && b < 100000u; b++)
         run_blocks(1, 0);
     if (lm_sounds(0, c3) != 1u)
         printf("FAIL loopmodes: backwards at 60, C3 does not sound\n"), fail++;
@@ -3881,7 +3886,7 @@ static int cmd_loopmodes(void)
         }
         if (off - on < 95u || off - on > 105u)
             printf("FAIL loopmodes: an overdub at half speed is not kept in loop time (%u)\n", off - on), fail++;
-        while (!lm_sounds(0, g3))
+        for (b2 = 0; !lm_sounds(0, g3) && b2 < 100000u; b2++)   /* (bounded: a note never heard fails below) */
             run_blocks(1, 0);
         for (b2 = 0; b2 < 400u && lm_sounds(0, g3); b2++, dur++)
             run_blocks(1, 0);
@@ -3904,7 +3909,7 @@ static int cmd_loopmodes(void)
     press_btn(B_REC);
     run_blocks(1, 0);
     {
-        uint32_t n1 = scale_note(7, 0), n2 = scale_note(9, 0), seen = 0, b2;
+        uint32_t n1 = key_note_of(7, 0), n2 = key_note_of(9, 0), seen = 0, b2;
         for (b2 = 0; b2 < 3u * loop[0].trk[2].len && seen < 2u; b2++) {
             run_blocks(1, 0);
             if (!seen && lm_sounds(0, n2))
@@ -6560,7 +6565,7 @@ static int cmd_bkserve(void)
 static int cmd_overdubs(const char *dir)
 {
     uint32_t fail = 0, i, heard;
-    uint32_t n0 = scale_note(0, 0), n2 = scale_note(4, 0);
+    uint32_t n0 = key_note_of(0, 0), n2 = key_note_of(4, 0);
     char path[512];
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
@@ -6577,18 +6582,17 @@ static int cmd_overdubs(const char *dir)
     }
     if (loop[0].ntrk != 3u || !loop[0].play || loop[0].mute)
         printf("FAIL overdubs: three loops not recorded, playing, all in (%u)\n", loop[0].ntrk), fail++;
-    /* held, a moment: the view, the three lit; let go: still playing (no PLAY) */
+    /* held, a moment (0.6 s): the view, the three lit on the white keys, the overdubs on the bottom row of pads; let
+     * go: still playing (no PLAY) */
     host_press |= 1u << PANEL_BTN[B_PLAY];
     fm1_in.buttons |= 1u << PANEL_BTN[B_PLAY];
     ui_input();
-    fm1_ms += 500;
+    fm1_ms += 700;
     ui_input();
     ui_leds();
-    if (!ui.ovd || !key_on(0) || !key_on(2) || !key_on(4) || key_on(5))
+    if (!ui.ovd || ui.pad_page != PP_OVD || !key_on(0) || !key_on(2) || !key_on(4) || key_on(5))
         printf("FAIL overdubs: PLAY held does not show the three loops lit on the white keys\n"), fail++;
-    press_key(2, 1);                                  /* loop 3 out (white key 2, the third) */
-    run_blocks(5, 0);
-    press_key(2, 0);
+    ch_pad(2);                                        /* loop 3 out (the bottom row's third pad) */
     ui.force = 1;
     ui_draw();
     snprintf(path, sizeof path, "%s/screen-33-overdubs.ppm", dir);
@@ -6605,14 +6609,14 @@ static int cmd_overdubs(const char *dir)
     }
     if (heard)
         printf("FAIL overdubs: loop 3, out, still sounds\n"), fail++;
-    play_btn(500, 2);                                 /* back in: from its start, at once */
+    play_btn(700, 2);                                 /* back in (white key 2): from its start, at once */
     if (loop[0].mute || loop[0].trk[2].pos > 10u)
         printf("FAIL overdubs: loop 3 does not come back in from its start (pos %u)\n", loop[0].trk[2].pos), fail++;
     play_btn(50, -1);                                 /* PLAY let go soon: stopped */
     if (loop[0].play)
         printf("FAIL overdubs: a short PLAY does not stop the loops\n"), fail++;
-    play_btn(500, 0);                                 /* stopped: only loop 2 chosen */
-    play_btn(500, 2);
+    play_btn(700, 0);                                 /* stopped: only loop 2 chosen */
+    play_btn(700, 2);
     if (loop[0].play || loop[0].mute != 5u)
         printf("FAIL overdubs: stopped, the keys do not choose (mute %x play %u)\n", loop[0].mute, loop[0].play), fail++;
     ses_save(1);
@@ -6620,7 +6624,7 @@ static int cmd_overdubs(const char *dir)
     heard = 0;
     for (i = 0; i < 900u; i++) {
         host_pump();
-        heard |= (uint32_t)loop_note_on(0, n0) << 1 | (uint32_t)loop_note_on(0, scale_note(2, 0));
+        heard |= (uint32_t)loop_note_on(0, n0) << 1 | (uint32_t)loop_note_on(0, key_note_of(2, 0));
     }
     if (!loop[0].play || heard != 1u)
         printf("FAIL overdubs: PLAY does not start only the loop chosen (heard %x)\n", heard), fail++;
@@ -6662,7 +6666,7 @@ static int cmd_voices(void)
     press_key(12, 1);                                /* a thirteenth: the layer's oldest held note (key 0) goes */
     run_blocks(50, 0);
     for (k = 0, n = 0; k < NVOICE; k++)
-        n += vox[k].gate && vox[k].note == scale_note(0, 0);
+        n += vox[k].gate && vox[k].note == key_note_of(0, 0);
     if (n || nsounding(0) != 12u)
         printf("FAIL voices: the thirteenth note did not take the oldest held (%u)\n", n), fail++;
     press_btn(B_SEL);                                /* layer 2: ANIMA; a note: layer 1's oldest held goes */

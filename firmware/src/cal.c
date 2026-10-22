@@ -456,7 +456,9 @@ static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t p
         if (c->env[k] || denv[k] || env_t[k])
             any = 1;
     }
-    if (!any && !c->awake && absi(c->dlast[0]) < 16 && absi(c->dlast[1]) < 16 && absi(c->fb) < 16) {
+    if (!any && !c->awake && absi(c->dlast[0]) < 64 && absi(c->dlast[1]) < 64 && absi(c->fb) < 64) {
+        /* (nothing held, nothing to come: what is left in the feedback and the delay below -54 dB is done -- at low
+         * notes the mu-law delay and the rounding settle on a small residue that would never reach 16: SMK-37, C2) */
         c->live = 0;
         for (i = 0; i < CTL; i++)
             out[i] = 0;
