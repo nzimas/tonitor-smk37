@@ -134,7 +134,10 @@ static volatile uint32_t mi_w, mi_r;
 #include "layers.c"
 
 /* the panel (the SMK-37's ids: smk_input.h; its 8 knobs, K1 MASTER) */
-static struct { uint32_t notes, buttons; } fm1_in;
+#define SMK_BTN_KNOB_BANK 0u      /* (smk_input.h: SHIFT) */
+#define SMK_PADBTN0 24u           /* (the top row of pads: buttons from here) */
+#define HOST_FN 1                 /* (ui.c: the black-key functions from host_fn) */
+static struct { uint32_t keyw[2], buttons; uint8_t key_vel[37]; } fm1_in;
 static uint32_t host_press;
 static int32_t host_enc[8];
 static uint32_t fm1_input_edges(uint32_t *rel)
@@ -154,7 +157,24 @@ static int32_t fm1_enc_take(uint32_t e)
 static uint8_t host_led[64];
 static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uint8_t)!!on; }
 #include "ui.c"
-static int key_on(uint32_t k) { return (int)((key_lit >> k) & 1u); }   /* (the FM-1's key lights, ui.c) */
+/* the FM-1's black-key functions and SHIFT, as the tests press them: KEY_SHIFT is KNOB BANK; KEY_x the function FN_x
+ * (no control on the SMK-37 yet: ui.c fn_keys reads host_fn) */
+#define KEY_FN0 100u
+#define KEY_SHIFT 200u
+#define KEY_AMB (KEY_FN0 + FN_AMB)
+#define KEY_EXP (KEY_FN0 + FN_EXP)
+#define KEY_ENV (KEY_FN0 + FN_ENV)
+#define KEY_EDIT (KEY_FN0 + FN_EDIT)
+#define KEY_CHORD (KEY_FN0 + FN_CHORD)
+#define KEY_REV (KEY_FN0 + FN_REV)
+#define KEY_PEND (KEY_FN0 + FN_PEND)
+#define KEY_RAND (KEY_FN0 + FN_RAND)
+#define KEY_HALF (KEY_FN0 + FN_HALF)
+#define KEY_DOUBLE (KEY_FN0 + FN_DOUBLE)
+static int key_on(uint32_t k)            /* a key's (or function's) light as ui.c keeps it; SHIFT: held */
+{
+    return k == KEY_SHIFT ? shift_held() : k >= KEY_FN0 ? (int)((fn_lit >> (k - KEY_FN0)) & 1u) : kb(key_lit, k);
+}
 #include "sessions.c"
 #include "setup.c"
 #include "backup.c"
@@ -341,23 +361,25 @@ static void run_blocks(uint32_t nb, int to_wav)
                 wav_put(mix_out[i]);
     }
 }
-/* a key by its place on the keyboard (0 = F3 .. 26 = G5) */
+/* a key by its place on the keyboard (0 = C3 .. 36 = C6); KEY_SHIFT: KNOB BANK; KEY_FN0 + f: function f */
 static void press_phys(uint32_t k, int down)
 {
-    if (down)
-        fm1_in.notes |= 1u << k;
+    if (k == KEY_SHIFT) {
+        if (down) {
+            fm1_in.buttons |= 1u << SMK_BTN_KNOB_BANK;
+            host_press |= 1u << SMK_BTN_KNOB_BANK;
+        } else
+            fm1_in.buttons &= ~(1u << SMK_BTN_KNOB_BANK);
+    } else if (k >= KEY_FN0)
+        host_fn = down ? host_fn | 1u << (k - KEY_FN0) : host_fn & ~(1u << (k - KEY_FN0));
     else
-        fm1_in.notes &= ~(1u << k);
+        kset(fm1_in.keyw, k, down);
     ui_input();
 }
-/* white key k (0 .. 15, wrapping): the keys that play */
+/* the key of scale step k (0 .. 15, wrapping): every key plays the next step, so key k */
 static void press_key(uint32_t k, int down)
 {
-    uint32_t p;
-    for (p = 0; p < NKEY; p++)
-        if (white_ix(p) == (int32_t)(k % 16u))
-            break;
-    press_phys(p, down);
+    press_phys(k % 16u, down);
 }
 static void press_btn(uint32_t label)
 {
@@ -716,11 +738,12 @@ static int cmd_flows(void)
         printf("FAIL flows: events left in the ring\n");
         fail++;
     }
-    /* the scales: ARP, the root A, the scale minor pentatonic; the first white key the root, each next white
-     * key the next degree; a black key no note */
+    /* the scales: ARP, the root A, the scale minor pentatonic; every key -- black ones too -- the next step of the
+     * scale, from the root on the lowest key (C3), contiguous */
     {
-        static const uint8_t WANT[16] = {57, 60, 62, 64, 67, 69, 72, 74, 76, 79, 81, 84, 86, 88, 91, 93};
-        uint32_t k, w = 0;
+        static const uint8_t STEP[5] = {0, 3, 5, 7, 10};
+        uint32_t k, r, sc;
+        int32_t o;
         press_btn(B_FX);
         while (ui.oct[0] != 0)
             press_btn(ui.oct[0] > 0 ? B_OCTDN : B_OCTUP);
@@ -730,23 +753,50 @@ static int cmd_flows(void)
         ui_input();
         if (ui.root != 9u || ui.scale != 5u)
             printf("FAIL flows: the SCALE page set root %u scale %u\n", ui.root, ui.scale), fail++;
-        for (k = 0; k < NKEY; k++) {
-            if (white_ix(k) < 0) {
-                uint32_t before = ev_w;
-                if (k == KEY_REV || k == KEY_PEND || k == KEY_RAND || k == KEY_HALF || k == KEY_DOUBLE)
-                    continue;                    /* (the loops' direction and speed: loopmodes) */
-                press_phys(k, 1);
-                press_phys(k, 0);
-                if (ev_w != before)
-                    printf("FAIL flows: black key %u played a note\n", k), fail++;
-                continue;
-            }
-            if (scale_note(white_ix(k), 0) != WANT[w])
-                printf("FAIL flows: white key %u plays %u, not %u\n", w, scale_note(white_ix(k), 0), WANT[w]), fail++;
-            w++;
+        for (k = 0; k < NKEY; k++) {             /* (two octaves down for a 5-step scale: A1 on C3) */
+            uint32_t want = 48u - 24u + 9u + 12u * (k / 5u) + STEP[k % 5u], before = ev_w;
+            if (key_note_of(k, 0) != want)
+                printf("FAIL flows: key %u plays %u, not %u\n", k, key_note_of(k, 0), want), fail++;
+            press_phys(k, 1);
+            press_phys(k, 0);
+            if (ev_w == before)
+                printf("FAIL flows: key %u played no note\n", k), fail++;
+            run_blocks(2, 0);                    /* (the events taken) */
         }
-        if (w != 16u)
-            printf("FAIL flows: %u white keys, not 16\n", w), fail++;
+        for (sc = 0; sc < NSCALE; sc++)          /* every scale, every root: octave 0 in range, OCT stops at its ends */
+            for (r = 0; r < 12u; r++) {
+                uint8_t was_s = ui.scale, was_r = ui.root;
+                ui.scale = (uint8_t)sc;
+                ui.root = (uint8_t)r;
+                if (!oct_ok(0))
+                    printf("FAIL flows: scale %u root %u: octave 0 leaves MIDI's range\n", sc, r), fail++;
+                for (o = -8; o <= 8; o++)
+                    if (oct_ok(o) && (scale_raw(0, scale_oct0() + o) < 0 || scale_raw((int32_t)NKEY - 1, scale_oct0() + o) > 127))
+                        printf("FAIL flows: scale %u root %u octave %d allowed out of range\n", sc, r, o), fail++;
+                ui.scale = was_s;
+                ui.root = was_r;
+            }
+        {   /* OCT+ until it stops: the top key still in range; then back */
+            int32_t last = -99;
+            while (ui.oct[0] != last) {
+                last = ui.oct[0];
+                press_btn(B_OCTUP);
+            }
+            if (scale_raw((int32_t)NKEY - 1, oct_eff(0)) > 127 || oct_ok(ui.oct[0] + 1))
+                printf("FAIL flows: OCT+ stopped at %d, not at the keybed's top\n", ui.oct[0]), fail++;
+            while (ui.oct[0] != 0)
+                press_btn(B_OCTDN);
+        }
+        {   /* CHROMATIC: the keyboard as printed (root C, octave 0: C3 .. C6) */
+            uint8_t was_s = ui.scale, was_r = ui.root;
+            ui.scale = NSCALE - 1u;
+            ui.root = 0;
+            if (!str_eq(SCALE_L1[ui.scale], "CHROMA-") || key_note_of(0, 0) != 48u || key_note_of(1, 0) != 49u ||
+                key_note_of(NKEY - 1u, 0) != 84u)
+                printf("FAIL flows: CHROMATIC plays %u %u .. %u\n", key_note_of(0, 0), key_note_of(1, 0), key_note_of(NKEY - 1u, 0)), fail++;
+            ui.scale = was_s;
+            ui.root = was_r;
+        }
         ui_draw();
         ppm("build/screens/screen-17-scale.ppm");
         for (k = 0; k < NSCALE; k++) {           /* every scale: its steps rising within the octave, its name fitting */
@@ -1038,7 +1088,7 @@ static int cmd_sessions(const char *dir)
         }
     }
     /* an empty slot chosen in the list (slot 9): a clean slate, as at start; then SAVE held: saved there, at once */
-    ui.latch[1] = 1u;
+    ui.latch[1][0] = 1u;
     ui.scale = 3;
     ui.lx = 2;
     ui.rvp[0] = 12;
@@ -1056,7 +1106,7 @@ static int cmd_sessions(const char *dir)
         if (ses.current != 9u || ses_has(9))
             printf("FAIL sessions: the empty slot 9 was not chosen (current %u)\n", ses.current), fail++;
         for (l = 0; l < NLAYER; l++)
-            bad += loop[l].ntrk || loop[l].play || ui.latch[l] || ui.engine[l] != (l & 1u ? ENG_ANIMA : ENG_FM)
+            bad += loop[l].ntrk || loop[l].play || ui.latch[l][0] || ui.engine[l] != (l & 1u ? ENG_ANIMA : ENG_FM)
                    || lay[l].engine != ui.engine[l] || ui.level[l] != LEVEL_UNITY || ui.pan[l] != PAN_DEF[l]
                    || ui.send[l] != SEND_DEF || ui.oct[l] || ui.flt[l] || ui.gr[l] || ui.cr[l] || ui.path[l] != PATH_OPEN
                    || layer_sounding(l);
@@ -1374,7 +1424,8 @@ static void grain_reset(void)                   /* the same sounds every time */
     memset(loop, 0, sizeof loop);
     lay_age = blk_clock = 0;
     ev_r = ev_w = 0;
-    fm1_in.notes = fm1_in.buttons = 0;
+    fm1_in.keyw[0] = fm1_in.keyw[1] = fm1_in.buttons = 0;
+    host_fn = 0;
     layers_init();
     ui_init();
     sounds_init();
@@ -1850,8 +1901,8 @@ static int cmd_latch(void)
     press_key(2, 0);
     press_phys(KEY_SHIFT, 0);
     run_blocks(50, 0);
-    if (ui.latch[0] != 1u << k0 || nsounding(0) < 1u)
-        printf("FAIL latch: SHIFT then a key latched it (%x)\n", ui.latch[0]), fail++;
+    if (ui.latch[0][0] != 1u << k0 || nsounding(0) < 1u)
+        printf("FAIL latch: SHIFT then a key latched it (%x)\n", ui.latch[0][0]), fail++;
     press_btn(B_SEL);                            /* layer 2: dark, and the key plays there as usual */
     run_blocks(10, 0);
     ui_leds();
@@ -1873,7 +1924,7 @@ static int cmd_latch(void)
     press_phys(KEY_SHIFT, 0);
     run_blocks(100, 0);
     ui_leds();
-    if (lgate(0) || key_on(k0) || ui.latch[0])
+    if (lgate(0) || key_on(k0) || ui.latch[0][0])
         printf("FAIL latch: SHIFT and the lit key do not let it go\n"), fail++;
     press_key(1, 1);                             /* two held, SHIFT: both latch; a session load lets go of both */
     press_key(3, 1);
@@ -1882,12 +1933,12 @@ static int cmd_latch(void)
     press_key(1, 0);
     press_key(3, 0);
     run_blocks(100, 0);
-    if (!ui.latch[0] || nsounding(0) < 2u || !lgate(0))
+    if (!ui.latch[0][0] || nsounding(0) < 2u || !lgate(0))
         printf("FAIL latch: two keys do not latch\n"), fail++;
     memset(host_flash, 0xFF, sizeof host_flash);    /* a session keeps them (and each layer's grain character) */
     ses_scan(1);
     {
-        uint32_t keep = ui.latch[0], gs = gran[2].seed;
+        uint32_t keep = ui.latch[0][0], gs = gran[2].seed;
         ses_save(2);
         press_phys(KEY_SHIFT, 1);                     /* let go of them, the grains drawn anew, then the session */
         press_key(1, 1);
@@ -1897,12 +1948,12 @@ static int cmd_latch(void)
         press_phys(KEY_SHIFT, 0);
         gran_profile(2, 12345u);
         run_blocks(100, 0);
-        if (ui.latch[0] || lgate(0))
+        if (ui.latch[0][0] || lgate(0))
             printf("FAIL latch: SHIFT and the lit keys do not let both go\n"), fail++;
         ses_load_slot(2);
         run_blocks(100, 0);
         ui_leds();
-        if (ui.latch[0] != keep || nsounding(0) < 2u || !lgate(0) || !key_on(2u))
+        if (ui.latch[0][0] != keep || nsounding(0) < 2u || !lgate(0) || !key_on(2u))
             printf("FAIL latch: a session does not bring its latched notes back, sounding and lit\n"), fail++;
         if (gran[2].seed != gs)
             printf("FAIL latch: a session does not keep the granulator's character\n"), fail++;
@@ -3346,7 +3397,7 @@ static int cmd_clip(const char *dir)
     }
     press_btn(B_ENV);                                 /* track 3: chosen, then held: pasted */
     ui.level[2] = 15;
-    ui.latch[2] = 1u;
+    ui.latch[2][0] = 1u;
     ui_draw();
     hold_btn(B_ENV, 900);
     ui.force = 1;
@@ -3360,7 +3411,7 @@ static int cmd_clip(const char *dir)
         || memcmp(&fm_buf[2][fm_pub[2]], &f0, sizeof f0) || ui.mac[2][ENG_ANIMA][1] != 30 || ui.flt[2] != 7
         || ui.oct[2] != -1 || ui.send[2] != 77 || ui.path[2] != PATH_EXP)
         printf("FAIL clip: track 3 does not have track 1's tone\n"), fail++;
-    if (ui.level[2] != 15 || ui.latch[2])
+    if (ui.level[2] != 15 || ui.latch[2][0])
         printf("FAIL clip: track 3's level was taken, or its latch kept\n"), fail++;
     if (loop[2].ntrk != 3u || loop[2].mute != loop[0].mute || loop[2].nev != loop[0].nev || !loop[2].play
         || memcmp(loop[2].ev, loop[0].ev, loop[0].nev * 4u))
@@ -4052,7 +4103,7 @@ static int cmd_delay(const char *dir)
 }
 
 /* the black keys with a function glow while off (lit when on); SHIFT and the keys with none stay dark */
-static int key_glows(uint32_t k) { return (int)((key_glow >> k) & 1u); }   /* (ui.c: kept for the pads) */
+static int key_glows(uint32_t k) { return (int)((fn_glow >> (k - KEY_FN0)) & 1u); }   /* (ui.c: kept for the pads) */
 static int cmd_glow(void)
 {
     static const uint8_t FN[10] = {KEY_AMB, KEY_EXP, KEY_CHORD, KEY_REV, KEY_PEND, KEY_RAND, KEY_HALF, KEY_DOUBLE, KEY_ENV, KEY_EDIT};
@@ -4205,7 +4256,7 @@ static int cmd_chords(const char *dir)
         for (k1 = 0; k1 < NKEY && white_ix(k1) != 1; k1++)
             ;
         ui_leds();
-        if (((ui.latch[0] >> k0) & 1u) || !((ui.latch[0] >> k1) & 1u) || !key_on(k1) || key_on(k0))
+        if (((ui.latch[0][0] >> k0) & 1u) || !((ui.latch[0][0] >> k1) & 1u) || !key_on(k1) || key_on(k0))
             printf("FAIL chords: the latched key lit does not move up a white key\n"), fail++;
     }
     shift_oct(0);

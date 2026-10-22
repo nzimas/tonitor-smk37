@@ -43,31 +43,38 @@
  * each with a bar; the one just turned in black on white. Saving, loading, emptying a looper flash the
  * whole screen. The SESSIONS page shows the session chosen as a very large number. */
 
-/* the panel: which SMK-37 button (smk_input.h ids) carries which of the FM-1's labels. By row, as the FM-1's: its
- * top row (the six tracks) on the top row ARP NOTE-REPEAT SCALE CHORD GLOBE BT, its bottom row (HOME SAVE ARP SEQ
- * PLAY REC) on PATCH PARA FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+. The knobs: K1 is
+/* the panel: which SMK-37 control (smk_input.h ids) carries which of the FM-1's labels. The six tracks on the first
+ * six pads of the top row (SMK_PADBTN0 + 0 .. 5); HOME SAVE ARP SEQ PLAY REC on the bottom row of buttons, PATCH PARA
+ * FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+; SHIFT on KNOB BANK. The knobs: K1 is
  * MASTER (a virtual pot, smk_input.h), K2 .. K4 SELECT, ALGORITHM, PRESETS, K5 .. K8 KNOB 1 .. 4 */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
 enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
-static const uint8_t PANEL_BTN[NB] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 4, 5};
+static const uint8_t PANEL_BTN[NB] = {SMK_PADBTN0, SMK_PADBTN0 + 1u, SMK_PADBTN0 + 2u, SMK_PADBTN0 + 3u, SMK_PADBTN0 + 4u,
+                                      SMK_PADBTN0 + 5u, 12, 13, 14, 15, 16, 17, 4, 5};
 static const uint8_t PANEL_ENC[NE] = {1, 2, 3, 4, 5, 6, 7};
 static const uint8_t LAYER_BTN[NLAYER] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
-#define NKEY 27u
-#define KEY_SHIFT 25u            /* the rightmost black key: pressed, the keys held latch; held, a latched key lets go */
+#define NKEY 37u                 /* the keybed, C3 .. C6: every key plays */
 #define KEY_NONE 0xFFu
-#define KEY_AMB 1u               /* the leftmost black key: the AMBIENT path (again: back to the open path) */
-#define KEY_EXP 3u               /* the second: the EXPERIMENTAL path */
-#define KEY_ENV 20u              /* the 3rd black key from the right: the ENVELOPE page, up and down (SHIFT: the
-                                 * sound's own envelope again) */
-#define KEY_EDIT 22u             /* the black key before SHIFT: EDIT, on and off (KNOB 1 .. 4: the sound's macros) */
-#define KEY_CHORD 5u             /* the 3rd black key: held 0.6 s, the track's chord mode on or off; pressed, the next
-                                  * chord form */
-#define KEY_REV 8u               /* the 4th black key: the chosen track's loops backwards (again: forwards) */
-#define KEY_PEND 10u             /* the 5th: PENDULUM, forwards and backwards in turn */
-#define KEY_RAND 13u             /* the 6th: RANDOM, forwards from a note drawn at random each time the next is due */
-#define KEY_HALF 15u             /* the 7th: half speed (again: normal) */
-#define KEY_DOUBLE 17u           /* the 8th: double speed */
-#define KEY_NOTE0 53             /* the lowest key, F3 */
+/* the keys as two words (the target has no variable 64-bit shift): key k in m[k >> 5], bit k & 31 */
+static int kb(const uint32_t *m, uint32_t k) { return (int)((m[k >> 5] >> (k & 31u)) & 1u); }
+static void kset(uint32_t *m, uint32_t k, int on)
+{
+    if (on)
+        m[k >> 5] |= 1u << (k & 31u);
+    else
+        m[k >> 5] &= ~(1u << (k & 31u));
+}
+/* SHIFT: the KNOB BANK button, held */
+static int shift_held(void) { return (int)((fm1_in.buttons >> SMK_BTN_KNOB_BANK) & 1u); }
+/* the functions the FM-1 had on its black keys (fn_keys(): bit FN_x held): no control of their own yet on the SMK-37
+ * (the bottom row of pads, later) */
+enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_HALF, FN_DOUBLE };
+#ifdef HOST_FN
+static uint32_t host_fn;                 /* (the host tests: the functions, held) */
+static uint32_t fn_keys(void) { return host_fn; }
+#else
+static uint32_t fn_keys(void) { return 0; }
+#endif
 
 static const uint16_t LAYER_COL[NLAYER] = {RGB(255, 214, 0), RGB(0, 214, 255), RGB(255, 92, 210),
                                            RGB(96, 255, 96), RGB(255, 140, 0), RGB(190, 160, 255)};
@@ -83,10 +90,11 @@ static struct {
     uint32_t play_t0;
     int32_t shown_ovd;
     int8_t mac[NLAYER][NENG][NMAC];   /* the macros on each layer's sound of each engine (0: as drawn) */
-    uint32_t latch[NLAYER];      /* the keys latched on each layer (lit while it is chosen) */
+    uint32_t latch[NLAYER][2];   /* the keys latched on each layer (kb) */
     uint8_t latch_note[NLAYER][NKEY];
     uint8_t midi_mask[128];      /* each MIDI note held: the tracks it plays on (a bit each; setup.c) */
-    uint32_t keys;               /* the keys down last time */
+    uint32_t keys[2];            /* the keys down last time (kb) */
+    uint32_t fkeys;              /* the functions held last time (fn_keys) */
     char msg[16];
     uint32_t msg_until;
     uint32_t home_until;         /* HOME's light after a new sound */
@@ -196,16 +204,17 @@ static const int8_t PAN_DEF[NLAYER] = {0, 10, -5, 5, -2, 2};   /* (track 1 in th
 #define SEND_DEF 40
 enum { DIAL_FLT, DIAL_GR, DIAL_SEND, DIAL_CR, DIAL_DSEND, DIAL_DIST, DIAL_MAC };   /* the knobs whose dial covers the screen (DIAL_MAC + j: EDIT's j) */
 
-/* the scales: the white keys play their degrees, from the root, up */
-#define NSCALE 23                /* (new ones at the end: sessions keep the number) */
-#define SCALE_MAXN 8
+/* the scales: every key plays the next step of the scale, from the root on the lowest key, up; CHROMATIC is the
+ * keyboard as printed */
+#define NSCALE 24                /* (new ones at the end: sessions keep the number) */
+#define SCALE_MAXN 12
 /* (a long name split over the two lines rather than squeezed past reading: host.c flows checks) */
 static const char *const SCALE_L1[NSCALE] = {"MAJOR", "MINOR", "MINOR", "MINOR", "DORIAN", "MINOR", "WHOLE", "ENIGMATIC", "JAPANESE",
     "PHRYGIAN", "LYDIAN", "MIXO-", "LOCRIAN", "MAJOR", "BLUES", "HUNGAR-", "DOUBLE", "PHRYGIAN", "JAPANESE",
-    "JAPANESE", "PELOG", "OCTA-", "PROME-"};
+    "JAPANESE", "PELOG", "OCTA-", "PROME-", "CHROMA-"};
 static const char *const SCALE_L2[NSCALE] = {"", "NATURAL", "HARMONIC", "MELODIC", "", "PENTA", "TONE", "", "IN",
-    "", "", "LYDIAN", "", "PENTA", "", "IAN MINOR", "HARMONIC", "DOMINANT", "HIRAJOSHI", "IWATO", "", "TONIC", "THEUS"};
-static const uint8_t SCALE_N[NSCALE] = {7, 7, 7, 7, 7, 5, 6, 7, 5, 7, 7, 7, 7, 5, 6, 7, 7, 7, 5, 5, 5, 8, 6};
+    "", "", "LYDIAN", "", "PENTA", "", "IAN MINOR", "HARMONIC", "DOMINANT", "HIRAJOSHI", "IWATO", "", "TONIC", "THEUS", "TIC"};
+static const uint8_t SCALE_N[NSCALE] = {7, 7, 7, 7, 7, 5, 6, 7, 5, 7, 7, 7, 7, 5, 6, 7, 7, 7, 5, 5, 5, 8, 6, 12};
 static const uint8_t SCALE_STEP[NSCALE][SCALE_MAXN] = {
     {0, 2, 4, 5, 7, 9, 11},      /* major */
     {0, 2, 3, 5, 7, 8, 10},      /* natural minor */
@@ -230,26 +239,51 @@ static const uint8_t SCALE_STEP[NSCALE][SCALE_MAXN] = {
     {0, 1, 3, 7, 8},             /* pelog (selisir), in equal temperament */
     {0, 1, 3, 4, 6, 7, 9, 10},   /* octatonic, half step first (diminished) */
     {0, 2, 4, 6, 9, 10},         /* prometheus (Scriabin's mystic chord as a scale) */
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},   /* chromatic: the keyboard as printed (root C) */
 };
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-#define SCALE_BASE 48            /* the root's octave: C3 .. B3 on the first key (the layer's octave moves it) */
+#define SCALE_BASE 48            /* the root's octave: C3 .. B3 on the lowest key (the octave moves it) */
 
-/* white key k's place among the white keys (0 .. 15), -1 for a black key (keys from F3, chromatic) */
+/* white key k's place among the white keys (C3 = 0 .. C6 = 21), -1 for a black key */
 static int32_t white_ix(uint32_t k)
 {
     static const int8_t W[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};   /* C .. B: whites in an octave */
-    uint32_t n = 53u + k, o = n / 12u;
+    uint32_t n = 48u + k, o = n / 12u;
     int32_t w = W[n % 12u];
     if (w < 0)
         return -1;
-    return (int32_t)o * 7 + w - (4 * 7 + 3);                                  /* F3 = 0 */
+    return (int32_t)o * 7 + w - 4 * 7;                                        /* C3 = 0 */
 }
-/* the note white key w plays, in the scale, on a layer at octave oct */
-static uint32_t scale_note(int32_t w, int32_t oct)
+/* step w of the scale (0: the root on the lowest key) at octave oct, unclamped */
+static int32_t scale_raw(int32_t w, int32_t oct)
 {
     int32_t n = SCALE_N[ui.scale], q = w >= 0 ? w / n : -((n - 1 - w) / n);   /* (below the root too: a step moved) */
-    return (uint32_t)clampi(SCALE_BASE + ui.root + 12 * oct + 12 * q + SCALE_STEP[ui.scale][w - q * n], 12, 120);
+    return SCALE_BASE + ui.root + 12 * oct + 12 * q + SCALE_STEP[ui.scale][w - q * n];
 }
+static uint32_t scale_note(int32_t w, int32_t oct) { return (uint32_t)clampi(scale_raw(w, oct), 0, 127); }
+/* the octave a track's 0 stands for: the 37 keys centred for the scale's length (12 steps: C3 .. C6 as printed;
+ * 7 and 8: an octave lower; 6: one more; 5: two lower) */
+static int32_t scale_oct0(void)
+{
+    uint32_t n = SCALE_N[ui.scale];
+    return n >= 12u ? 0 : n >= 7u ? -1 : -2;
+}
+static int32_t oct_eff(uint32_t l) { return scale_oct0() + ui.oct[l]; }
+/* a track octave o keeps every key in MIDI's range */
+static int oct_ok(int32_t o)
+{
+    return scale_raw(0, scale_oct0() + o) >= 0 && scale_raw((int32_t)NKEY - 1, scale_oct0() + o) <= 127;
+}
+/* each track's octave brought into range (after the scale or the root changed) */
+static void oct_fit(void)
+{
+    uint32_t l;
+    for (l = 0; l < NLAYER; l++)
+        while (!oct_ok(ui.oct[l]) && ui.oct[l])
+            ui.oct[l] = (int8_t)(ui.oct[l] > 0 ? ui.oct[l] - 1 : ui.oct[l] + 1);
+}
+/* the note key k plays on track l: its step of the scale (the keys contiguous), moved as the track's loops are */
+static uint32_t key_note_of(uint32_t k, uint32_t l) { return scale_note((int32_t)k + ui.lx + ui.lxt[l], oct_eff(l)); }
 /* the loops' transposition and the scale it walks, to the ISR (which moves the notes sounding) */
 static void lx_post(void)
 {
@@ -311,36 +345,35 @@ static void seq_press(uint32_t l, uint32_t root, uint32_t f1, int on)
 static void latch_move(uint32_t l, int32_t d)
 {
     uint32_t k, m = scale_mask();
+    uint32_t latch[2] = {0, 0};
+    uint8_t note[NKEY], form[NKEY];
     if (!d)
         return;
-    uint32_t latch = 0;
-    uint8_t note[NKEY], form[NKEY];
     for (k = 0; k < NKEY; k++)
-        if ((ui.latch[l] >> k) & 1u) {
-            uint32_t was = ui.latch_note[l][k], now = lx_map(was, d, m), k2;
+        if (kb(ui.latch[l], k)) {
+            uint32_t was = ui.latch_note[l][k], now = lx_map(was, d, m);
+            int32_t k2 = (int32_t)k + d;         /* the key it stands on moves as the hand would: d keys along */
             chord_press(l, was, ui.latch_form[l][k], 0);
             chord_press(l, now, ui.latch_form[l][k], 1);
-            /* the key lit moves as the hand would: d white keys along, unless that is off the keyboard or taken */
-            for (k2 = 0; k2 < NKEY && white_ix(k2) != white_ix((uint32_t)k) + d; k2++)
-                ;
-            if (k2 == NKEY || ((latch >> k2) & 1u))
-                k2 = k;
-            if ((latch >> k2) & 1u)
-                for (k2 = 0; k2 < NKEY && (white_ix(k2) < 0 || ((latch >> k2) & 1u) || ((ui.latch[l] >> k2) & 1u && k2 != k)); k2++)
-                    ;                            /* (a free white key, should two meet at an edge) */
-            if (k2 < NKEY) {
-                latch |= 1u << k2;
+            if (k2 < 0 || k2 >= (int32_t)NKEY || kb(latch, (uint32_t)k2))
+                k2 = (int32_t)k;
+            if (kb(latch, (uint32_t)k2))
+                for (k2 = 0; k2 < (int32_t)NKEY && (kb(latch, (uint32_t)k2) || (kb(ui.latch[l], (uint32_t)k2) && k2 != (int32_t)k)); k2++)
+                    ;                            /* (a free key, should two meet at an edge) */
+            if (k2 < (int32_t)NKEY) {
+                kset(latch, (uint32_t)k2, 1);
                 note[k2] = (uint8_t)now;
                 form[k2] = ui.latch_form[l][k];
             }
         }
     for (k = 0; k < NKEY; k++)
-        if ((latch >> k) & 1u) {
+        if (kb(latch, k)) {
             ui.latch_note[l][k] = note[k];
             ui.latch_form[l][k] = form[k];
         } else
             ui.latch_form[l][k] = 0;
-    ui.latch[l] = latch;
+    ui.latch[l][0] = latch[0];
+    ui.latch[l][1] = latch[1];
 }
 
 #include "balls.c"                       /* (BALLSY, the physics sequencer: SHIFT + EDIT) */
@@ -695,7 +728,7 @@ static int32_t batt_raw;                         /* the battery's divider, smoot
 
 static void ui_input(void)
 {
-    uint32_t rel, press = fm1_input_edges(&rel), keys, ch, k, l;
+    uint32_t rel, press = fm1_input_edges(&rel), keys[2], ch[2], fk, fch, k, l;
     int32_t s;
     int sh;
     {   /* CPU1 retired as it plays (a fault, a stall, a misread): said, once */
@@ -732,7 +765,7 @@ static void ui_input(void)
         l = ui.trk_down - 1u;
         if (!btn_bit(fm1_in.buttons, LAYER_BTN[l]))
             ui.trk_down = 0;
-        else if ((fm1_in.notes >> KEY_SHIFT) & 1u)
+        else if (shift_held())
             ui.trk_done = 1;                     /* (with SHIFT: the track's transposition, never a copy) */
         else if (!ui.trk_done && (uint32_t)(fm1_ms - ui.trk_t0) >= 800u) {
             char n[12] = "TRACK ";
@@ -750,7 +783,7 @@ static void ui_input(void)
             }
         }
     }
-    if (btn_bit(press, B_SEQ) && (fm1_in.notes >> KEY_SHIFT) & 1u) {   /* SHIFT and SEQ: the chosen track's modulation
+    if (btn_bit(press, B_SEQ) && shift_held()) {   /* SHIFT and SEQ: the chosen track's modulation
                                                                          * thrown anew (both LFOs, the slots) */
         mod_random(ui.sel, next_seed());
         say("MOD RANDOM", 900);
@@ -775,7 +808,7 @@ static void ui_input(void)
         ui.sc_page = 0;
         ui.force = 1;
     }
-    if (btn_bit(press, B_ARP) && (fm1_in.notes >> KEY_SHIFT) & 1u) {   /* SHIFT and ARP: the presets, or back */
+    if (btn_bit(press, B_ARP) && shift_held()) {   /* SHIFT and ARP: the presets, or back */
         if (ui.pre_page)
             ui.pre_page = 0;
         else {
@@ -799,7 +832,7 @@ static void ui_input(void)
         ui.pre_page = ui.set_page = ui.mod_page = 0;
         ui.force = 1;
     }
-    if (btn_bit(press, B_SAVE) && (fm1_in.notes >> KEY_SHIFT) & 1u) {   /* SHIFT and SAVE: GLOBAL SETUP; in it, back */
+    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: GLOBAL SETUP; in it, back */
         if (ui.set_page)
             setup_press(1);
         else if (!ui.ses_page)
@@ -832,7 +865,7 @@ static void ui_input(void)
             save_long();
         }
     }
-    sh = (int)((fm1_in.notes >> KEY_SHIFT) & 1u);  /* (SHIFT read once: the knobs below all see the same) */
+    sh = shift_held();  /* (SHIFT read once: the knobs below all see the same) */
     if (sh && (s = enc_take(EN_K4)) != 0) {   /* SHIFT + KNOB 4: the track's delay send */
         ui.dsend[ui.sel] = (int8_t)clampi(ui.dsend[ui.sel] + 2 * s, 0, 100);
         level_pan_apply(ui.sel);
@@ -940,7 +973,7 @@ static void ui_input(void)
         }
     }
     if (btn_bit(press, B_HOME))                  /* a new sound; with SHIFT, of the same family */
-        new_sound((int)((fm1_in.notes >> KEY_SHIFT) & 1u));
+        new_sound(shift_held());
     if (ui.bl_page && bl.on[ui.sel] && btn_bit(press, B_REC)) {   /* BRICKLAYER's page: REC is its entry */
         if (sh) {                                /* SHIFT and REC: the last note out */
             if (bl.n[ui.sel])
@@ -1000,7 +1033,7 @@ static void ui_input(void)
         flash(d, "EMPTY", LAYER_COL[ui.sel]);
     }
     if (btn_bit(press, B_PLAY)) {
-        if ((fm1_in.notes >> KEY_SHIFT) & 1u) {  /* SHIFT and PLAY, any layer: every loop and sequencer stops if */
+        if (shift_held()) {  /* SHIFT and PLAY, any layer: every loop and sequencer stops if */
             uint32_t l, playing = 0, kept = 0;   /* one plays, else every one there is starts, together */
             for (l = 0; l < NLAYER; l++) {
                 playing |= loop[l].play || bl.run[l] || bb.run[l];
@@ -1042,6 +1075,7 @@ static void ui_input(void)
         s = enc_take(EN_ALGO);
         if (s) {
             ui.scale = (uint8_t)clampi((int32_t)ui.scale + s, 0, NSCALE - 1);
+            oct_fit();                           /* (the keybed's range: each track's octave still in it) */
             lx_post();                           /* (the loops moved walk the new scale) */
             ui.sc_touched = 1;
             ui.sc_touch_until = fm1_ms + 1500u;
@@ -1049,6 +1083,7 @@ static void ui_input(void)
         s = enc_take(EN_SELECT);
         if (s) {
             ui.root = (uint8_t)(((int32_t)ui.root + s % 12 + 12) % 12);   /* round the octave */
+            oct_fit();
             lx_post();
             ui.sc_touched = 0;
             ui.sc_touch_until = fm1_ms + 1500u;
@@ -1083,7 +1118,7 @@ static void ui_input(void)
         }
         say(m, 1200);
     }
-    if ((btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) && (fm1_in.notes >> KEY_SHIFT) & 1u) {
+    if ((btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) && shift_held()) {
         char m[16] = "TRANSP ";                  /* SHIFT and OCT: every loop a step of the scale down or up; */
         int32_t lim = 2 * SCALE_N[ui.scale], t = -1, x;   /* a track's button held too: that track's loops only */
         for (l = 0; l < NLAYER; l++)
@@ -1111,8 +1146,10 @@ static void ui_input(void)
         say(m, 1200);
     } else if (btn_bit(press, B_OCTDN) || btn_bit(press, B_OCTUP)) {
         char m[8] = "OCT  ";
-        int32_t o = clampi(ui.oct[ui.sel] + (btn_bit(press, B_OCTUP) ? 1 : -1), -3, 3);
-        ui.oct[ui.sel] = (int8_t)o;
+        int32_t o = ui.oct[ui.sel] + (btn_bit(press, B_OCTUP) ? 1 : -1);
+        if (oct_ok(o))                           /* (as far as every key of the 37 stays in range) */
+            ui.oct[ui.sel] = (int8_t)o;
+        o = ui.oct[ui.sel];
         m[4] = o < 0 ? '-' : o > 0 ? '+' : ' ';
         m[5] = (char)('0' + (o < 0 ? -o : o));
         m[6] = 0;
@@ -1158,47 +1195,47 @@ static void ui_input(void)
             mac_apply(ui.sel);
         }
     }
-    keys = fm1_in.notes;
-    ch = keys ^ ui.keys;
+    fk = fn_keys();                              /* (the FM-1's black-key functions: no control yet, fn_keys) */
+    fch = fk ^ ui.fkeys;
     if (ui.bl_page && bl.on[ui.sel]) {           /* BRICKLAYER's page: the same keys, its own direction and speed */
         uint32_t l = ui.sel;
-        if ((ch & keys) >> KEY_REV & 1u || (ch & keys) >> KEY_PEND & 1u || (ch & keys) >> KEY_RAND & 1u) {
-            uint32_t want = (ch & keys) >> KEY_REV & 1u ? LD_REV : (ch & keys) >> KEY_PEND & 1u ? LD_PEND : LD_RAND;
+        if ((fch & fk) >> FN_REV & 1u || (fch & fk) >> FN_PEND & 1u || (fch & fk) >> FN_RAND & 1u) {
+            uint32_t want = (fch & fk) >> FN_REV & 1u ? LD_REV : (fch & fk) >> FN_PEND & 1u ? LD_PEND : LD_RAND;
             bl.dir[l] = (uint8_t)(bl.dir[l] == want ? LD_FWD : want);
             say(bl.dir[l] == LD_REV ? "REVERSE" : bl.dir[l] == LD_PEND ? "PENDULUM" : bl.dir[l] == LD_RAND ? "RANDOM" : "FORWARD", 1200);
         }
-        if ((ch & keys) >> KEY_HALF & 1u || (ch & keys) >> KEY_DOUBLE & 1u) {
-            uint32_t want = (ch & keys) >> KEY_HALF & 1u ? LS_HALF : LS_DOUBLE;
+        if ((fch & fk) >> FN_HALF & 1u || (fch & fk) >> FN_DOUBLE & 1u) {
+            uint32_t want = (fch & fk) >> FN_HALF & 1u ? LS_HALF : LS_DOUBLE;
             bl.spd[l] = (uint8_t)(bl.spd[l] == want ? LS_NORMAL : want);
             say(bl.spd[l] == LS_HALF ? "HALF SPEED" : bl.spd[l] == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
     } else {   /* the chosen track's loops: backwards or PENDULUM (or forwards again); half or double speed (or normal) */
         const looper_t *p = &loop[ui.sel];
-        if ((ch & keys) >> KEY_REV & 1u || (ch & keys) >> KEY_PEND & 1u || (ch & keys) >> KEY_RAND & 1u) {
-            uint32_t want = (ch & keys) >> KEY_REV & 1u ? LD_REV : (ch & keys) >> KEY_PEND & 1u ? LD_PEND : LD_RAND;
+        if ((fch & fk) >> FN_REV & 1u || (fch & fk) >> FN_PEND & 1u || (fch & fk) >> FN_RAND & 1u) {
+            uint32_t want = (fch & fk) >> FN_REV & 1u ? LD_REV : (fch & fk) >> FN_PEND & 1u ? LD_PEND : LD_RAND;
             want = p->dmode == want ? LD_FWD : want;
             ev_post(EV_LOOP_MODE, ui.sel, 0, want);
             say(want == LD_REV ? "REVERSE" : want == LD_PEND ? "PENDULUM" : want == LD_RAND ? "RANDOM" : "FORWARD", 1200);
         }
-        if ((ch & keys) >> KEY_HALF & 1u || (ch & keys) >> KEY_DOUBLE & 1u) {
-            uint32_t want = (ch & keys) >> KEY_HALF & 1u ? LS_HALF : LS_DOUBLE;
+        if ((fch & fk) >> FN_HALF & 1u || (fch & fk) >> FN_DOUBLE & 1u) {
+            uint32_t want = (fch & fk) >> FN_HALF & 1u ? LS_HALF : LS_DOUBLE;
             want = p->rate == want ? LS_NORMAL : want;
             ev_post(EV_LOOP_MODE, ui.sel, 1, want);
             say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
     }
-    if ((ch & keys) >> KEY_CHORD & 1u) {         /* the chord key: held, chord mode on or off; pressed, the next form */
+    if ((fch & fk) >> FN_CHORD & 1u) {         /* the chord key: held, chord mode on or off; pressed, the next form */
         ui.cho_down = 1;
         ui.cho_done = 0;
         ui.cho_t0 = fm1_ms;
     }
-    if (ui.cho_down && (keys >> KEY_CHORD & 1u) && !ui.cho_done && (uint32_t)(fm1_ms - ui.cho_t0) >= 600u) {
+    if (ui.cho_down && (fk >> FN_CHORD & 1u) && !ui.cho_done && (uint32_t)(fm1_ms - ui.cho_t0) >= 600u) {
         ui.cho_done = 1;
         ui.chord_on[ui.sel] = (uint8_t)!ui.chord_on[ui.sel];
         say(ui.chord_on[ui.sel] ? "CHORDS" : "CHORDS OFF", 1200);
         ui.force = 1;
     }
-    if (ui.cho_down && !(keys >> KEY_CHORD & 1u)) {
+    if (ui.cho_down && !(fk >> FN_CHORD & 1u)) {
         ui.cho_down = 0;
         if (!ui.cho_done) {
             if (ui.chord_on[ui.sel]) {
@@ -1209,11 +1246,11 @@ static void ui_input(void)
                 say("CHORDS OFF", 900);
         }
     }
-    if ((ch & keys) >> KEY_ENV & 1u) {           /* with SHIFT: BRICKLAYER on (its page up) or off */
-        if (((keys >> KEY_SHIFT) & 1u) && !bl.on[ui.sel] && bb.on[ui.sel]) {
+    if ((fch & fk) >> FN_ENV & 1u) {           /* with SHIFT: BRICKLAYER on (its page up) or off */
+        if (shift_held() && !bl.on[ui.sel] && bb.on[ui.sel]) {
             say("NOT ALLOWED", 1200);             /* (one sequencer a track: BALLSY there) */
             ui.env_down = 0;
-        } else if ((keys >> KEY_SHIFT) & 1u) {
+        } else if (shift_held()) {
             bl_toggle(ui.sel);
             ui.bl_page = bl.on[ui.sel];
             if (ui.bl_page)
@@ -1227,7 +1264,7 @@ static void ui_input(void)
             ui.env_t0 = fm1_ms;
         }
     }
-    if (ui.env_down && (keys >> KEY_ENV & 1u) && !ui.env_done && bl.on[ui.sel] &&
+    if (ui.env_down && (fk >> FN_ENV & 1u) && !ui.env_done && bl.on[ui.sel] &&
         (uint32_t)(fm1_ms - ui.env_t0) >= 600u) {   /* held, BRICKLAYER running: its page up or down */
         ui.env_done = 1;
         ui.bl_page = (uint8_t)!ui.bl_page;
@@ -1235,7 +1272,7 @@ static void ui_input(void)
             ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bb_page = 0;
         ui.force = 1;
     }
-    if (ui.env_down && !(keys >> KEY_ENV & 1u)) {   /* let go soon: the ENVELOPE page up or down */
+    if (ui.env_down && !(fk >> FN_ENV & 1u)) {   /* let go soon: the ENVELOPE page up or down */
         ui.env_down = 0;
         if (!ui.env_done) {
             ui.env_page = (uint8_t)!ui.env_page;
@@ -1243,11 +1280,11 @@ static void ui_input(void)
             ui.force = 1;
         }
     }
-    if ((ch & keys) >> KEY_EDIT & 1u) {          /* with SHIFT: the chosen track's balls on (their page up) or off */
-        if (((keys >> KEY_SHIFT) & 1u) && !bb.on[ui.sel] && bl.on[ui.sel]) {
+    if ((fch & fk) >> FN_EDIT & 1u) {          /* with SHIFT: the chosen track's balls on (their page up) or off */
+        if (shift_held() && !bb.on[ui.sel] && bl.on[ui.sel]) {
             say("NOT ALLOWED", 1200);             /* (one sequencer a track: BRICKLAYER there) */
             ui.edit_down = 0;
-        } else if ((keys >> KEY_SHIFT) & 1u) {
+        } else if (shift_held()) {
             bb_toggle(ui.sel);
             ui.bb_page = bb.on[ui.sel];
             if (ui.bb_page)
@@ -1261,7 +1298,7 @@ static void ui_input(void)
             ui.edit_t0 = fm1_ms;
         }
     }
-    if (ui.edit_down && (keys >> KEY_EDIT & 1u) && !ui.edit_done && bb.on[ui.sel] &&
+    if (ui.edit_down && (fk >> FN_EDIT & 1u) && !ui.edit_done && bb.on[ui.sel] &&
         (uint32_t)(fm1_ms - ui.edit_t0) >= 600u) {   /* held, the balls running: their page up or down */
         ui.edit_done = 1;
         ui.bb_page = (uint8_t)!ui.bb_page;
@@ -1269,61 +1306,64 @@ static void ui_input(void)
             ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bl_page = 0;
         ui.force = 1;
     }
-    if (ui.edit_down && !(keys >> KEY_EDIT & 1u)) {   /* let go soon: EDIT on or off */
+    if (ui.edit_down && !(fk >> FN_EDIT & 1u)) {   /* let go soon: EDIT on or off */
         ui.edit_down = 0;
         if (!ui.edit_done) {
             ui.edit = (uint8_t)!ui.edit;
             say(ui.edit ? "EDIT" : "EDIT OFF", 900);
         }
     }
-    for (k = KEY_AMB; k <= KEY_EXP; k += KEY_EXP - KEY_AMB)
-        if ((ch & keys) >> k & 1u) {              /* a path for the layer chosen: its next sounds lean to it */
-            uint32_t pa = k == KEY_AMB ? PATH_AMBIENT : PATH_EXP;
+    for (k = FN_AMB; k <= FN_EXP; k++)
+        if ((fch & fk) >> k & 1u) {               /* a path for the layer chosen: its next sounds lean to it */
+            uint32_t pa = k == FN_AMB ? PATH_AMBIENT : PATH_EXP;
             ui.path[ui.sel] = (uint8_t)(ui.path[ui.sel] == pa ? PATH_OPEN : pa);
             say(ui.path[ui.sel] == PATH_AMBIENT ? "AMBIENT" : ui.path[ui.sel] == PATH_EXP ? "EXPERIMENTAL" : "OPEN", 1200);
         }
-    if ((ch & keys) >> KEY_SHIFT & 1u) {         /* SHIFT pressed: the keys held latch, on the layer they play */
+    ui.fkeys = fk;
+    keys[0] = fm1_in.keyw[0];
+    keys[1] = fm1_in.keyw[1];
+    ch[0] = keys[0] ^ ui.keys[0];
+    ch[1] = keys[1] ^ ui.keys[1];
+    if ((press >> SMK_BTN_KNOB_BANK) & 1u) {    /* SHIFT pressed: the keys held latch, on the layer they play */
         for (k = 0; k < NKEY; k++)
-            if (((ui.keys & keys) >> k & 1u) && white_ix(k) >= 0 && ui.key_layer[k] != KEY_NONE) {
+            if (kb(ui.keys, k) && kb(keys, k) && ui.key_layer[k] != KEY_NONE) {
                 uint32_t l = ui.key_layer[k];
-                ui.latch[l] |= 1u << k;
+                kset(ui.latch[l], k, 1);
                 ui.latch_note[l][k] = ui.key_note[k];
                 ui.latch_form[l][k] = ui.key_form[k];
                 ui.key_layer[k] = KEY_NONE;     /* (letting go of the key no longer ends it) */
             }
     }
-    for (k = 0; ch && k < NKEY; k++) {
-        if (!((ch >> k) & 1u))
+    for (k = 0; (ch[0] | ch[1]) && k < NKEY; k++) {
+        if (!kb(ch, k))
             continue;
-        if (white_ix(k) < 0)
-            continue;                            /* the black keys: no notes */
-        if (((keys >> k) & 1u) && ui.ovd) {      /* PLAY held: white key w, loop w in or out */
-            uint32_t w = (uint32_t)white_ix(k);
+        if (kb(keys, k) && ui.ovd) {             /* PLAY held: white key w (from C3), loop w in or out */
+            int32_t w = white_ix(k);
             const looper_t *p = &loop[ui.sel];
             ui.key_layer[k] = KEY_NONE;
-            if (w < p->ntrk)
-                ev_post(EV_LOOP_TRK, ui.sel, w, (p->mute >> w) & 1u);
+            if (w >= 0 && (uint32_t)w < p->ntrk)
+                ev_post(EV_LOOP_TRK, ui.sel, (uint32_t)w, (p->mute >> w) & 1u);
             ui.force = 1;
-        } else if (((keys >> k) & 1u) && ui.bl_page && bl.on[ui.sel] && bl.rec[ui.sel] && ((keys >> KEY_SHIFT) & 1u)) {
-            bl_remove(ui.sel, white_ix(k), ui.oct[ui.sel]);   /* BRICKLAYER, entry on: SHIFT + a key takes it out */
+        } else if (kb(keys, k) && ui.bl_page && bl.on[ui.sel] && bl.rec[ui.sel] && shift_held()) {
+            bl_remove(ui.sel, (int32_t)k, oct_eff(ui.sel));   /* BRICKLAYER, entry on: SHIFT + a key takes it out */
             ui.key_layer[k] = KEY_NONE;
             ui.force = 1;
-        } else if ((keys >> k) & 1u) {
+        } else if (kb(keys, k)) {
             /* (moved as the track's loops are -- all of them, and its own -- so what is added fits them) */
+            uint32_t note = key_note_of(k, ui.sel), vel = fm1_in.key_vel[k];
             if (ui.bl_page && bl.on[ui.sel] && bl.rec[ui.sel]) {   /* BRICKLAYER, entry on: the key's note added */
-                bl_add(ui.sel, white_ix(k), ui.oct[ui.sel]);
+                bl_add(ui.sel, (int32_t)k, oct_eff(ui.sel));
                 ui.force = 1;
             }
-            uint32_t note = scale_note(white_ix(k) + ui.lx + ui.lxt[ui.sel], ui.oct[ui.sel]), bit = 1u << k;
             ui.key_layer[k] = KEY_NONE;
-            if (ui.latch[ui.sel] & bit) {        /* a latched key: SHIFT held lets go of it; alone, nothing */
-                if ((keys >> KEY_SHIFT) & 1u) {
-                    ui.latch[ui.sel] &= ~bit;
+            if (kb(ui.latch[ui.sel], k)) {       /* a latched key: SHIFT held lets go of it; alone, nothing */
+                if (shift_held()) {
+                    kset(ui.latch[ui.sel], k, 0);
                     chord_press(ui.sel, ui.latch_note[ui.sel][k], ui.latch_form[ui.sel][k], 0);
                     ui.latch_form[ui.sel][k] = 0;
                 }
             } else {
-                uint32_t f1 = ui.chord_on[ui.sel] ? ui.chord_form[ui.sel] + 1u : 0u, j;
+                uint32_t f1 = ui.chord_on[ui.sel] ? ui.chord_form[ui.sel] + 1u : 0u, j, pv = press_vel;
                 if (f1)                          /* (chords: one at a time on a track -- the one before let go) */
                     for (j = 0; j < NKEY; j++)
                         if (j != k && ui.key_layer[j] == ui.sel && ui.key_form[j]) {
@@ -1333,27 +1373,43 @@ static void ui_input(void)
                 ui.key_layer[k] = ui.sel;
                 ui.key_note[k] = (uint8_t)note;
                 ui.key_form[k] = (uint8_t)f1;
+                press_vel = (uint8_t)(vel && vel < 127u ? vel : 0u);   /* the key's velocity (0: full) */
                 chord_press(ui.sel, note, f1, 1);
+                press_vel = (uint8_t)pv;
             }
         } else if (ui.key_layer[k] != KEY_NONE)
             chord_press(ui.key_layer[k], ui.key_note[k], ui.key_form[k], 0);
     }
-    ui.keys = keys;
+    ui.keys[0] = keys[0];
+    ui.keys[1] = keys[1];
     midi_take();
 }
 
 /* ---------------------------------------------------------------- LEDs --- */
-/* The SMK-37 has no LEDs under its keys, and its button LEDs are on / off: the FM-1's key lights are kept here,
- * bit k = key k (key_lit: lit, key_glow: the glow), for the pads to show; the tracks' glow while they sound has no
- * light yet */
-static uint32_t key_lit, key_glow;
-static void key_led(uint32_t k, int on)
+/* The SMK-37 has no LEDs under its keys: what the FM-1's key lights showed is kept here -- the keys held and latched
+ * on the chosen track (key_lit, kb), the functions' states (fn_lit: lit, fn_glow: the glow, bit FN_x) -- for the
+ * bottom row of pads to show, later */
+static uint32_t key_lit[2], fn_lit, fn_glow;
+static void fn_led(uint32_t f, int on) { fn_lit = on ? fn_lit | 1u << f : fn_lit & ~(1u << f); }
+static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_glow & ~(1u << f); }
+/* the top row of pads: the six tracks, each in its colour -- the chosen one full, the others dim (on the clipboard:
+ * blinking); the two to the right and the bottom row dark */
+static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
-    key_lit = on ? key_lit | 1u << k : key_lit & ~(1u << k);
+    uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
+    padled_set(pad, (uint8_t)(r * lv >> 8), (uint8_t)(g * lv >> 8), (uint8_t)(b * lv >> 8));
 }
-static void key_dim(uint32_t k, int on)
+#define PAD_DIM 16u                      /* the tracks not chosen: 1/16 */
+static void pads_show(void)
 {
-    key_glow = on ? key_glow | 1u << k : key_glow & ~(1u << k);
+    uint32_t p;
+    for (p = 0; p < 16u; p++) {
+        if (p < NLAYER) {
+            int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
+            pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
+        } else
+            padled_set(p, 0, 0, 0);
+    }
 }
 static void ui_leds(void)
 {
@@ -1377,42 +1433,42 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct[ui.sel] < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct[ui.sel] > 0);
+    pads_show();
+    fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */
-            key_led(k, w >= 0 && (uint32_t)w < loop[ui.sel].ntrk && !((loop[ui.sel].mute >> w) & 1u));
+            kset(key_lit, k, w >= 0 && (uint32_t)w < loop[ui.sel].ntrk && !((loop[ui.sel].mute >> w) & 1u));
         else
-            key_led(k, w >= 0 && ((((ui.keys >> k) & 1u) && ui.key_layer[k] == ui.sel) ||
-                                            ((ui.latch[ui.sel] >> k) & 1u)));
+            kset(key_lit, k, (kb(ui.keys, k) && ui.key_layer[k] == ui.sel) || kb(ui.latch[ui.sel], k));
     }
-    key_led(KEY_SHIFT, (ui.keys >> KEY_SHIFT) & 1u);
-    key_led(KEY_AMB, ui.path[ui.sel] == PATH_AMBIENT);
-    key_led(KEY_EXP, ui.path[ui.sel] == PATH_EXP);
-    key_led(KEY_EDIT, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (the balls: it blinks) */
+    fn_led(FN_AMB, ui.path[ui.sel] == PATH_AMBIENT);
+    fn_led(FN_EXP, ui.path[ui.sel] == PATH_EXP);
+    fn_led(FN_EDIT, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (the balls: it blinks) */
     {   /* the loops' direction and speed: shown only while the chosen track's loops play (PLAY lit) -- lit when
          * on, a glow when off; stopped, dark (they still answer) */
         const looper_t *lp = &loop[ui.sel];
         int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own, while it runs) */
         int on = blp || (lp->play && lp->ntrk);
         uint32_t dm = blp ? bl.dir[ui.sel] : lp->dmode, rt = blp ? bl.spd[ui.sel] : lp->rate;
-        key_led(KEY_REV, on && dm == LD_REV);
-        key_led(KEY_PEND, on && dm == LD_PEND);
-        key_led(KEY_RAND, on && dm == LD_RAND);
-        key_led(KEY_HALF, on && rt == LS_HALF);
-        key_led(KEY_DOUBLE, on && rt == LS_DOUBLE);
-        key_dim(KEY_REV, on);
-        key_dim(KEY_PEND, on);
-        key_dim(KEY_RAND, on);
-        key_dim(KEY_HALF, on);
-        key_dim(KEY_DOUBLE, on);
+        fn_led(FN_REV, on && dm == LD_REV);
+        fn_led(FN_PEND, on && dm == LD_PEND);
+        fn_led(FN_RAND, on && dm == LD_RAND);
+        fn_led(FN_HALF, on && rt == LS_HALF);
+        fn_led(FN_DOUBLE, on && rt == LS_DOUBLE);
+        fn_dim(FN_REV, on);
+        fn_dim(FN_PEND, on);
+        fn_dim(FN_RAND, on);
+        fn_dim(FN_HALF, on);
+        fn_dim(FN_DOUBLE, on);
     }
-    key_dim(KEY_AMB, 1);               /* (the others with a function glow while off; SHIFT does not) */
-    key_dim(KEY_EXP, 1);
-    key_dim(KEY_EDIT, 1);
-    key_dim(KEY_CHORD, 1);
-    key_dim(KEY_ENV, 1);
-    key_led(KEY_ENV, bl.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.env_page);   /* (BRICKLAYER: it blinks) */
-    key_led(KEY_CHORD, ui.chord_on[ui.sel]);
+    fn_dim(FN_AMB, 1);               /* (the others with a function glow while off; SHIFT does not) */
+    fn_dim(FN_EXP, 1);
+    fn_dim(FN_EDIT, 1);
+    fn_dim(FN_CHORD, 1);
+    fn_dim(FN_ENV, 1);
+    fn_led(FN_ENV, bl.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.env_page);   /* (BRICKLAYER: it blinks) */
+    fn_led(FN_CHORD, ui.chord_on[ui.sel]);
 }
 
 /* -------------------------------------------------------------- screen --- */
@@ -1456,7 +1512,7 @@ static int32_t draw_batt(int32_t x, int32_t y)   /* (right edge x): the octave's
 }
 static int32_t top_key(void)                     /* (what the top corners show: drawn again when it changes) */
 {
-    return (ui.oct[ui.sel] + 3) * 100 + (batt_key() + 1) * 10 + (int32_t)(ui.vary_shown ? ui.vary_shown - 1u : loop[ui.sel].vary);
+    return (ui.oct[ui.sel] + 10) * 100 + (batt_key() + 1) * 10 + (int32_t)(ui.vary_shown ? ui.vary_shown - 1u : loop[ui.sel].vary);
 }
 static void draw_number(void)
 {

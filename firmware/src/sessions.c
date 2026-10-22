@@ -23,13 +23,13 @@
 #define SES_SECT 4096u
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x31534341u    /* "ACS1" */
-#define SES_FORMAT 24u           /* 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
+#define SES_FORMAT 25u           /* 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
                                   * the latched notes; 7: the loops held out; 6: the macros; 5: the generations; 4: the paths; 3: a CALIGULA design a layer; 2: up to ten loops
                                   * a layer (1: one) */
 #define SES_MAX 40u              /* records in the list (one a sector at most) */
 #define SES_SLOTS 64u            /* the slots: sessions 1 .. 64 */
 /* the largest session: the head, the globals, six layers with their sounds and full loopers (~54 KiB) */
-#define SES_BUF (32u + 8u + NLAYER * (16u + NENG * NMAC + 2u + 36u + sizeof(fm_patch_t) + sizeof(an_design_t) + sizeof(cal_design_t) + \
+#define SES_BUF (32u + 8u + NLAYER * (16u + NENG * NMAC + 2u + 52u + sizeof(fm_patch_t) + sizeof(an_design_t) + sizeof(cal_design_t) + \
                                       sizeof(rus_design_t) + sizeof(dr_design_t) + sizeof(ba_design_t) + sizeof(hv_design_t) + \
                                       8u * LOOP_TRK + 4u * LOOP_N) + 4u + NLAYER + NLAYER * (2u + NKEY))
 
@@ -364,13 +364,12 @@ static void ses_emit(void)
         ses_out(ui.mac[l], NENG * NMAC);         /* (format 6: EDIT's macros on each of its sounds) */
         {
             uint16_t mu = lp->mute;                     /* (format 7: the loops held out) */
-            uint8_t ln[28];
+            uint8_t ln[NKEY + 1u];
             ses_out(&mu, 2u);
             ses_out(&gran[l].seed, 4u);                 /* (format 8: the granulator's character, the latches) */
-            ses_out(&ui.latch[l], 4u);
-            memset(ln, 0, sizeof ln);
+            ses_out(ui.latch[l], 8u);                   /* (format 25: 37 keys, two words) */
             memcpy(ln, ui.latch_note[l], NKEY);
-            ln[27] = (uint8_t)ui.lxt[l];               /* (format 11: the track's own transposition, in the spare byte) */
+            ln[NKEY] = (uint8_t)ui.lxt[l];             /* (format 11: the track's own transposition, after them) */
             ses_out(ln, sizeof ln);
         }
         /* the sounds: the engine in use in full; the other two as the seed that made them, their level and
@@ -782,7 +781,7 @@ static void ses_fresh(uint32_t num)
 {
     uint32_t l, k;
     for (l = 0; l < NLAYER; l++) {
-        ui.latch[l] = 0;
+        ui.latch[l][0] = ui.latch[l][1] = 0;
         ev_post(EV_STOP, l, 0, 0);
         ev_post(EV_LOOP_CLEAR, l, 0, 0);
     }
@@ -961,7 +960,7 @@ static void clip_paste(uint32_t l)
 {
     looper_t *lp = &loop[l];
     uint32_t fk, ak, ck, rk, dk, bk, hk, k;
-    ui.latch[l] = 0;                                    /* silence there, its loops emptied, its latches let go */
+    ui.latch[l][0] = ui.latch[l][1] = 0;                /* silence there, its loops emptied, its latches let go */
     ev_post(EV_STOP, l, 0, 0);
     ev_post(EV_LOOP_CLEAR, l, 0, 0);
     ses_events_drain();
@@ -1094,7 +1093,7 @@ static int ses_load(uint32_t i)
     if (ss.crc != h.body_crc)
         return SES_FAIL;
     for (l = 0; l < NLAYER; l++) {                      /* silence, the loops emptied, the latches let go */
-        ui.latch[l] = 0;
+        ui.latch[l][0] = ui.latch[l][1] = 0;
         ev_post(EV_STOP, l, 0, 0);
         ev_post(EV_LOOP_CLEAR, l, 0, 0);
     }
@@ -1131,15 +1130,23 @@ static int ses_load(uint32_t i)
             lp->mute = (uint16_t)(mu & 0x3FFu);
         }
         gseed = ui.seed = ui.seed * 1664525u + 1013904223u + fm1_ticks();   /* (before format 8: a new character) */
-        ui.latch[l] = 0;
+        ui.latch[l][0] = ui.latch[l][1] = 0;
         ui.lxt[l] = 0;
-        if (h.format >= 8u) {
-            uint8_t ln[28];
+        if (h.format >= 25u) {                          /* (the SMK-37's 37 keys) */
+            uint8_t ln[NKEY + 1u];
             ses_in(&gseed, 4u);
-            ses_in(&ui.latch[l], 4u);
+            ses_in(ui.latch[l], 8u);
             ses_in(ln, sizeof ln);
             memcpy(ui.latch_note[l], ln, NKEY);
-            ui.latch[l] &= (1u << NKEY) - 1u;
+            ui.latch[l][1] &= (1u << (NKEY - 32u)) - 1u;
+            ui.lxt[l] = (int8_t)clampi((int8_t)ln[NKEY], -24, 24);
+        } else if (h.format >= 8u) {                    /* (the FM-1's 27 keys: their latches let go -- the keys
+                                                         * play other notes here) */
+            uint8_t ln[28];
+            uint32_t old;
+            ses_in(&gseed, 4u);
+            ses_in(&old, 4u);
+            ses_in(ln, sizeof ln);
             if (h.format >= 11u)                        /* (the track's own transposition) */
                 ui.lxt[l] = (int8_t)clampi((int8_t)ln[27], -14, 14);
         }
@@ -1148,7 +1155,8 @@ static int ses_load(uint32_t i)
         if ((h.format < 9u && ui.engine[l] == ENG_RUS) || (h.format < 17u && ui.engine[l] == ENG_DRUID) ||
             (h.format < 19u && ui.engine[l] == ENG_BAY) || (h.format < 21u && ui.engine[l] == ENG_HIVE))
             ui.engine[l] = 0;
-        ui.oct[l] = (int8_t)clampi(y.oct, -3, 3);
+        ui.oct[l] = (int8_t)clampi(y.oct, -6, 6);
+        oct_fit();                                      /* (in the keybed's range for the scale read above) */
         ui.level[l] = (int8_t)clampi(y.level, 0, LEVEL_MAX);
         ui.pan[l] = (int8_t)clampi(y.pan, -PAN_MAX, PAN_MAX);
         ui.send[l] = (int8_t)clampi(y.send, 0, 100);
@@ -1298,7 +1306,7 @@ static int ses_load(uint32_t i)
         ev_post(EV_ENGINE, l, 0, ui.engine[l]);
         mac_apply(l);
         for (k = 0; k < NKEY; k++)                      /* the latched notes, sounding again (with the new sound) */
-            if ((ui.latch[l] >> k) & 1u)
+            if (kb(ui.latch[l], k))
                 ev_post(EV_ON, l, ui.latch_note[l][k], 0);
         /* the loops: into the emptied looper (the ISR leaves an empty one alone), then set going */
         {
@@ -1367,12 +1375,17 @@ static int ses_load(uint32_t i)
         ses_in(ui.chord_on, NLAYER);
         ses_in(ui.chord_form, NLAYER);
         for (l = 0; l < NLAYER; l++) {
-            ses_in(ui.latch_form[l], NKEY);
+            if (h.format >= 25u)
+                ses_in(ui.latch_form[l], NKEY);
+            else {
+                uint8_t old[27];                        /* (the FM-1's 27 keys: let go, as their latches) */
+                ses_in(old, sizeof old);
+            }
             ui.chord_on[l] = (uint8_t)(ui.chord_on[l] != 0);
             ui.chord_form[l] = (uint8_t)(ui.chord_form[l] % CH_N);
             for (k = 0; k < NKEY; k++) {
                 ui.latch_form[l][k] = (uint8_t)(ui.latch_form[l][k] <= CH_N ? ui.latch_form[l][k] : 0u);
-                if (((ui.latch[l] >> k) & 1u) && ui.latch_form[l][k]) {   /* (a latched chord: its root sounds
+                if (kb(ui.latch[l], k) && ui.latch_form[l][k]) {   /* (a latched chord: its root sounds
                                                                           * already -- the chord instead) */
                     note_release(l, ui.latch_note[l][k]);
                     chord_press(l, ui.latch_note[l][k], ui.latch_form[l][k], 1);

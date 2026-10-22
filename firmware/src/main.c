@@ -533,7 +533,7 @@ static void fm1_main(void)
         }
 #endif
         {   /* nothing sounding, no key down, no loop going: the sessions' flash may be blanked a sector */
-            uint32_t l, quiet = !ui.keys && !ui.save_down;
+            uint32_t l, quiet = !(ui.keys[0] | ui.keys[1]) && !ui.save_down;
             for (l = 0; l < NLAYER && quiet; l++)
                 quiet = !layer_sounding(l) && !loop[l].play && loop[l].rec != LR_REC;
             ses_idle((int)quiet);

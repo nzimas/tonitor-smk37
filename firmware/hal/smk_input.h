@@ -4,7 +4,7 @@
  * (Tonitor: taken from genkigenki/Felucca, branch smk37, commit b67312c.) */
 /* SMK-37 Pro input HAL: velocity keybed, buttons, encoders, button LEDs, pads, faders, wheels.
  * The FM-1 counterpart is fm1_input.h + fm1_adc.h; this header keeps their API (fm1_in, fm1_input_init,
- * fm1_input_tick, fm1_input_scan, fm1_enc_take, fm1_input_edges, fm1_input_note_edges, fm1_led_key) so
+ * fm1_input_tick, fm1_input_scan, fm1_enc_take, fm1_input_edges, fm1_led_key) so
  * the UI code compiles unchanged, and adds the SMK's extras (velocity, pads, faders, wheels).
  * Hardware (stock v016; hardware notes: https://github.com/genkigenki/fm1-to-smk37):
  *
@@ -53,7 +53,6 @@
 #define FM1_NENC 8u
 #define SMK_NPAD 16u
 #define SMK_NLED 19u
-#define SMK_KEY_F3 5u             /* keybed key 5 = F3: keys 5..31 are the FM-1's 27 note keys (bits 0..26) */
 #define SMK_DEB_RELEASE 4u        /* frames open in a row: a button release (~6 ms) */
 #define SMK_DEB_PRESS 2u          /* frames closed in a row: a button press (~3 ms) */
 #define SMK_KEY_REL 3u            /* frames with contact 1 open: a key release (~5 ms) */
@@ -93,18 +92,10 @@ static const uint8_t SMK_PADMUX[8] = {1, 2, 3, 0, 4, 7, 5, 6};
 /* mux C (ch2): address 0..3 -> fader 1,2,3,0; 4, 5 wheels; 6 pedal; 7 battery */
 static const uint8_t SMK_FADMUX[4] = {1, 2, 3, 0};
 enum { SMK_ADC_PADA = 1, SMK_ADC_PADB = 8, SMK_ADC_MUXC = 2 };
-/* the pads are the 16 white keys of the FM-1's 27 (F3 G3 A3 B3 C4 D4 E4 F4 G4 A4 B4 C5 D5 E5 F5 G5): the step
- * grid, the drum sounds and every layer's tiles land on them, low notes at the bottom: the bottom row
- * (hardware pads 8..15, mux B; padtest on a unit, 2026-10-10) white keys 0..7, the top row (pads 0..7, mux A) 8..15 */
-static const uint8_t SMK_WHITE_NOTE[SMK_NPAD] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
-static volatile uint8_t smk_pad_grid;   /* set by the UI: pads as a step grid, white key w on pad w (1-8 top row) */
-#define SMK_PAD_OF_WHITE(w) (smk_pad_grid ? (w) : (w) < 8u ? (w) + 8u : (w) - 8u)   /* white key 0..15 -> hardware pad */
-/* the piano layout (the UI sets smk_pad_piano, e.g. for SCALE): top row C4 D4 E4 F4 G4 A4 B4 C5, bottom row the
- * black keys between them (C#4 D#4 - F#4 G#4 A#4 - C#5); note-key index (0 = F3) by hardware pad, -1 = none */
-static const int8_t SMK_PIANO_NOTE[SMK_NPAD] = {7, 9, 11, 12, 14, 16, 18, 19, 8, 10, -1, 13, 15, 17, -1, 20};
-static volatile uint8_t smk_pad_piano;
-static uint8_t smk_pad_note[SMK_NPAD];   /* the note key a pad pressed (+1; 0 = none): its release ends that one */
-#define SMK_WHITE_OF_PAD(p) (smk_pad_grid ? (p) : (p) < 8u ? (p) + 8u : (p) - 8u)
+/* TONITOR: the top row of pads (hardware pads 0..7) are buttons: pad p is button SMK_PADBTN0 + p in fm1_in.buttons,
+ * with its edges (a hit's velocity in pad_vel); the bottom row (8..15) reports its pressure only, for now */
+#define SMK_PADBTN0 24u
+static uint8_t smk_pad_on[SMK_NPAD];
 
 #define SMK_TRIM_FLASH 0xC1000u   /* USRTRIM: the factory calibration record ("trimdat"), never written here */
 /* 5-point velocity curves (trimdata, flash 0xC1000: +0x08 16 pads x 5 u16, +0xA8 37 keys x 5 u16) */
@@ -112,13 +103,12 @@ static uint16_t smk_trim_pad[SMK_NPAD][5], smk_trim_key[FM1_NKEY][5];
 
 /* ------------------------------------------------------------------ state --- */
 static volatile struct {
-    uint32_t notes;              /* bit n = note key n (0 = F3 .. 26 = G5): keybed keys 5..31 | the pads */
-    uint32_t knotes, pnotes;     /* (the two sources of notes: keybed keys 5..31, pads as white keys) */
-    uint32_t buttons;            /* debounced: bit i = button i (0..17) */
+    uint32_t buttons;            /* debounced: bit i = button i (0..17); the top row of pads: SMK_PADBTN0 + 0..7 */
     uint32_t pressed, released;  /* button edges since the last fm1_input_edges() */
-    uint32_t notes_pressed;      /* note-key press edges since the last fm1_input_note_edges() */
-    uint64_t keys;               /* all 37 keybed keys: bit k = key k (0 = lowest C) */
-    uint8_t key_vel[FM1_NKEY];   /* MIDI velocity 1..127 of each key's last press (a pad: its white key's) */
+    uint32_t keyw[2];            /* all 37 keybed keys: key k in keyw[k >> 5] bit k & 31 (0 = C3 .. 36 = C6) (two
+                                  * words: the target has no variable 64-bit shift) */
+    uint8_t key_vel[FM1_NKEY];   /* MIDI velocity 1..127 of each key's last press */
+    uint8_t pad_vel[SMK_NPAD];   /* .. each pad's last hit */
     uint8_t raw[FM1_NCOL];       /* last frame, rows packed, 1 = closed */
     uint8_t cnt[FM1_NBTN];       /* button debounce */
     uint8_t ks_last[FM1_NKEY], ks_stab[FM1_NKEY], ks_rel[FM1_NKEY];
@@ -138,11 +128,6 @@ static volatile struct {
     uint32_t adc_ok, adc_miss;   /* (debug: conversions read / not finished within a tick) */
     uint32_t frames;
 } fm1_in;
-
-/* key events beyond the FM-1's 27 (keybed keys 0..4 and 32..36): key << 8 | velocity (0 = release) */
-#define SMK_EXTQ 32u
-static volatile uint16_t smk_extq[SMK_EXTQ];
-static volatile uint8_t smk_extq_w, smk_extq_r;
 
 static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
 static volatile uint32_t smk_ledw[2]; /* per LED group: 0xFFFF0000 | low half (LED lines active low) */
@@ -293,35 +278,14 @@ static void fm1_input_init(void)
 /* ------------------------------------------------------------------ frame --- */
 FM1_INLINE uint32_t smk__closed(uint32_t code) { return (fm1_in.raw[code >> 4] >> (code & 15u)) & 1u; }
 
-static void smk__extq(uint32_t k, uint32_t vel)
-{
-    uint8_t w = smk_extq_w;
-    if ((uint8_t)(w + 1u) % SMK_EXTQ == smk_extq_r)
-        return;
-    smk_extq[w] = (uint16_t)(k << 8 | vel);
-    smk_extq_w = (uint8_t)((w + 1u) % SMK_EXTQ);
-}
-
 static void smk__key_event(uint32_t k, uint32_t vel)     /* vel 0 = release */
 {
-    if (vel)
+    uint32_t bit = 1u << (k & 31u);
+    if (vel) {
         fm1_in.key_vel[k] = (uint8_t)vel;
-    if (k >= SMK_KEY_F3 && k < SMK_KEY_F3 + 27u) {
-        uint32_t bit = 1u << (k - SMK_KEY_F3);
-        if (vel) {
-            fm1_in.knotes |= bit;
-            fm1_in.notes_pressed |= bit;
-        } else {
-            fm1_in.knotes &= ~bit;
-        }
-        fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
-    } else {
-        smk__extq(k, vel);
-    }
-    if (vel)
-        fm1_in.keys |= (uint64_t)1u << k;
-    else
-        fm1_in.keys &= ~((uint64_t)1u << k);
+        fm1_in.keyw[k >> 5] |= bit;
+    } else
+        fm1_in.keyw[k >> 5] &= ~bit;
 }
 
 static void smk__keys(uint32_t now)
@@ -436,30 +400,21 @@ static void fm1__frame(void)
 #define SMK_PAD_OFF 12u           /* below base + this: released */
 #define SMK_PAD_PEAKN 3u          /* samples (2.4 ms apart) for the peak */
 
-static void smk__padq(uint32_t pad, uint32_t vel)     /* a pad hit (vel) or release (0): its white key */
+static void smk__padq(uint32_t pad, uint32_t vel)     /* a pad hit (vel) or release (0); the top row: buttons */
 {
-    int32_t n0 = smk_pad_piano ? SMK_PIANO_NOTE[pad] : (int32_t)SMK_WHITE_NOTE[SMK_WHITE_OF_PAD(pad)];
-    uint32_t n, bit;
+    uint32_t bit = 1u << (SMK_PADBTN0 + pad);
+    smk_pad_on[pad] = (uint8_t)(vel != 0u);
+    if (vel)
+        fm1_in.pad_vel[pad] = (uint8_t)vel;
+    if (pad >= 8u)
+        return;
     if (vel) {
-        if (n0 < 0)
-            return;                                   /* (a gap of the piano layout) */
-        smk_pad_note[pad] = (uint8_t)(n0 + 1);
+        fm1_in.buttons |= bit;
+        fm1_in.pressed |= bit;
     } else {
-        if (!smk_pad_note[pad])
-            return;
-        n0 = smk_pad_note[pad] - 1;                    /* the key it pressed, whatever the layout is now */
-        smk_pad_note[pad] = 0;
+        fm1_in.buttons &= ~bit;
+        fm1_in.released |= bit;
     }
-    n = (uint32_t)n0;
-    bit = 1u << n;
-    if (vel) {
-        fm1_in.key_vel[SMK_KEY_F3 + n] = (uint8_t)vel;
-        fm1_in.pnotes |= bit;
-        fm1_in.notes_pressed |= bit;
-    } else {
-        fm1_in.pnotes &= ~bit;
-    }
-    fm1_in.notes = fm1_in.knotes | fm1_in.pnotes;
 }
 
 static void smk__pad(uint32_t p, uint32_t raw)
@@ -622,26 +577,6 @@ static uint32_t fm1_input_edges(uint32_t *released)
     fm1_in.pressed = fm1_in.released = 0;
     fm1__unlock(k);
     return p;
-}
-
-static uint32_t fm1_input_note_edges(void)
-{
-    uint32_t k = fm1__lock();
-    uint32_t p = fm1_in.notes_pressed;
-    fm1_in.notes_pressed = 0;
-    fm1__unlock(k);
-    return p;
-}
-
-/* the next outer-key event (keybed key << 8 | velocity, 0 = release), -1 if none */
-static int32_t smk_extkey_take(void)
-{
-    int32_t v = -1;
-    if (smk_extq_r != smk_extq_w) {
-        v = smk_extq[smk_extq_r];
-        smk_extq_r = (uint8_t)((smk_extq_r + 1u) % SMK_EXTQ);
-    }
-    return v;
 }
 
 /* LED of button id (0..17); note keys have no LED on the SMK (the pads show the step grid) */
