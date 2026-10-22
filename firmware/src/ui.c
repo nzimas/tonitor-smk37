@@ -1288,7 +1288,10 @@ static void ui_input(void)
     if (ui.cho_down && (fk >> FN_CHORD & 1u) && !ui.cho_done && (uint32_t)(fm1_ms - ui.cho_t0) >= 600u) {
         ui.cho_done = 1;
         ui.pad_page = (uint8_t)(ui.pad_page == PP_CHORD ? PP_NONE : PP_CHORD);
-        say(ui.pad_page == PP_CHORD ? "CHORD PADS" : "PADS FREE", 900);
+        if (ui.pad_page == PP_CHORD)
+            ui.chord_on[ui.sel] = 1;             /* (the shapes up: chord mode on with them) */
+        say(ui.pad_page == PP_CHORD ? CH_NAME[ui.chord_form[ui.sel]] : "PADS FREE", 900);
+        ui.force = 1;
     }
     if (ui.cho_down && !(fk >> FN_CHORD & 1u)) {
         ui.cho_down = 0;
@@ -1298,6 +1301,8 @@ static void ui_input(void)
             ui.force = 1;
         }
     }
+    if (ui.pad_page == PP_CHORD && !ui.chord_on[ui.sel])
+        ui.pad_page = PP_NONE;                   /* (chord mode off -- or a track chosen without it: the shapes go) */
     if ((fch & fk) >> FN_ENV & 1u) {           /* with SHIFT: BRICKLAYER on (its page up) or off */
         if (shift_held() && !bl.on[ui.sel] && bb.on[ui.sel]) {
             say("NOT ALLOWED", 1200);             /* (one sequencer a track: BALLSY there) */

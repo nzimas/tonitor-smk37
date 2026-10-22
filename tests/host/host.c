@@ -4209,6 +4209,12 @@ static int cmd_chords(const char *dir)
     ch_hold_key(KEY_CHORD, 700);                     /* held: the chords on the bottom row of pads */
     if (ui.pad_page != PP_CHORD || !ui.chord_on[0])
         printf("FAIL chords: holding CHORD does not put the chords on the pads (pads %u, on %u)\n", ui.pad_page, ui.chord_on[0]), fail++;
+    ch_hold_key(KEY_CHORD, 100);                     /* pressed: chord mode off -- the shapes go with it */
+    if (ui.chord_on[0] || ui.pad_page != PP_NONE)
+        printf("FAIL chords: CHORD off does not take the shapes off the pads (on %u, pads %u)\n", ui.chord_on[0], ui.pad_page), fail++;
+    ch_hold_key(KEY_CHORD, 700);                     /* held, chords off: the shapes up, chord mode on */
+    if (ui.pad_page != PP_CHORD || !ui.chord_on[0])
+        printf("FAIL chords: holding CHORD with chords off does not turn them on (pads %u, on %u)\n", ui.pad_page, ui.chord_on[0]), fail++;
     ch_pad(4);                                       /* (the screen at SUS4: SU4 under CHO) */
     if (ui.chord_form[0] != 4u)
         printf("FAIL chords: pad 5 does not choose SUS4 (%u)\n", ui.chord_form[0]), fail++;
