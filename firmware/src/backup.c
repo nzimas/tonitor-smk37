@@ -9,7 +9,7 @@
  *   0x54  commit                     -> 0x54  status: its head and body checked, it is number's now
  * A record goes back whole and as it was (its head, its CRCs), only its sequence number new -- so it is the copy
  * that counts. Statuses: 0 done, 1 no flash, 2 not as asked, 3 no room, 4 not a whole record (head, length, CRC),
- * 5 the flash failed. Numbers: sessions 1 .. 64; presets PRE_NUM, PRE_NUM + 1; GLOBAL SETUP PRE_NUM + 2 (setup.c's
+ * 5 the flash failed. Numbers: sessions 1 .. 64; presets PRE_NUM, PRE_NUM + 1, PRE5_NUM ..; GLOBAL SETUP PRE_NUM + 2 (setup.c's
  * SET_NUM). All in the main loop. */
 
 static int bk_wire(const uint8_t *p, uint32_t n);   /* one F0 .. F7 message to the host (main.c; host.c) */
@@ -129,7 +129,7 @@ static void bk_handle(const uint8_t *m, uint32_t d)
             bk_status(0x52u, 1u);
             return;
         }
-        if (len < sizeof(ses_head_t) || len > SES_BUF || !((num >= 1u && num <= SES_SLOTS) || num == PRE_NUM || num == PRE_NUM + 1u || num == PRE_NUM + 2u)) {
+        if (len < sizeof(ses_head_t) || len > SES_BUF || !((num >= 1u && num <= SES_SLOTS) || (num >= PRE_NUM && num <= PRE5_NUM + (NENG - 1u) / PRE5_E))) {
             bk_status(0x52u, 2u);
             return;
         }

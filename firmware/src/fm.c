@@ -257,7 +257,7 @@ static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const in
     lv = fm6_lfo_sample(&v->lfo);
     ld = fm6_lfo_delay(&v->lfo);
     lf = fm6_note_logfreq(v->note * 16, 0);
-    if (mac && (mac[0] | mac[1] | mac[2] | mac[3])) {
+    if (mac && (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5] | mac[6] | mac[7])) {
         int8_t felt[NMAC];
         for (i = 0; i < NMAC; i++) {                     /* (the knob's turn, felt early: its square root) */
             int32_t m = mac[i], a = m < 0 ? -m : m, q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));

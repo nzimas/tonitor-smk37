@@ -23,7 +23,7 @@
 #define SES_SECT 4096u
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x31534341u    /* "ACS1" */
-#define SES_FORMAT 28u           /* 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
+#define SES_FORMAT 29u           /* 29: eight macros an engine (the SMK-37's knobs); 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
                                   * the latched notes; 7: the loops held out; 6: the macros; 5: the generations; 4: the paths; 3: a CALIGULA design a layer; 2: up to ten loops
                                   * a layer (1: one) */
 #define SES_MAX 40u              /* records in the list (one a sector at most) */
@@ -591,10 +591,16 @@ static int ses_save(uint32_t num)
  * flash; changed in ses_chunk. Formats: 4, five engines, 12 bytes a slot (used and kind in one byte); 3, four
  * engines, 14; 2, three engines, 16 (with macros); 1, three engines, 12 (without): still read, and rewritten
  * in format 4 when a slot is saved */
-#define PRE_NUM 1000u
+#define PRE_NUM 1000u                    /* (formats 1 .. 4: 1000, 1001; format 5: PRE5_NUM ..) */
 #define PRE_SLOTS 64u
-#define PRE_FORMAT 4u
-#define PRE_STRIDE 12u
+#define PRE_FORMAT 5u                    /* 5 (the SMK-37's eight macros): 16 bytes a slot, three engines a record,
+                                          * numbers PRE5_NUM .. + 2 (1002 is GLOBAL SETUP's) */
+#define PRE_STRIDE 12u                   /* (format 4) */
+#define PRE5_NUM 1003u
+#define PRE5_STRIDE 16u
+#define PRE5_E 3u                        /* engines a record */
+#define PRE5_LEN(ne) (32u + (ne) * PRE_SLOTS * PRE5_STRIDE)
+typedef char pre5_fits_a_sector[PRE5_LEN(PRE5_E) <= SES_SECT ? 1 : -1];
 typedef struct {
     uint32_t seed;
     uint32_t word;               /* ses_c2_word: level, generation, path */
@@ -606,8 +612,17 @@ typedef struct {
 #define PRE_LEN1 (32u + PRE_E1 * PRE_SLOTS * PRE_STRIDE)
 #define PRE_LEN2 (32u + (NENG - PRE_E1) * PRE_SLOTS * PRE_STRIDE)
 typedef char pre_fits_a_sector[PRE_LEN1 <= SES_SECT && PRE_LEN2 <= SES_SECT ? 1 : -1];
-/* engine e's record: its number, its first slot in it, how many engines it holds, its length */
+/* engine e's record (format 5): its number, its first slot in it, how many engines it holds, its length */
 static void pre_where(uint32_t e, uint32_t *num, uint32_t *k0, uint32_t *ne, uint32_t *len)
+{
+    uint32_t r = e / PRE5_E;
+    *num = PRE5_NUM + r;
+    *k0 = (e - r * PRE5_E) * PRE_SLOTS;
+    *ne = NENG - r * PRE5_E < PRE5_E ? NENG - r * PRE5_E : PRE5_E;
+    *len = PRE5_LEN(*ne);
+}
+/* .. as formats 1 .. 4 had it (read still: a slot not yet in a format-5 record) */
+static void pre_where_old(uint32_t e, uint32_t *num, uint32_t *k0, uint32_t *ne, uint32_t *len)
 {
     int first = e < PRE_E1;
     *num = first ? PRE_NUM : PRE_NUM + 1u;
@@ -624,15 +639,16 @@ static void pre_read_slot(uint32_t sect, uint32_t fmt, uint32_t k, pre_rec_t *r,
     uint8_t b[16];
     memset(r, 0, sizeof *r);
     if (fmt >= 4u) {
+        uint32_t st = fmt >= 5u ? PRE5_STRIDE : PRE_STRIDE;
         if (k >= ne * PRE_SLOTS)
             return;
-        ses_flash_read(at + k * PRE_STRIDE, b, PRE_STRIDE);
+        ses_flash_read(at + k * st, b, st);
         memcpy(&r->seed, b, 4u);
         memcpy(&r->word, b + 4u, 4u);
         r->used = (uint8_t)(r->word >> 31);
         r->kind = (uint8_t)(r->word >> 26 & 31u);
         r->word &= 0x03FFFFFFu;
-        memcpy(r->mac, b + 8u, NMAC);
+        memcpy(r->mac, b + 8u, st - 8u);               /* (format 4: four macros; 5: eight) */
     } else if (fmt == 3u) {
         if (k >= 4u * PRE_SLOTS)                      /* (four engines then) */
             return;
@@ -641,18 +657,23 @@ static void pre_read_slot(uint32_t sect, uint32_t fmt, uint32_t k, pre_rec_t *r,
         memcpy(&r->word, b + 4u, 4u);
         r->used = b[8];
         r->kind = b[9];
-        memcpy(r->mac, b + 10u, NMAC);
+        memcpy(r->mac, b + 10u, 4u);
     } else {
         uint32_t st = fmt == 2u ? 16u : 12u;
         if (k >= 3u * PRE_SLOTS)                      /* (three engines then) */
             return;
-        ses_flash_read(at + k * st, r, st);
-        r->rsv[0] = r->rsv[1] = 0;
+        ses_flash_read(at + k * st, b, st);             /* (seed, word, used, kind, two spare, four macros) */
+        memcpy(&r->seed, b, 4u);
+        memcpy(&r->word, b + 4u, 4u);
+        r->used = b[8];
+        r->kind = b[9];
+        if (st == 16u)
+            memcpy(r->mac, b + 12u, 4u);
     }
 }
-static void pre_put_slot(uint32_t k, const pre_rec_t *r)   /* into the table in ses_chunk (format 4) */
+static void pre_put_slot(uint32_t k, const pre_rec_t *r)   /* into the table in ses_chunk (format 5) */
 {
-    uint8_t *b = ses_chunk + 32u + k * PRE_STRIDE;
+    uint8_t *b = ses_chunk + 32u + k * PRE5_STRIDE;
     uint32_t w = (r->word & 0x03FFFFFFu) | (uint32_t)(r->kind & 31u) << 26 | (uint32_t)(r->used == 1u) << 31;
     memcpy(b, &r->seed, 4u);
     memcpy(b + 4u, &w, 4u);
@@ -669,8 +690,11 @@ static int pre_get(uint32_t e, uint32_t slot, pre_rec_t *r)
     if (e >= NENG || slot < 1u || slot > PRE_SLOTS)
         return 0;
     pre_where(e, &num, &k0, &ne, &len);
-    if ((i = ses_find(num)) < 0)
-        return 0;
+    if ((i = ses_find(num)) < 0) {                     /* (no format-5 record for it yet: the earlier one's) */
+        pre_where_old(e, &num, &k0, &ne, &len);
+        if ((i = ses_find(num)) < 0)
+            return 0;
+    }
     ses_flash_read(SES_LO + ses.sect[i] * SES_SECT, &h, sizeof h);
     pre_read_slot(ses.sect[i], h.format, k0 + slot - 1u, r, ne);
     return r->used == 1u;
@@ -698,11 +722,19 @@ static int pre_save(uint32_t l, uint32_t e, uint32_t slot)
         ses_head_t old;
         uint32_t k;
         ses_flash_read(SES_LO + ses.sect[i] * SES_SECT, &old, sizeof old);
-        if (old.format >= 1u && old.format <= PRE_FORMAT)
+        if (old.format == PRE_FORMAT)
             for (k = 0; k < ne * PRE_SLOTS; k++) {     /* (each read from the flash: no overlap in place) */
                 pre_read_slot(ses.sect[i], old.format, k, &rec, ne);
                 pre_put_slot(k, &rec);
             }
+    } else {                                           /* (the first format-5 save of these engines: their slots from
+                                                        * the earlier record, if there is one) */
+        uint32_t e2, e0 = (num - PRE5_NUM) * PRE5_E, k, sl;
+        for (e2 = e0; e2 < e0 + ne; e2++)
+            for (sl = 1; sl <= PRE_SLOTS; sl++)
+                if (pre_get(e2, sl, &rec))
+                    pre_put_slot((e2 - e0) * PRE_SLOTS + sl - 1u, &rec);
+        (void)k;
     }
     memset(&rec, 0, sizeof rec);
     rec.used = 1;
@@ -1127,8 +1159,12 @@ static int ses_load(uint32_t i)
         memset(ui.mac[l], 0, sizeof ui.mac[l]);
         if (h.format >= 6u) {
             uint32_t j;
-            ses_in(ui.mac[l], (h.format >= 21u ? 7u : h.format >= 19u ? 6u : h.format >= 17u ? 5u : h.format >= 9u ? 4u : 3u) * NMAC);   /* (before format 9: three
-                                                                                     * engines' macros; 17, five) */
+            uint32_t ne = h.format >= 21u ? 7u : h.format >= 19u ? 6u : h.format >= 17u ? 5u : h.format >= 9u ? 4u : 3u, e;
+            if (h.format >= 29u)                        /* (format 29: eight macros an engine; before, four) */
+                ses_in(ui.mac[l], ne * NMAC);           /* (before format 9: three engines' macros; 17, five) */
+            else
+                for (e = 0; e < ne; e++)
+                    ses_in(ui.mac[l][e], 4u);
             for (j = 0; j < NENG * NMAC; j++)
                 (&ui.mac[l][0][0])[j] = (int8_t)clampi((&ui.mac[l][0][0])[j], -MAC_MAX, MAC_MAX);
         } else

@@ -48,14 +48,15 @@
  * FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+; SHIFT on KNOB BANK. The knobs: K1 is
  * the track's level (the master: fader 4, smk_input.h); the knobs: PANEL_ENC */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
-enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, EN_DLY, NE };
+enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, EN_DLY, EN_K8, NE };
 static const uint8_t PANEL_BTN[NB] = {SMK_PADBTN0, SMK_PADBTN0 + 1u, SMK_PADBTN0 + 2u, SMK_PADBTN0 + 3u, SMK_PADBTN0 + 4u,
                                       SMK_PADBTN0 + 5u, 12, 13, 14, 15, 16, 17, 4, 5};
 /* the knobs, K1 .. K8 = 0 .. 7: the track's level (K1), pan (K2), filter (K3), grain (K4), crush (K5), delay send (K6),
- * reverb send (K7); K8 free (EN_PRESET: only the host tests turn it, as the FM-1's PRESETS -- < and > do that). The
- * pages' four values on K3 .. K6 (PAGE_K) */
-static const uint8_t PANEL_ENC[NE] = {0, 1, 7, 2, 3, 4, 6, 5};
+ * reverb send (K7); K8 free (EN_PRESET, 8: no knob -- only the host tests turn it, as the FM-1's PRESETS; < and > do
+ * that). The pages' four values on K3 .. K6 (PAGE_K); MACRO on, the eight macros on K1 .. K8 (MAC_K) */
+static const uint8_t PANEL_ENC[NE] = {0, 1, 8, 2, 3, 4, 6, 5, 7};
 static const uint8_t PAGE_K[4] = {EN_K1, EN_K2, EN_K3, EN_DLY};
+static const uint8_t MAC_K[NMAC] = {EN_SELECT, EN_ALGO, EN_K1, EN_K2, EN_K3, EN_DLY, EN_K4, EN_K8};
 static const uint8_t LAYER_BTN[NLAYER] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 37u                 /* the keybed, C3 .. C6: every key plays */
 #define KEY_NONE 0xFFu
@@ -93,6 +94,8 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define PAD_AMB 6u                       /* (top row, hardware pads 0 .. 7: the 7th and the 8th) */
 #define BTN_CHORD 6u                     /* CHORD: the first button of the top row (smk_input.h's ARP): pressed, chord
                                           * mode on or off; held, the chords on the bottom row of pads */
+#define BTN_MACRO 8u                     /* MACRO: the third button of the top row: pressed, the macros on or off (the
+                                          * FM-1's EDIT: the knobs on the chosen track's sound) */
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
 enum { PP_NONE, PP_CHORD, PP_LOOP };     /* the bottom row of pads: free, the chords, the loops' direction and speed */
@@ -107,7 +110,7 @@ static uint32_t host_fn;                 /* (the host tests: the functions, held
 static uint32_t fn_keys(void)
 {
     uint32_t b = fm1_in.buttons, f = ((b >> (SMK_PADBTN0 + PAD_AMB)) & 1u) << FN_AMB | ((b >> (SMK_PADBTN0 + PAD_EXP)) & 1u) << FN_EXP |
-                                    ((b >> BTN_CHORD) & 1u) << FN_CHORD;
+                                    ((b >> BTN_CHORD) & 1u) << FN_CHORD | ((b >> BTN_MACRO) & 1u) << FN_EDIT;
 #ifdef HOST_FN
     f |= host_fn;
 #endif
@@ -974,8 +977,8 @@ static void ui_input(void)
                 ui.rv_touch_until = fm1_ms + 1500u;
             }
         }
-    } else if (ui.edit) {                        /* EDIT: KNOB 1 .. 4, the sound's macros; each its dial */
-        const uint8_t *K = PAGE_K;
+    } else if (ui.edit) {                        /* MACRO: K1 .. K8, the sound's eight macros; each its dial */
+        const uint8_t *K = MAC_K;
         uint32_t j;
         for (j = 0; j < NMAC; j++) {
             s = knob_take(K[j], sh);
@@ -1537,6 +1540,7 @@ static void ui_leds(void)
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
+    fm1_led_key(BTN_MACRO, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (MACRO: lit while on; BALLSY: blinks) */
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */
@@ -1808,7 +1812,7 @@ static void draw_mod_page(void)
         const mslot_t *q = &m->s[ix - 2u];
         int32_t now = 0;
         if (ui.force) {
-            const char *d = q->dst < 4u ? mac_name(l, q->dst) : MD_NAME[q->dst % MD_N];
+            const char *d = md_mac_ix(q->dst) >= 0 ? mac_name(l, (uint32_t)md_mac_ix(q->dst)) : MD_NAME[q->dst % MD_N];
             draw_mod_row(0, "FROM", MSRC_NAME[q->src % MSRC_N], 0, 0, t == 0);
             draw_mod_row(1, "TO", d, 0, 0, t == 1);
             fmt_int(v, q->amt);
@@ -2035,7 +2039,7 @@ static void flt_label(char *m, int32_t v)
 static int32_t dial_value(void)
 {
     if (ui.dial >= DIAL_MAC)
-        return ui.mac[ui.sel][ui.engine[ui.sel]][(ui.dial - DIAL_MAC) & 3u];
+        return ui.mac[ui.sel][ui.engine[ui.sel]][(ui.dial - DIAL_MAC) % NMAC];
     return ui.dial == DIAL_FLT ? ui.flt[ui.sel] : ui.dial == DIAL_GR ? ui.gr[ui.sel] : ui.dial == DIAL_CR ? ui.cr[ui.sel]
            : ui.dial == DIAL_DSEND ? ui.dsend[ui.sel] : ui.dial == DIAL_DIST ? ui.dist[ui.sel] : ui.send[ui.sel];
 }
@@ -2049,7 +2053,7 @@ static void draw_dial(void)
     uint16_t col = LAYER_COL[ui.sel];
     const font_t *tf;
     if (ui.dial >= DIAL_MAC) {                   /* EDIT's macro: its name for this sound, and the layer */
-        str_cpy(t, mac_name(ui.sel, (ui.dial - DIAL_MAC) & 3u), sizeof t - 2);
+        str_cpy(t, mac_name(ui.sel, (ui.dial - DIAL_MAC) % NMAC), sizeof t - 2);
         str_cpy(t + str_len(t), "  ", 3);
     } else
         str_cpy(t, NAME[ui.dial], sizeof t);

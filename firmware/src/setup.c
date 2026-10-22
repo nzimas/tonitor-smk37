@@ -281,8 +281,9 @@ static void setup_draw(void)
 /* ------------------------------------------------------------ MIDI --- */
 /* the CCs a track answers to, and sends: its level, pan, the four macros (EDIT's, on its engine's sound), the filter,
  * the reverb and delay sends */
-#define MCC_N 9u
-static const uint8_t MIDI_CC[MCC_N] = {7, 10, 16, 17, 18, 19, 74, 91, 92};
+#define MCC_N 13u
+static const uint8_t MIDI_CC[MCC_N] = {7, 10, 16, 17, 18, 19, 74, 91, 92, 20, 21, 22, 23};   /* (macros 5 .. 8: 20 .. 23, last) */
+#define MCC_MAC(i) ((i) < 6u ? (i) - 2u : (i) - 9u + 4u)   /* (the macro of CC index i: 2 .. 5, 9 .. 12) */
 static uint8_t mcc_last[NLAYER][MCC_N];          /* (each one's value as last sent or received: no echo) */
 static uint32_t mcc_val(uint32_t t, uint32_t i)  /* track t's parameter i as a CC value, 0 .. 127 */
 {
@@ -291,8 +292,8 @@ static uint32_t mcc_val(uint32_t t, uint32_t i)  /* track t's parameter i as a C
         v = ui.level[t] * 127 / LEVEL_MAX;
     else if (i == 1u)
         v = 64 + ui.pan[t] * 63 / PAN_MAX;
-    else if (i < 6u)
-        v = 64 + ui.mac[t][ui.engine[t]][i - 2u] * 63 / MAC_MAX;
+    else if (i < 6u || i >= 9u)
+        v = 64 + ui.mac[t][ui.engine[t]][MCC_MAC(i)] * 63 / MAC_MAX;
     else if (i == 6u)
         v = 64 + ui.flt[t] * 63 / FLT_MAX;
     else
@@ -311,8 +312,8 @@ static void mcc_set(uint32_t t, uint32_t cc, uint32_t v)
         ui.level[t] = (int8_t)((v * LEVEL_MAX + 63u) / 127u);
     else if (i == 1u)
         ui.pan[t] = (int8_t)clampi(c * PAN_MAX / 63, -PAN_MAX, PAN_MAX);
-    else if (i < 6u) {
-        ui.mac[t][ui.engine[t]][i - 2u] = (int8_t)clampi(c * MAC_MAX / 63, -MAC_MAX, MAC_MAX);
+    else if (i < 6u || i >= 9u) {
+        ui.mac[t][ui.engine[t]][MCC_MAC(i)] = (int8_t)clampi(c * MAC_MAX / 63, -MAC_MAX, MAC_MAX);
         mac_apply(t);
     } else if (i == 6u)
         ui.flt[t] = (int8_t)clampi(c * FLT_MAX / 63, -FLT_MAX, FLT_MAX);

@@ -1753,7 +1753,7 @@ static void blk_render(void)
                 change_apply(l);
         }
         for (i = 0; i < NMAC; i++) {
-            int32_t m = mod_val(l, MD_MAC1 + i, lay_mac[l][i], -MAC_MAX, MAC_MAX), a = m < 0 ? -m : m, q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));
+            int32_t m = mod_val(l, MD_MAC(i), lay_mac[l][i], -MAC_MAX, MAC_MAX), a = m < 0 ? -m : m, q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));
             blk_mac[l][i] = (int8_t)m;
             blk_felt[l][i] = (int8_t)(m < 0 ? -q : q);   /* (the organisms' macros felt early: the square root of the
                                                           * turn; FM and ANIMA take theirs as turned) */

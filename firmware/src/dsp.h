@@ -34,9 +34,9 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
  * generators up to 0.20). New sounds are drawn on GEN_NOW. */
 #define GEN_NOW 4u
 #define GEN_N 5u                 /* 0: up to 0.20; 1: 0.21 (more families, kinds, species); 2: FM's ratios as meant; 3: 0.29 (plucks, mallets, warps, glitches, rubber; eight ANIMA kinds more, and breadth); 4: 0.47 (FM's IMPACT and GLITCH more various) */
-/* EDIT's four macros on a sound: -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
+/* the macros on a sound (the SMK-37's eight, one a knob): -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
-#define NMAC 4u
+#define NMAC 8u
 
 AINL int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
 AINL int32_t mulq15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
