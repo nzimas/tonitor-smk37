@@ -284,7 +284,8 @@ static const uint8_t STR1[] = {16, 3, 'T', 0, 'o', 0, 'n', 0, 'i', 0, 't', 0, 'o
 static const uint8_t STR2[] = {30, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'U', 0, 'p', 0,
                                'd', 0, 'a', 0, 't', 0, 'e', 0};
 #else
-static const uint8_t STR2[] = {26, 3, 'F', 0, 'M', 0, '-', 0, '1', 0, ' ', 0, 'T', 0, 'o', 0, 'n', 0, 'i', 0, 't', 0, 'o', 0, 'r', 0};
+static const uint8_t STR2[] = {30, 3, 'S', 0, 'M', 0, 'K', 0, '-', 0, '3', 0, '7', 0, ' ', 0, 'T', 0, 'o', 0, 'n', 0, 'i', 0,
+                               't', 0, 'o', 0, 'r', 0};   /* "SMK-37 Tonitor" */
 #endif
 
 static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)

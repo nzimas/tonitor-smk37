@@ -136,6 +136,8 @@ static volatile uint32_t mi_w, mi_r;
 /* the panel (the SMK-37's ids: smk_input.h; its 8 knobs, K1 MASTER) */
 #define SMK_BTN_KNOB_BANK 0u      /* (smk_input.h: SHIFT) */
 #define SMK_PADBTN0 24u           /* (the top row of pads: buttons from here) */
+#define SMK_BTN_LEFT 2u           /* (< and >: what the PRESETS knob did) */
+#define SMK_BTN_RIGHT 3u
 #define HOST_FN 1                 /* (ui.c: the black-key functions from host_fn) */
 static struct { uint32_t keyw[2], buttons; uint8_t key_vel[37]; } fm1_in;
 static uint32_t host_press;

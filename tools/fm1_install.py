@@ -379,14 +379,14 @@ class Updater:
         dev.link.close()
         if not finished:
             raise InstallError("lost" if lost else "stopped",
-                               f"the FM-1 {'was disconnected' if lost else 'stopped answering'} after "
+                               f"the keyboard {'was disconnected' if lost else 'stopped answering'} after "
                                f"{served} requests; nothing was written")
         step("loader")
         time.sleep(DELAY["loader"])
         ota = self.wait_for(lambda i: i.loader, DELAY["wait_loader"])
         if not ota:
             raise InstallError("noloader", "the update loader did not appear. Replug the USB cable and "
-                                           "run the install again: the FM-1 stays in update mode until it is done")
+                                           "run the install again: the keyboard stays in update mode until it is done")
         return ota
 
     def write(self, ota, image, step):
@@ -408,10 +408,10 @@ class Updater:
         time.sleep(DELAY["reboot"])
         back = self.wait_for(lambda i: not i.loader, DELAY["wait_reboot"])
         if not back:
-            raise InstallError("noreturn", "the FM-1 did not come back: power-cycle it")
+            raise InstallError("noreturn", "the keyboard did not come back: power-cycle it")
         back.link.close()
         if back.id.text != product:
-            raise InstallError("mismatch", f"written, but the FM-1 reports {back.id.text} (expected {product})")
+            raise InstallError("mismatch", f"written, but the keyboard reports {back.id.text} (expected {product})")
         step("done", back.id.text)
         return back.id.text
 
@@ -427,7 +427,7 @@ class Updater:
             raise InstallError("model", f"the device is {dev.id.text}, the package is for {product}")
         if dev.id.loader and not OWN_LOADER_RE.fullmatch(dev.id.text):
             dev.link.close()           # another firmware's loader: its image layout may differ
-            raise InstallError("foreign", f"the FM-1 is in the update mode of another firmware ({dev.id.text}): "
+            raise InstallError("foreign", f"the keyboard is in the update mode of another firmware ({dev.id.text}): "
                                           "finish that update with its own updater (M-UPGRADE), then install again")
         ota = dev if dev.id.loader else self.check(dev, image, step)
         self.write(ota, image, step)
@@ -624,7 +624,7 @@ def board_refusal(model, image, fm1_ok=False):
 
 def not_found(up):
     names = up.backend.input_names()
-    where = f"no MIDI port matching {up.port!r} answered" if up.port else "FM-1 not found"
+    where = f"no MIDI port matching {up.port!r} answered" if up.port else "keyboard not found"
     return InstallError("notfound", f"{where} (USB data cable? another app using it?)"
                         f"\n  MIDI inputs: {', '.join(names) if names else '(none)'}")
 
@@ -641,7 +641,7 @@ class Progress:
         else:
             self.end()
             msg = {"start": f"starting the update on {a}", "loader": "switching to update mode",
-                   "reboot": "restarting", "done": f"done: the FM-1 runs {a}"}[k]
+                   "reboot": "restarting", "done": f"done: the keyboard runs {a}"}[k]
             print(msg, file=self.out, flush=True)
 
     def put(self, s):
@@ -684,7 +684,7 @@ def run(a, backend, out, ask):
             prog.end()
         print("sent the UBOOT key: the keyboard should now be 'WL82 UBOOT1.00' (tools/smk37_backup.py)", file=out)
         return 0
-    if not a.yes and not ask("Install? Do not unplug the FM-1 while writing. [y/N] "):
+    if not a.yes and not ask("Install? Do not unplug the keyboard while writing. [y/N] "):
         dev.link.close()
         print("cancelled", file=out)
         return 1
@@ -711,7 +711,7 @@ def ask_tty(prompt):
 def main(argv=None, backend=None, out=sys.stdout, ask=ask_tty):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("package", nargs="?", help="Felucca package (.fwsc)")
-    ap.add_argument("--info", action="store_true", help="print the identity of the connected FM-1")
+    ap.add_argument("--info", action="store_true", help="print the identity of the connected keyboard")
     ap.add_argument("--port", metavar="NAME", help="MIDI port to use (part of its name)")
     ap.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     ap.add_argument("--force", action="store_true", help="install a package without the Felucca loader marker")
@@ -732,7 +732,7 @@ def main(argv=None, backend=None, out=sys.stdout, ask=ask_tty):
         print(f"error: {e}", file=sys.stderr)
         return EXIT.get(e.code, 1)
     except KeyboardInterrupt:
-        print("\ninterrupted: if the FM-1 is in update mode, run the install again to finish", file=sys.stderr)
+        print("\ninterrupted: if the keyboard is in update mode, run the install again to finish", file=sys.stderr)
         return 130
 
 

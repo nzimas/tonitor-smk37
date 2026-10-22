@@ -66,15 +66,32 @@ static void kset(uint32_t *m, uint32_t k, int on)
 }
 /* SHIFT: the KNOB BANK button, held */
 static int shift_held(void) { return (int)((fm1_in.buttons >> SMK_BTN_KNOB_BANK) & 1u); }
-/* the functions the FM-1 had on its black keys (fn_keys(): bit FN_x held): no control of their own yet on the SMK-37
- * (the bottom row of pads, later) */
+/* the functions the FM-1 had on its black keys (fn_keys(): bit FN_x held): the two paths on pads 7 and 8 of the top
+ * row; the others no control of their own yet (the bottom row of pads, later) */
 enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_HALF, FN_DOUBLE };
+#define PAD_AMB 6u                       /* (top row, hardware pads 0 .. 7: the 7th and the 8th) */
+#define PAD_EXP 7u
 #ifdef HOST_FN
 static uint32_t host_fn;                 /* (the host tests: the functions, held) */
-static uint32_t fn_keys(void) { return host_fn; }
-#else
-static uint32_t fn_keys(void) { return 0; }
 #endif
+static uint32_t fn_keys(void)
+{
+    uint32_t b = fm1_in.buttons, f = ((b >> (SMK_PADBTN0 + PAD_AMB)) & 1u) << FN_AMB | ((b >> (SMK_PADBTN0 + PAD_EXP)) & 1u) << FN_EXP;
+#ifdef HOST_FN
+    f |= host_fn;
+#endif
+    return f;
+}
+/* < and > (under the screen): what the FM-1's PRESETS knob did, a step a press (SHIFT too) */
+static int32_t enc_take(uint32_t role);
+static int32_t arrow_steps(uint32_t press)
+{
+    int32_t s = (int32_t)((press >> SMK_BTN_RIGHT) & 1u) - (int32_t)((press >> SMK_BTN_LEFT) & 1u);
+#ifdef HOST_FN
+    s += enc_take(EN_PRESET);            /* (the host tests turn it as the FM-1's knob, any number of steps) */
+#endif
+    return s;
+}
 
 static const uint16_t LAYER_COL[NLAYER] = {RGB(255, 214, 0), RGB(0, 214, 255), RGB(255, 92, 210),
                                            RGB(96, 255, 96), RGB(255, 140, 0), RGB(190, 160, 255)};
@@ -1155,7 +1172,7 @@ static void ui_input(void)
         m[6] = 0;
         say(m, 1200);
     }
-    s = enc_take(EN_PRESET);
+    s = arrow_steps(press);
     if (s && ui.set_page) {                      /* PRESETS: through GLOBAL SETUP */
         setup_preset(s);
         s = 0;
@@ -1393,7 +1410,9 @@ static uint32_t key_lit[2], fn_lit, fn_glow;
 static void fn_led(uint32_t f, int on) { fn_lit = on ? fn_lit | 1u << f : fn_lit & ~(1u << f); }
 static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_glow & ~(1u << f); }
 /* the top row of pads: the six tracks, each in its colour -- the chosen one full, the others dim (on the clipboard:
- * blinking); the two to the right and the bottom row dark */
+ * blinking); then the AMBIENT and EXPERIMENTAL paths (blue, red); the bottom row dark */
+#define C_PATH_AMB RGB(80, 140, 255)
+#define C_PATH_EXP RGB(255, 60, 40)
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1407,7 +1426,10 @@ static void pads_show(void)
         if (p < NLAYER) {
             int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
-        } else
+        } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
+            pad_rgb(p, p == PAD_AMB ? C_PATH_AMB : C_PATH_EXP,
+                    ui.path[ui.sel] == (p == PAD_AMB ? PATH_AMBIENT : PATH_EXP) ? 256u : PAD_DIM);
+        else
             padled_set(p, 0, 0, 0);
     }
 }
@@ -1427,10 +1449,10 @@ static void ui_leds(void)
         fm1_led_key(PANEL_BTN[B_PLAY], seq_page() ? (bl.run[ui.sel] || bb.run[ui.sel]) && (fm1_ms / 250u) & 1u   /* (blinking */
                                                   : p->play && p->ntrk);                               /* as its key) */
     }
-    fm1_led_key(PANEL_BTN[B_HOME], (int32_t)(ui.home_until - fm1_ms) > 0);
+    fm1_led_key(PANEL_BTN[B_HOME], btn_bit(fm1_in.buttons, B_HOME));   /* (a momentary button: lit while held) */
     fm1_led_key(PANEL_BTN[B_SEQ], ui.rv_page || ui.mod_page);
-    fm1_led_key(PANEL_BTN[B_SAVE], ui.set_page);   /* (GLOBAL SETUP up) */
-    fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page);
+    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.set_page);   /* (the SESSIONS page or GLOBAL SETUP up) */
+    fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page || ui.pre_page);   /* (the SCALE page or the PRESETS up) */
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct[ui.sel] < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct[ui.sel] > 0);
     pads_show();
