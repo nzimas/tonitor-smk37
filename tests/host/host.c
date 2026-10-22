@@ -6120,39 +6120,71 @@ static int cmd_looppads(void)
     ch_pad(2);
     if (loop[0].dmode != LD_RAND)
         printf("FAIL looppads: pad 11 is not RANDOM (%u)\n", loop[0].dmode), fail++;
-    ch_pad(3);                                       /* pads 12 .. 14: SCATTER, DRIFT, CLIMB, each on or off */
+    ch_pad(3);                                       /* pads 12 .. 14: STUTTER, CLIMB DOWN, CLIMB UP, each on or off */
     ch_pad(5);
-    if (lfx[0] != (LF_SCATTER | LF_CLIMB))
-        printf("FAIL looppads: pads 12 and 14 are not SCATTER and CLIMB (%x)\n", lfx[0]), fail++;
+    if (lfx[0] != (LF_STUTTER | LF_CUP))
+        printf("FAIL looppads: pads 12 and 14 are not STUTTER and CLIMB UP (%x)\n", lfx[0]), fail++;
+    ch_pad(4);                                       /* CLIMB DOWN: CLIMB UP off */
+    if (lfx[0] != (LF_STUTTER | LF_CDOWN))
+        printf("FAIL looppads: CLIMB DOWN does not take CLIMB UP's place (%x)\n", lfx[0]), fail++;
     ch_pad(4);
     ch_pad(3);
-    if (lfx[0] != (LF_DRIFT | LF_CLIMB))
-        printf("FAIL looppads: pad 13 is not DRIFT, or 12 again does not take SCATTER off (%x)\n", lfx[0]), fail++;
-    ch_pad(4);
-    ch_pad(5);
     if (lfx[0] || lclimb[0])
-        printf("FAIL looppads: DRIFT and CLIMB do not go off (%x, %d)\n", lfx[0], lclimb[0]), fail++;
-    {   /* CLIMB: a loop of one note, each pass a step higher */
-        uint32_t b, k, seen[8], ns = 0, last = 0;
-        ui.scale = 0;
-        ui.root = 0;
-        lx_post();
-        run_blocks(2, 0);
-        ch_pad(2);                                   /* (RANDOM again: forward) */
-        rec_loop(B_FX, 0, 200);
-        ch_pad(5);
-        for (b = 0; b < 4000u && ns < 4u; b++) {
+        printf("FAIL looppads: STUTTER and CLIMB do not go off (%x, %d)\n", lfx[0], lclimb[0]), fail++;
+    ui.scale = 0;
+    ui.root = 0;
+    lx_post();
+    run_blocks(2, 0);
+    ch_pad(2);                                       /* (RANDOM again: forward) */
+    rec_loop(B_FX, 0, 200);
+    {   /* CLIMB UP, then DOWN: a loop of one note, each pass a step higher, then lower */
+        uint32_t b, k, d, seen[8], ns, last;
+        for (d = 0; d < 2u; d++) {
+            ch_pad(d ? 4 : 5);
+            for (ns = 0, last = 0, b = 0; b < 4000u && ns < 4u; b++) {
+                run_blocks(1, 0);
+                for (k = 0; k < NVOICE; k++)
+                    if (vox[k].gate && vox[k].src == SRC_LOOP && vox[k].note != last) {
+                        last = vox[k].note;
+                        seen[ns++] = last;
+                    }
+            }
+            if (ns < 4u || (d ? !(seen[1] < seen[0] && seen[2] < seen[1] && seen[3] < seen[2])
+                              : !(seen[1] > seen[0] && seen[2] > seen[1] && seen[3] > seen[2])))
+                printf("FAIL looppads: CLIMB %s does not move the loop a step each pass (%u notes: %u %u %u %u)\n",
+                       d ? "DOWN" : "UP", ns, seen[0], seen[1], seen[2], seen[3]), fail++;
+        }
+        ch_pad(4);
+    }
+    {   /* STUTTER: a loop of eight notes (one an eighth) -- on, only the eighth it was in comes again */
+        uint32_t b, k, n0 = 0, other = 0, len;
+        press_btn(B_SEL);                            /* (track 2: its looper empty) */
+        press_btn(B_REC);
+        for (k = 0; k < 8u; k++) {
+            press_key(k, 1);
+            run_blocks(100, 0);
+            press_key(k, 0);
+            run_blocks(10, 0);
+        }
+        press_btn(B_REC);
+        run_blocks(20, 0);
+        len = loop[1].trk[0].len;
+        run_blocks(len / 2u, 0);                     /* (half way) */
+        ch_pad(3);
+        run_blocks(len / 8u, 0);                     /* (settled into its eighth) */
+        for (b = 0; b < len; b++) {
             run_blocks(1, 0);
             for (k = 0; k < NVOICE; k++)
-                if (vox[k].gate && vox[k].src == SRC_LOOP && vox[k].note != last) {
-                    last = vox[k].note;
-                    seen[ns++] = last;
+                if (vox[k].gate && vox[k].src == SRC_LOOP && vox_owner(&vox[k]) == 1u) {
+                    if (!n0)
+                        n0 = vox[k].note;
+                    else if (vox[k].note != n0)
+                        other++;
                 }
         }
-        if (ns < 4u || !(seen[1] > seen[0] && seen[2] > seen[1] && seen[3] > seen[2]))
-            printf("FAIL looppads: CLIMB does not take the loop up a step each pass (%u notes: %u %u %u %u)\n", ns,
-                   seen[0], seen[1], seen[2], seen[3]), fail++;
-        ch_pad(5);
+        if (!n0 || other)
+            printf("FAIL looppads: STUTTER does not hold the loop to its eighth (%u, %u others)\n", n0, other), fail++;
+        ch_pad(3);
     }
     host_press |= 1u << BTN_LOOP;                    /* LOOP again: the pads free; the pads do nothing */
     ui_input();
