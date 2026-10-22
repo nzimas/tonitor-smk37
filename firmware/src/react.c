@@ -32,6 +32,15 @@
  *              notes, found in the memory), until the guide plays again
  *   RESTS      sits out this time
  * The guide's intensity sets how much each plays; its silence silences them (ANSWERS apart, in the rest).
+ *
+ * Its page (up with it; SHIFT + FADER BANK held, up or down): K1 and K2 stay the track's level and pan; K3 .. K6
+ *   DENSITY     how much they play: how often a musician sounds a step, how long it waits (from twice to half
+ *               the guide's gaps), how many sit out
+ *   COMPLEXITY  the structure: low, single notes in plain rhythms (the guide's gaps rounded to halves and doubles of
+ *               its usual one); high, harmonised notes (a third or a sixth under), notes moved further along the
+ *               scale, steps split in two or three, notes pushed off the beat, paces in threes against twos
+ *   CONTINUITY  low, they jump about the guide's memory, recombining it; high, they keep to its phrases as played
+ *   SPREAD      how far from the guide's register: low, around its hands; high, from deep bass to high air
  * Its notes go as a sequencer's (the looper does not record them), never on the guide. It runs in the main loop. */
 
 #define RX_H 96                  /* the memory: the guide's last events */
@@ -79,6 +88,7 @@ static struct {
     rx_ag_t a[NLAYER];
     uint32_t red_until, rt0;
     uint8_t rdown, rdone;
+    int8_t k[4];                 /* the page's DENSITY COMPLEXITY CONTINUITY SPREAD, 0 .. 100 */
     struct { uint8_t layer, note, vel, on; uint32_t at, len; } q[RX_Q];   /* on: 1 to strike, 2 sounding */
     rnd_t r;
 } rx;
@@ -97,6 +107,11 @@ static int rx_odds(int32_t pct) { return (int32_t)((rx_rnd() >> 8) % 100u) < pct
 static uint32_t rx_in(uint32_t lo, uint32_t hi) { return lo + (rx_rnd() >> 8) % (hi - lo + 1u); }
 static uint32_t rx_rest_ms(void) { return (uint32_t)clampi((int32_t)rx.typ * 2, 350, 2500); }   /* a breath */
 static uint32_t rx_ans_ms(void) { return (uint32_t)clampi((int32_t)rx.typ * 3 / 2, 300, 2000); }
+#define RX_DENS rx.k[0]
+#define RX_CPLX rx.k[1]
+#define RX_CONT rx.k[2]
+#define RX_SPRD rx.k[3]
+static const char *const RX_KNAME[4] = {"DENSITY", "COMPLEXITY", "CONTINUITY", "SPREAD"};
 static int rx_in_ens(uint32_t l) { return l < NLAYER && l != rx.guide && ((rx.mask >> l) & 1u); }
 static int rx_role(uint32_t l) { return rx_in_ens(l) ? rx.a[l].mode : -1; }   /* (the host tests) */
 
@@ -215,11 +230,15 @@ static uint32_t rx_render(uint32_t l, uint32_t e, int32_t tx, int32_t sh, uint32
     uint32_t k, c = 0, lo = 0, hi = it->nn;
     if (a->chr == RC_TEX)                           /* a texture: the lowest note only; plucked: the top (now and then two) */
         hi = 1;
+    else if (RX_CPLX < 35)                          /* (plain: one note, the top) */
+        lo = it->nn - 1u;
     else if (a->chr == RC_PLUCK)
         lo = it->nn > 1u && rx_odds(75) ? it->nn - 1u : it->nn > 2u ? it->nn - 2u : 0u;
     for (k = lo; k < hi; k++)
         n[c++] = (uint32_t)clampi((int32_t)rx_note((int32_t)rx_dg(it->n[k]) + tx) + sh, 24, 108);
-    return c;
+    if (a->chr != RC_TEX && c == 1u && RX_CPLX > 55 && rx_odds(RX_CPLX - (a->chr == RC_SUST ? 35 : 55)))
+        n[c++] = (uint32_t)clampi((int32_t)rx_note((int32_t)rx_dg(it->n[hi - 1u]) + tx - (rx_odds(70) ? 2 : 5)) + sh, 24, 108);
+    return c;                                       /* (rich: harmonised, a third or a sixth under) */
 }
 static uint32_t rx_fits(uint32_t l, uint32_t e, int32_t tx)   /* how well event e fits, moved tx steps */
 {
@@ -233,7 +252,8 @@ static int32_t rx_reg(uint32_t l, uint32_t e, int32_t tx)
 {
     int32_t c = clampi((int32_t)rx.mid + 12 * rx.a[l].oct, 30, 100), t = (int32_t)rx_note((int32_t)rx_dg(rx_it(e)->n[rx_it(e)->nn - 1u]) + tx), s = 0;
     if (rx.a[l].chr == RC_TEX || rx.a[l].bassy)
-        c = clampi(c, 30, 60);
+        c = clampi(c, RX_SPRD > 60 ? 26 : 30, 60);
+    c = clampi(c, RX_SPRD > 60 ? 26 : 30, RX_SPRD > 60 ? 104 : 96);
     while (t + s > c + 6)
         s -= 12;
     while (t + s < c - 6)
@@ -293,8 +313,10 @@ static void rx_form(void)
         was = a->mode;
         for (m = 0; m < RM_N; m++) {
             w[m] = W[a->chr][m];
-            if (m == RM_REST && (nrest || nall < 3u))
-                w[m] = 0;                           /* (one sits out at most, and only among three or more) */
+            if (m == RM_REST)                       /* (sparser, more sit out: one at most at the middle, none dense) */
+                w[m] = (uint8_t)(nall < 3u || RX_DENS >= 80 || (nrest && RX_DENS >= 35) ? 0 : w[m] * (uint32_t)(160 - RX_DENS) / 100u);
+            if (m == RM_ECHO || m == RM_ANSWER)     /* (more structure: more counterpoint) */
+                w[m] = (uint8_t)(w[m] * (uint32_t)(50 + RX_CPLX) / 90u);
             if (m == RM_ANSWER && rx.typ > 900u)
                 w[m] = (uint8_t)(w[m] / 4u);        /* (a guide holding long leaves few rests to answer) */
             if ((used >> m) & 1u && m != RM_REST)
@@ -315,14 +337,16 @@ static void rx_form(void)
         a->tx = 0;
         a->cont = 70;
         a->pplay = 85;
+        if (RX_CPLX > 65 && rx_odds(RX_CPLX - 40))   /* (structure: a pace in threes against the guide's twos) */
+            a->tf = 3;
         switch (m) {
         case RM_FOLLOW:
-            a->tf = (uint8_t)(a->chr == RC_TEX ? 4u * rx_in(2, 4) : rx_odds(60) ? 4u : 8u);
+            a->tf = (uint8_t)(a->chr == RC_TEX ? 4u * rx_in(2, 4) : a->tf == 3u ? (rx_odds(50) ? 3u : 6u) : rx_odds(60) ? 4u : 8u);
             a->pct = 70;
             break;
         case RM_CONTRA:                         /* slow under a busy guide; moving under one holding long */
             a->tf = (uint8_t)(rx.typ < 350u ? rx_in(12, 16) : rx.typ > 900u ? (a->chr == RC_TEX ? 8u : rx_in(2, 4))
-                              : rx_odds(50) ? 8u : 3u);
+                              : rx_odds(50) ? 8u : RX_CPLX > 50 ? 3u : 2u);
             a->cont = 50;
             a->pplay = 70;
             a->pct = 58;
@@ -343,16 +367,19 @@ static void rx_form(void)
         default:
             break;
         }
-        {   /* its register: an octave or two from the guide's, low for a texture or a bass, unlike the others' */
-            static const int8_t O[5] = {-1, 1, -2, 2, 0};
+        {   /* its register, as SPREAD has it -- around the guide's hands, an octave or two off, or up to three -- low
+             * for a texture or a bass, the other side for a contrast, unlike the others' */
+            static const int8_t O[3][4] = {{0, -1, 1, 0}, {-1, 1, -2, 2}, {-2, 2, -3, 3}};
+            const int8_t *o = O[RX_SPRD < 20 ? 0 : RX_SPRD < 60 ? 1 : 2];
             uint32_t k = rx_in(0, 3), t;
-            if (a->chr == RC_TEX || a->bassy || m == RM_CONTRA)
-                k = (a->chr == RC_TEX || a->bassy || rx.mid > 64u) ? (rx_odds(50) ? 0u : 2u) : (rx_odds(50) ? 1u : 3u);
-            for (t = 0; t < 5u && ((octs >> (O[k] + 2)) & 1u); t++)
-                k = (k + 1u) % 5u;
-            a->oct = O[k];
-            octs |= 1u << (O[k] + 2);
+            int down = a->chr == RC_TEX || a->bassy || (m == RM_CONTRA && rx.mid > 64u), up = m == RM_CONTRA && !down;
+            for (t = 0; t < 8u; t++, k = (k + 1u) % 4u)
+                if ((!down || o[k] <= 0) && (!up || o[k] >= 0) && !((octs >> (o[k] + 3)) & 1u))
+                    break;
+            a->oct = o[k];
+            octs |= 1u << (o[k] + 3);
         }
+        a->cont = (uint8_t)clampi(a->cont + (RX_CONT - 60) * 4 / 5, 5, 98);   /* (CONTINUITY: kept to the phrases, or not) */
         a->next_at = fm1_ms + rx_in(0, 200);
     }
     if (nin && !nact)                               /* (never all resting) */
@@ -370,7 +397,8 @@ static uint32_t rx_choose(uint32_t l, int32_t *tx)
 {
     rx_ag_t *a = &rx.a[l];
     uint32_t cand[12], w[12], nc = 0, i, k, lvl, tot = 0, d, lo = rx.hn > RX_H ? rx.hn - RX_H : 0u, hi = rx.hn - 1u, on = 0;
-    static const int8_t TXS[3] = {0, 2, -2};
+    static const int8_t TXS[5] = {0, 2, -2, 4, -3};
+    uint32_t ntx = RX_CPLX < 35 ? 1u : RX_CPLX > 65 ? 5u : 3u;   /* (moved along the scale: plain, none; rich, further) */
     if (a->mode != RM_ANSWER)
         hi = rx.hn > 2u ? rx.hn - 2u : 0u;          /* (not the guide's very last: that is an echo, not a line) */
     if (rx_kept(a->pos) && a->pos + 1u <= hi) {     /* on as it went on */
@@ -399,7 +427,7 @@ static uint32_t rx_choose(uint32_t l, int32_t *tx)
             best = rx_fits(l, cand[i], a->tx);
             w[i] = (1u + best * 4u / 64u) * (uint32_t)a->cont / 10u;
         } else {
-            for (t = 0; t < 3u; t++) {
+            for (t = 0; t < ntx; t++) {
                 int32_t x = a->mode == RM_ECHO ? a->tx : TXS[t];
                 f = rx_fits(l, cand[i], x) + (x == 0 ? 20u : 0u);
                 if (f > best) {
@@ -445,14 +473,36 @@ static void rx_step(uint32_t l)
     a->taboo[1] = a->taboo[0];
     a->taboo[0] = e;
     gap = rx_kept(e + 1u) ? rx_it(e + 1u)->ioi : rx.typ;   /* (the guide's own wait after it: a breath, a phrase's end) */
-    gap = (uint32_t)clampi((int32_t)(gap * a->tf / 4u), 70, 7000);
+    if (RX_CPLX < 35 && gap < rx.typ * 3u) {       /* (plain: rounded to a half, one, two or four of its usual gap) */
+        uint32_t g = rx.typ / 2u;
+        while (g * 3u < gap * 2u && g < rx.typ * 4u)
+            g *= 2u;
+        gap = g;
+    }
     len = rx_it(e)->dur ? rx_it(e)->dur : gap * 9u / 10u;
+    gap = (uint32_t)(((uint64_t)gap * a->tf / 4u * exp2_q16((50 - RX_DENS) * 1311)) >> 16);   /* (DENSITY: x 2 .. x 1/2) */
+    gap = (uint32_t)clampi((int32_t)gap, 70, 9000);
     len = (uint32_t)clampi((int32_t)(len * a->tf / 4u) + (a->chr == RC_SUST ? 40 : 0), 50, 12000);
     vel = rx_it(e)->vel * a->pct / 100u;
-    if (rx_odds(a->pplay)) {
+    if (rx_odds(clampi(a->pplay * (25 + 3 * RX_DENS / 2) / 100, 3, 98))) {
+        uint32_t at = 0;
+        if (RX_CPLX > 70 && a->chr != RC_TEX && gap > 200u && rx_odds(RX_CPLX - 70))
+            at = gap / (rx_odds(50) ? 4u : 3u);     /* (pushed off the beat) */
         c = rx_render(l, e, tx, a->sh, n);
-        for (k = 0; k < c; k++)
-            rx_play(l, n[k], vel - k * 6u, len, k * rx_in(0, 18));
+        if (RX_CPLX > 60 && a->chr != RC_TEX && gap >= 240u && rx_odds((RX_CPLX - 60) * 3 / 2)) {
+            /* split: the step in two or three -- the event, then the next as the guide went on, sooner */
+            uint32_t parts = rx_odds(50) ? 2u : 3u, p, m[3], cm = rx_kept(e + 1u) ? rx_render(l, e + 1u, tx, a->sh, m) : 0u;
+            uint32_t d = (gap - at) / parts;
+            if (parts == 2u && rx_odds(50))
+                d = (gap - at) * 2u / 3u;           /* (unevenly: long, short) */
+            for (k = 0; k < c; k++)
+                rx_play(l, n[k], vel - k * 6u, d * 9u / 10u, at + k * rx_in(0, 18));
+            for (p = 1; p < parts && cm; p++)
+                rx_play(l, p == 2u ? rx_note((int32_t)rx_dg(m[cm - 1u]) + (n[c - 1u] > m[cm - 1u] ? 1 : -1)) : m[cm - 1u], vel - 8u,
+                        ((parts == 2u ? gap - at - d : d) * 9u) / 10u, at + p * d);
+        } else
+            for (k = 0; k < c; k++)
+                rx_play(l, n[k], vel - k * 6u, len, at + k * rx_in(0, 18));
     }
     a->next_at = fm1_ms + gap;
 }
@@ -522,7 +572,7 @@ static void rx_hear(uint32_t note, uint32_t vel, int on)
             if (a->mode == RM_ANSWER && (int32_t)(a->ans_end - now) > 0) {
                 rx_cut(l);                          /* (the guide plays on: the answer stops) */
                 a->ans_end = now;
-            } else if (a->mode == RM_ECHO && rx.hn > a->lag && rx_odds(80)) {   /* the line, events behind */
+            } else if (a->mode == RM_ECHO && rx.hn > a->lag && rx_odds(clampi(30 + RX_DENS, 5, 98))) {   /* the line, events behind */
                 uint32_t e = rx.hn - 1u - a->lag, n[3], c, k;
                 if (a->sh == 0x7F || it->start)
                     a->sh = (int8_t)rx_reg(l, e, a->tx);
@@ -569,6 +619,9 @@ static void rx_reset(void)                          /* nothing heard yet (on, or
 }
 static void rx_set(int on)
 {
+    static const int8_t KD[4] = {50, 40, 60, 40};
+    if (!rx.k[0] && !rx.k[1] && !rx.k[2] && !rx.k[3])
+        memcpy(rx.k, KD, sizeof rx.k);              /* (the page's values, first time on) */
     rx.on = (uint8_t)on;
     rx_reset();
 }
@@ -668,6 +721,12 @@ static void rx_tick(void)
     }
 }
 
+static void rx_knob(uint32_t j, int32_t s)        /* the page: K3 .. K6 */
+{
+    rx.k[j] = (int8_t)clampi(rx.k[j] + 2 * s, 0, 100);
+    if (j == 3u || j == 2u)
+        rx.form_t = fm1_ms - 5000u;                 /* (SPREAD, CONTINUITY: the ensemble regroups a second after) */
+}
 /* REACT's pads (the bottom row, 9 .. 14): track j in or out; the guide's, red a moment */
 static void rx_pad_hit(uint32_t j)
 {

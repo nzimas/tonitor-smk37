@@ -6435,6 +6435,31 @@ static int cmd_react(void)
     if (!rx.on || ui.pad_page != PP_REACT || ui.env_page || rx_ear != 0u)
         printf("FAIL react: SHIFT + FADER BANK does not turn it on with its pads (on %u, page %u, env %u)\n", rx.on,
                ui.pad_page, ui.env_page), fail++;
+    if (!ui.rx_page)
+        printf("FAIL react: on, its page is not up\n"), fail++;
+    for (j = 0; j < 4u; j++) {                       /* its rows at the large size, values 100 %% wide */
+        uint32_t w = (uint32_t)(text_w(&FONT_M, RX_KNAME[j]) + text_w(&FONT_M, "100%"));
+        printf("react: row %s %u px%s\n", RX_KNAME[j], w, w > 220u ? " (a size smaller)" : "");
+    }
+    host_enc[PANEL_ENC[PAGE_K[0]]] = 10;             /* K3: DENSITY up 20 */
+    ui_input();
+    host_enc[PANEL_ENC[EN_SELECT]] = -2;             /* K1: still the track's level */
+    {
+        int32_t lv = ui.level[ui.sel];
+        ui_input();
+        if (rx.k[0] != 70 || ui.level[ui.sel] == lv)
+            printf("FAIL react: K3 does not set DENSITY (%d), or K1 is no longer the level\n", rx.k[0]), fail++;
+    }
+    ui_draw();                                       /* the page, as shown: DENSITY turned, then COMPLEXITY */
+    ppm("build/screens/react-density.ppm");
+    host_enc[PANEL_ENC[PAGE_K[1]]] = 5;
+    ui_input();
+    ui_draw();
+    ppm("build/screens/react-complexity.ppm");
+    if (rx.k[1] != 50)
+        printf("FAIL react: K4 does not set COMPLEXITY (%d)\n", rx.k[1]), fail++;
+    rx.k[0] = 50;
+    rx.k[1] = 40;
     ch_pad(0);
     if (rx.mask || (int32_t)(fm1_ms - rx.red_until) >= 0)
         printf("FAIL react: the guide's pad is taken, or not red\n"), fail++;
@@ -6499,6 +6524,43 @@ static int cmd_react(void)
             printf("FAIL react: under long chords they hardly move (%u notes, %u pitches)\n", n0, np), fail++;
         if (rx_fitn * 2u < n0)
             printf("FAIL react: under long chords most notes do not fit the chord (%u of %u)\n", rx_fitn, n0), fail++;
+    }
+    {   /* the same tune at DENSITY 10 and 90, SPREAD 0 and 100: fewer notes, more; a narrower range, a wider */
+        uint32_t cnt[2], rng[2], d;
+        for (d = 0; d < 2u; d++) {
+            uint32_t k, lo2 = 127, hi2 = 0;
+            rx.k[0] = (int8_t)(d ? 90 : 10);
+            rx.k[3] = (int8_t)(d ? 100 : 0);
+            rx.form_t = fm1_ms - 7000u;
+            rx_clear();
+            for (c = 0; c < 8u; c++) {
+                rx_chord_keys(PROG[c % 4u], 1);
+                for (j = 0; j < 5u; j++) {
+                    uint32_t k2 = 9u + (c * 3u + j * 2u) % 7u;
+                    press_key(k2, 1);
+                    rx_run(GAP[(j + c) % 7u]);
+                    press_key(k2, 0);
+                    rx_run(90);
+                }
+                rx_chord_keys(PROG[c % 4u], 0);
+                rx_run(c % 3u ? 1500u : 400u);
+            }
+            cnt[d] = 0;
+            for (l = 1; l < NLAYER; l++) {
+                cnt[d] += rx_seen[l];
+                for (k = 0; k < 128u; k++)
+                    if ((rx_pitch[l][k >> 5] >> (k & 31u)) & 1u) {
+                        lo2 = k < lo2 ? k : lo2;
+                        hi2 = k > hi2 ? k : hi2;
+                    }
+            }
+            rng[d] = hi2 >= lo2 ? hi2 - lo2 : 0u;
+        }
+        printf("react: DENSITY 10: %u notes, 90: %u; SPREAD 0: %u semitones, 100: %u\n", cnt[0], cnt[1], rng[0], rng[1]);
+        if (cnt[1] < cnt[0] * 2u || rng[1] <= rng[0])
+            printf("FAIL react: DENSITY or SPREAD does little\n"), fail++;
+        rx.k[0] = 50;
+        rx.k[3] = 40;
     }
     rx_run(14000);                                   /* silence: all let go */
     for (j = 0; j < RX_Q; j++)

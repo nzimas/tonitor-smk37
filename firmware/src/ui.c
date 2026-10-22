@@ -228,6 +228,7 @@ static struct {
     int8_t dsend[NLAYER];        /* each track's send to the delay, 0 .. 100 (SHIFT + KNOB 4) */
     int8_t dist[NLAYER];         /* each track's distortion, 0 .. 100, 0 off (SHIFT + KNOB 3) */
     uint8_t rv_page;             /* the REVERB page is up -- or the DELAY page, fx 1 (SEQ; SHIFT + SEQ) */
+    uint8_t rx_page;             /* REACT's page is up (react.c: K3 .. K6 its four) */
     uint8_t fx;
     int8_t rv_touched;           /* the row just turned (-1 none), until rv_touch_until */
     uint32_t rv_touch_until;
@@ -457,6 +458,7 @@ static void latch_move(uint32_t l, int32_t d)
 #include "balls.c"                       /* (BALLSY, the physics sequencer: SHIFT + EDIT) */
 #include "bricks.c"                      /* (BRICKLAYER, the step sequencer: SHIFT + the envelope key) */
 #include "react.c"                       /* (REACT, the other tracks answering the chosen one: SHIFT + FADER BANK) */
+static uint8_t rx_focus;                         /* (REACT's page: the knob turned last, 0 .. 3) */
 /* PLAY is the sequencer's on its page (BALLSY's or BRICKLAYER's, up), the looper's on every other */
 static int seq_on(uint32_t l) { return bl.on[l] || bb.on[l]; }
 static int seq_page(void) { return (ui.bl_page && bl.on[ui.sel]) || (ui.bb_page && bb.on[ui.sel]); }
@@ -840,9 +842,9 @@ static void ui_input(void)
             ui.vary_shown = 0;
             ui.env_nat_ok = 0;
             if (ui.rv_page || ui.ses_page || ui.sc_page || ui.pre_page || ui.env_page || ui.bb_page || ui.bl_page || ui.mod_page ||
-                ui.set_page) {   /* a layer chosen:
+                ui.set_page || ui.rx_page) {   /* a layer chosen:
                                                                                                     * back to it */
-                ui.rv_page = 0;
+                ui.rv_page = ui.rx_page = 0;
                 ui.env_page = ui.bb_page = ui.bl_page = 0;
                 ui.ses_page = 0;
                 ui.sc_page = 0;
@@ -990,6 +992,14 @@ static void ui_input(void)
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 mod_knob(ui.sel, ui.mod_ix, j, s);
+    } else if (ui.rx_page && rx.on && !ui.rv_page) {   /* REACT's page: K3 .. K6 its four */
+        const uint8_t *K = PAGE_K;
+        uint32_t j;
+        for (j = 0; j < 4u; j++)
+            if ((s = knob_take(K[j], sh)) != 0) {
+                rx_knob(j, s);
+                rx_focus = (uint8_t)j;
+            }
     } else if (ui.rv_page) {                     /* KNOB 1..4: the reverb, or the delay */
         const uint8_t *K = PAGE_K;
         uint32_t j;
@@ -1409,17 +1419,29 @@ static void ui_input(void)
         rx.rdone = 1;
         if (!rx.on)
             rx_set(1);
-        ui.pad_page = (uint8_t)(ui.pad_page == PP_REACT ? PP_NONE : PP_REACT);
-        say(ui.pad_page == PP_REACT ? "REACT PADS" : "PADS FREE", 900);
+        if (ui.pad_page == PP_REACT && ui.rx_page) {   /* (held: its page and pads down, or up) */
+            ui.pad_page = PP_NONE;
+            ui.rx_page = 0;
+        } else {
+            ui.pad_page = PP_REACT;
+            ui.rx_page = 1;
+            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
+            ui.env_page = 0;
+        }
+        ui.force = 1;
     }
     if (rx.rdown && !(fk >> FN_ENV & 1u)) {
         rx.rdown = 0;
         if (!rx.rdone) {
             rx_set(!rx.on);
-            if (rx.on)
+            ui.rx_page = rx.on;                  /* (on: its page and its pads up; off: down) */
+            if (rx.on) {
                 ui.pad_page = PP_REACT;
-            else if (ui.pad_page == PP_REACT)
+                ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
+                ui.env_page = 0;
+            } else if (ui.pad_page == PP_REACT)
                 ui.pad_page = PP_NONE;
+            ui.force = 1;
             say(rx.on ? "REACT" : "REACT OFF", 1200);
         }
     }
@@ -1986,7 +2008,10 @@ static void draw_mod_page(void)
 static void draw_rv_title(void)
 {
     cv_begin(240, 52, C_BLACK);
-    cv_text_c(3, &FONT_L, ui.fx ? "DELAY" : "REVERB", ui.fx ? C_DELAY : C_SEND);
+    if (ui.rx_page && !ui.rv_page)
+        cv_text_c(3, &FONT_L, "REACT", C_REACT);
+    else
+        cv_text_c(3, &FONT_L, ui.fx ? "DELAY" : "REVERB", ui.fx ? C_DELAY : C_SEND);
     cv_blit(0, 0);
 }
 static void draw_rv_row(uint32_t j, int touched)
@@ -2033,6 +2058,50 @@ static void draw_rv_page(void)
         if (ui.shown_rvp[j] != (ui.fx ? ui.dlp : ui.rvp)[j] || (((int32_t)j == t) != ((int32_t)j == ui.shown_touch)))
             draw_rv_row(j, (int32_t)j == t);
     ui.shown_touch = (int8_t)t;
+}
+
+/* REACT's page: REACT; the name of the knob turned last (DENSITY at first), as large as fits whole; its value, large;
+ * then the four (K3 .. K6) side by side, each its knob's name and a bar, the one turned last black on white */
+static int8_t rx_shown[5];
+static void draw_rx_page(void)
+{
+    char v[8];
+    uint32_t j;
+    const font_t *f;
+    if (!ui.force && ui.shown_page == 13 && rx_shown[4] == (int8_t)rx_focus && !memcmp(rx_shown, rx.k, 4))
+        return;
+    draw_rv_title();
+    cv_begin(240, 48, C_BLACK);                   /* the name: medium if it fits whole, else a size smaller */
+    f = text_w(&FONT_M, RX_KNAME[rx_focus]) <= 232 ? &FONT_M : &FONT_S;
+    cv_text_c((48 - f->h) / 2, f, RX_KNAME[rx_focus], C_WHITE);
+    cv_blit(0, 52);
+    cv_begin(240, 56, C_BLACK);                   /* its value */
+    fmt_int(v, rx.k[rx_focus]);
+    str_cpy(v + str_len(v), "%", 2);
+    cv_text_c(5, &FONT_L, v, C_REACT);
+    cv_blit(0, 100);
+    for (j = 0; j < 2u; j++) {                    /* the four: K3 .. K6, and a bar each */
+        uint32_t k;
+        cv_begin(240, 42, C_BLACK);
+        for (k = 0; k < 4u; k++) {
+            int on = k == rx_focus;
+            int32_t x = (int32_t)k * 60;
+            if (on)
+                cv_rect(x + 2, 0, 56, 42, C_WHITE);
+            if (!j) {
+                char kn[3] = {'K', (char)('3' + k), 0};
+                cv_text(x + (60 - text_w(&FONT_S, kn)) / 2, (42 - FONT_S.h) / 2, &FONT_S, kn, on ? C_BLACK : C_WHITE);
+            } else {
+                cv_rect(x + 10, 6, 40, 30, on ? C_GREY : RGB(60, 60, 60));
+                cv_rect(x + 10, 6 + 30 - rx.k[k] * 30 / 100, 40, rx.k[k] * 30 / 100, on ? C_BLACK : C_REACT);
+            }
+        }
+        cv_blit(0, 156 + 42 * j);
+    }
+    memcpy(rx_shown, rx.k, 4);
+    rx_shown[4] = (int8_t)rx_focus;
+    ui.shown_page = 13;
+    ui.force = 0;
 }
 
 /* the ENVELOPE page: the title; the envelope drawn (the stages' widths by their knobs, the sustain a fixed
@@ -2504,7 +2573,7 @@ static void ui_draw(void)
         return;
     }
     if ((int32_t)(ui.dial_until - fm1_ms) > 0 && !ui.ses_page && !ui.sc_page && !ui.rv_page && !ui.pre_page && !ui.ovd &&
-        !ui.env_page) {
+        !ui.env_page && !(ui.rx_page && rx.on)) {
         if (ui.shown_page != 4 ||
             (ui.shown_dial != (int16_t)(dial_value() + ui.dial * 256) && (uint32_t)(fm1_ms - ui.dial_drawn_at) >= 40u))
             draw_dial();
@@ -2568,6 +2637,10 @@ static void ui_draw(void)
         if (ui.shown_page != 1 + ui.fx * 10)
             ui.force = 1;                        /* from another page or the dial: all of it */
         draw_rv_page();
+        return;
+    }
+    if (ui.rx_page && rx.on) {                   /* REACT's page */
+        draw_rx_page();
         return;
     }
     if (ui.shown_page) {                         /* back from a page: everything again */
