@@ -37,8 +37,8 @@ DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
-PRODUCT = "SMK-37 Pro_721"          # package identity: build N is SMK-37 Pro_7NN
-VERSION = "BUILD 21"                # the SMK-37 port counts its own builds
+PRODUCT = "SMK-37 Pro_722"          # package identity: build N is SMK-37 Pro_7NN
+VERSION = "BUILD 22"                # the SMK-37 port counts its own builds
 
 
 def toolchain():

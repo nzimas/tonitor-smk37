@@ -6351,41 +6351,58 @@ static int cmd_seqplay(void)
 /* a transposition keeps the velocities: a latched note struck soft, moved with SHIFT + OCT, sounds soft still; a loop's
  * soft note moved while it sounds, too */
 /* REACT: SHIFT + FADER BANK on (its pads up, not the ENVELOPE page); the guide's pad not taken (red); the others taken
- * in, each a part its sound suits (never a texture note by note); a chord progression with a tune and rests on track
- * 1: the parts play, in the scale, none on the guide, the bass under it, the answers only in the rests; a chord held
- * long and nothing else played brings no running pattern (no clock of its own); silence, silence; the guide's loops
- * heard; another track chosen leads; off: every note let go */
-static uint32_t rx_seen[NLAYER], rx_bad, rx_why, rx_low_bass = 127, rx_ans_busy, rx_onsets, rx_seen_t;
-static void rx_watch(uint32_t guide_lo, int resting)
+ * in, the ensemble formed; a tune with chords and rests, in an uneven rhythm: the others play, never on the guide, in
+ * the scale, each in a rhythm of the guide's (no steady pulse of its own); long chords alone (an ambient guide): they
+ * move -- many notes, many pitches, fitting the chords held; silence, silence; the guide's loops heard; another track
+ * chosen leads; off: every note let go */
+static uint32_t rx_seen[NLAYER], rx_bad, rx_onsets, rx_fitn, rx_pitch[NLAYER][4], rx_gapn[NLAYER], rx_lastt[NLAYER];
+static uint8_t rx_prev[RX_Q], rx_prevn[RX_Q];
+static uint16_t rx_gaps[NLAYER][64];
+static uint32_t rx_held_mask;
+static void rx_watch(void)
 {
     uint32_t i, m = scale_mask();
-    for (i = 0; i < RX_Q; i++)
-        if (rx.q[i].on == 2u) {
+    for (i = 0; i < RX_Q; i++) {
+        if (rx.q[i].on == 2u && (rx_prev[i] != 2u || rx_prevn[i] != rx.q[i].note)) {
             uint32_t l = rx.q[i].layer, n = rx.q[i].note;
-            int r = rx_role(l);
-            if ((int32_t)(rx.q[i].t0 - rx_seen_t) > 0) {
-                rx_onsets++;
-                rx_seen[l]++;
-            }
+            rx_onsets++;
+            rx_seen[l]++;
+            rx_pitch[l][n >> 5] |= 1u << (n & 31u);
             if (l == rx.guide || !((m >> (n % 12u)) & 1u))
-                rx_bad++, rx_why |= l == rx.guide ? 1u : 2u << r;
-            if (r == RR_BASS && n < rx_low_bass)
-                rx_low_bass = n;
-            if (r == RR_BASS && n >= guide_lo)
-                rx_bad++, rx_why |= 0x100u;
-            if (r == RR_ANS && !resting)
-                rx_ans_busy++;
+                rx_bad++;
+            if ((rx_held_mask >> (n % 12u)) & 1u)
+                rx_fitn++;
+            if (rx_lastt[l] && fm1_ms - rx_lastt[l] > 30u && rx_gapn[l] < 64u)
+                rx_gaps[l][rx_gapn[l]++] = (uint16_t)(fm1_ms - rx_lastt[l]);
+            rx_lastt[l] = fm1_ms;
         }
-    rx_seen_t = fm1_ms;
+        rx_prev[i] = rx.q[i].on;
+        rx_prevn[i] = rx.q[i].note;
+    }
 }
-static void rx_run(uint32_t ms, uint32_t guide_lo, int resting)
+static void rx_run(uint32_t ms)
 {
     uint32_t t0 = fm1_ms;
     while (fm1_ms - t0 < ms) {
         run_blocks(2, 0);
         ui_input();
-        rx_watch(guide_lo, resting);
+        rx_watch();
     }
+}
+static void rx_clear(void)
+{
+    memset(rx_seen, 0, sizeof rx_seen);
+    memset(rx_pitch, 0, sizeof rx_pitch);
+    memset(rx_gapn, 0, sizeof rx_gapn);
+    memset(rx_lastt, 0, sizeof rx_lastt);
+    rx_onsets = rx_fitn = 0;
+}
+static uint32_t rx_npitch(uint32_t l)
+{
+    uint32_t k, c = 0;
+    for (k = 0; k < 128u; k++)
+        c += (rx_pitch[l][k >> 5] >> (k & 31u)) & 1u;
+    return c;
 }
 static void rx_shift_fb(void)
 {
@@ -6394,11 +6411,21 @@ static void rx_shift_fb(void)
     press_phys(KEY_ENV, 0);
     press_phys(KEY_SHIFT, 0);
 }
+static void rx_chord_keys(const uint8_t *k3, int down)
+{
+    uint32_t j;
+    rx_held_mask = 0;
+    for (j = 0; j < 3u; j++) {
+        press_key(k3[j], down);
+        if (down)
+            rx_held_mask |= 1u << (key_note_of(k3[j], 0) % 12u);
+    }
+}
 static int cmd_react(void)
 {
-    static const uint8_t PROG[4][3] = {{0, 2, 4}, {3, 5, 7}, {4, 6, 8}, {5, 7, 9}};   /* I IV V vi, as keys */
-    static const char *const CHR[3] = {"PLUCK", "SUST", "TEX"};
-    uint32_t fail = 0, c, j, rep, l, lo, used = 0, n0;
+    static const uint8_t PROG[6][3] = {{0, 2, 4}, {5, 7, 9}, {3, 5, 7}, {4, 6, 8}, {1, 3, 5}, {4, 6, 8}};
+    static const uint16_t GAP[7] = {180, 420, 260, 640, 330, 150, 520};
+    uint32_t fail = 0, c, j, l, n0, act = 0;
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
@@ -6413,122 +6440,97 @@ static int cmd_react(void)
         printf("FAIL react: the guide's pad is taken, or not red\n"), fail++;
     for (j = 1; j < NLAYER; j++)
         ch_pad(j);
-    if (rx.mask != 0x3Eu)
-        printf("FAIL react: the tracks taken in (%02x)\n", rx.mask), fail++;
-    printf("react: parts");
+    for (l = 1; l < NLAYER; l++)
+        act += rx_role(l) > RM_REST;
+    if (rx.mask != 0x3Eu || !act)
+        printf("FAIL react: the tracks taken in (%02x), or none plays (%u)\n", rx.mask, act), fail++;
+    rx_clear();                                      /* a tune with chords and rests, unevenly */
+    for (c = 0; c < 12u; c++) {
+        rx_chord_keys(PROG[c % 4u], 1);
+        for (j = 0; j < 5u; j++) {
+            uint32_t k = 9u + (c * 3u + j * 2u) % 7u;
+            fm1_in.key_vel[k] = (uint8_t)(60u + 13u * ((j + c) % 4u));
+            press_key(k, 1);
+            rx_run(GAP[(j + c) % 7u]);
+            press_key(k, 0);
+            rx_run(90);
+        }
+        rx_chord_keys(PROG[c % 4u], 0);
+        rx_run(c % 3u ? 1500u : 400u);           /* (rests, long and short) */
+    }
+    printf("react: a tune --");
+    n0 = 0;
     for (l = 1; l < NLAYER; l++) {
-        int r = rx_role(l);
-        printf("  %u %s (%s%s)", l + 1u, r >= 0 ? RR_NAME[r] : "-", CHR[rx.m[l].chr], rx.m[l].var ? ", second" : "");
-        if (r < 0 || !RR_AFF[rx.m[l].chr][r])
-            printf("\nFAIL react: track %u has no part, or one its sound does not suit\n", l + 1u), fail++;
-        else if (!rx.m[l].var && ((used >> r) & 1u))
-            printf("\nFAIL react: part %s dealt twice\n", RR_NAME[r]), fail++;
-        else if (r >= 0)
-            used |= 1u << r;
+        uint32_t k, dist = 0;
+        printf(" %u %s %u notes %u pitches;", l + 1u, RM_NAME[rx.a[l].mode], rx_seen[l], rx_npitch(l));
+        n0 += rx_seen[l];
+        for (k = 0; k < rx_gapn[l]; k++) {       /* the gaps it played: more than one or two values (no pulse of its own) */
+            uint32_t m, same = 0;
+            for (m = 0; m < k; m++)
+                same |= (rx_gaps[l][m] + 25u) / 50u == (rx_gaps[l][k] + 25u) / 50u;
+            dist += !same;
+        }
+        if (rx_gapn[l] >= 10u && dist < 4u)
+            printf("\nFAIL react: track %u plays a steady pulse (%u gaps, %u kinds)\n", l + 1u, rx_gapn[l], dist), fail++;
     }
     printf("\n");
-    lo = 127;
-    for (rep = 0; rep < 3u; rep++)
-        for (c = 0; c < 4u; c++) {               /* a chord held, a tune over it (its own uneven rhythm), a rest */
-            static const uint16_t GAP[4] = {180, 420, 260, 640};
-            for (j = 0; j < 3u; j++) {
-                press_key(PROG[c][j], 1);
-                if (key_note_of(PROG[c][j], 0) < lo)
-                    lo = key_note_of(PROG[c][j], 0);
-            }
-            for (j = 0; j < 4u; j++) {
-                fm1_in.key_vel[9u + (c + j * 2u) % 7u] = (uint8_t)(70u + 15u * ((j + c) % 3u));
-                press_key(9u + (c + j * 2u) % 7u, 1);
-                rx_run(GAP[(j + c) % 4u], lo, 0);
-                press_key(9u + (c + j * 2u) % 7u, 0);
-                rx_run(120, lo, 0);
-            }
-            for (j = 0; j < 3u; j++)
-                press_key(PROG[c][j], 0);
-            rx_run(100, lo, 0);
-            rx_run(1600, lo, 1);                 /* (a rest: the answers' turn) */
-        }
-    n0 = 0;
-    for (l = 1; l < NLAYER; l++)
-        n0 += rx_seen[l];
-    if (n0 < 20u)
+    if (n0 < 30u)
         printf("FAIL react: the others hardly play (%u notes)\n", n0), fail++;
     if (rx_seen[0] || rx_bad)
-        printf("FAIL react: notes on the guide, out of the scale, or a bass not under the guide (%u, %u, %x)\n", rx_seen[0], rx_bad, rx_why), fail++;
-    if (rx_ans_busy > 40u)
-        printf("FAIL react: an answer plays over the guide (%u)\n", rx_ans_busy), fail++;
-    printf("react: usual gap %u ms, fastest %u, grow %u, notes %u %u %u %u %u, bass down to %u (guide from %u)\n", rx.typ,
-           rx.fast, rx.grow, rx_seen[1], rx_seen[2], rx_seen[3], rx_seen[4], rx_seen[5], rx_low_bass, lo);
-    {   /* the parts the sounds here were not dealt, given by hand: a bass, two shadows, a second echo, a second
-         * ornament -- the same progression */
-        static const uint8_t R[NLAYER] = {0, RR_BASS, RR_SHAD, RR_SHAD, RR_ECHO, RR_ORN};
-        uint32_t k0 = rx_low_bass;
-        for (l = 1; l < NLAYER; l++) {
-            rx.m[l].role = R[l];
-            rx.m[l].var = (uint8_t)(l == 3u || l >= 4u);
-        }
-        memset(rx_seen, 0, sizeof rx_seen);
-        for (c = 0; c < 4u; c++) {
-            for (j = 0; j < 3u; j++)
-                press_key(PROG[c][j], 1);
-            for (j = 0; j < 5u; j++) {
-                fm1_in.key_vel[10u + j] = (uint8_t)(60u + 12u * j);
-                press_key(10u + j, 1);
-                rx_run(150u + 90u * ((j * 3u + c) % 4u), lo, 0);
-                press_key(10u + j, 0);
-                rx_run(60, lo, 0);
-            }
-            rx_run(900, lo, 0);                  /* (held: ornamented) */
-            for (j = 0; j < 3u; j++)
-                press_key(PROG[c][j], 0);
-            rx_run(1600, lo, 1);
-        }
-        if (!rx_seen[1] || !(rx_seen[2] + rx_seen[3]) || rx_bad || rx_low_bass >= lo || rx_low_bass == k0)
-            printf("FAIL react: given by hand, bass %u, shadows %u, out of place %u (%x)\n", rx_seen[1], rx_seen[2] + rx_seen[3],
-                   rx_bad, rx_why), fail++;
-        printf("react: by hand -- notes %u %u %u %u %u, bass down to %u\n", rx_seen[1], rx_seen[2], rx_seen[3], rx_seen[4],
-               rx_seen[5], rx_low_bass);
+        printf("FAIL react: notes on the guide or out of the scale (%u, %u)\n", rx_seen[0], rx_bad), fail++;
+    rx_clear();                                      /* long chords alone: an ambient guide */
+    for (c = 0; c < 6u; c++) {
+        rx_chord_keys(PROG[c], 1);
+        rx_run(4000);
+        rx_chord_keys(PROG[c], 0);
+        rx_run(60);
     }
-    for (j = 0; j < 3u; j++)                     /* a chord held 8 s, nothing else: no running pattern */
-        press_key(PROG[0][j], 1);
-    rx_run(1500, lo, 0);
-    rx_onsets = 0;
-    rx_run(6500, lo, 0);
-    if (rx_onsets > 8u)
-        printf("FAIL react: a chord held alone sets off %u notes (a pattern of its own)\n", rx_onsets), fail++;
-    for (j = 0; j < 3u; j++)
-        press_key(PROG[0][j], 0);
-    rx_run(14000, lo, 1);                        /* silence: all let go */
+    n0 = 0;
+    printf("react: long chords --");
+    {
+        uint32_t np = 0;
+        for (l = 1; l < NLAYER; l++) {
+            printf(" %u %s %u notes %u pitches;", l + 1u, RM_NAME[rx.a[l].mode], rx_seen[l], rx_npitch(l));
+            n0 += rx_seen[l];
+            np += rx_npitch(l);
+        }
+        printf(" fitting the chord %u of %u\n", rx_fitn, n0);
+        if (n0 < 15u || np < 8u)
+            printf("FAIL react: under long chords they hardly move (%u notes, %u pitches)\n", n0, np), fail++;
+        if (rx_fitn * 2u < n0)
+            printf("FAIL react: under long chords most notes do not fit the chord (%u of %u)\n", rx_fitn, n0), fail++;
+    }
+    rx_run(14000);                                   /* silence: all let go */
     for (j = 0; j < RX_Q; j++)
         if (rx.q[j].on)
             printf("FAIL react: a part still sounds after the guide fell silent\n"), fail++, j = RX_Q;
-    rx_onsets = 0;
-    rx_run(5000, lo, 1);
+    rx_clear();
+    rx_run(5000);
     if (rx_onsets)
         printf("FAIL react: %u notes while the guide is silent\n", rx_onsets), fail++;
     press_btn(B_REC);                                /* the guide's loop, heard */
     press_key(0, 1);
-    rx_run(300, 127, 1);
+    rx_run(300);
     press_key(0, 0);
     press_key(2, 1);
-    rx_run(300, 127, 1);
+    rx_run(300);
     press_key(2, 0);
     press_btn(B_REC);
-    rx_run(1000, 127, 1);
-    c = rx.last_on;
-    rx_run(1000, 127, 1);
-    if (rx.last_on == c)
+    rx_run(1000);
+    c = rx.hn;
+    rx_run(1500);
+    if (rx.hn == c)
         printf("FAIL react: the guide's loop is not heard\n"), fail++;
     press_btn(B_PLAY);                               /* (stopped) */
-    rx_run(100, 127, 1);
+    rx_run(100);
     press_btn(B_SEL);                                /* track 2 leads */
-    rx_run(50, 127, 1);
+    rx_run(50);
     if (rx.guide != 1u || rx_ear != 1u || rx_role(1) != -1 || rx_role(0) != -1 || rx_role(2) < 0)
         printf("FAIL react: another track chosen does not lead (guide %u)\n", rx.guide), fail++;
     press_key(0, 1);
-    rx_run(600, 127, 0);
+    rx_run(600);
     rx_shift_fb();
-    rx_run(50, 127, 0);
+    rx_run(50);
     press_key(0, 0);
     for (j = 0; j < RX_Q; j++)
         if (rx.q[j].on)
