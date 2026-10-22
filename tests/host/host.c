@@ -6089,6 +6089,46 @@ static int cmd_loopvel(void)
     return fail ? 1 : 0;
 }
 
+/* LOOP (the second button of the top row) puts the loops' direction and speed on the bottom row of pads: pad 9 .. 11
+ * REVERSE PENDULUM RANDOM, 15 HALF, 16 DOUBLE; the lit one again: forward / normal; direction and speed together */
+static int cmd_looppads(void)
+{
+    uint32_t fail = 0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    host_press |= 1u << BTN_LOOP;                    /* LOOP: its pads */
+    ui_input();
+    if (ui.pad_page != PP_LOOP)
+        printf("FAIL looppads: LOOP does not put its options on the pads (%u)\n", ui.pad_page), fail++;
+    ch_pad(0);
+    if (loop[0].dmode != LD_REV)
+        printf("FAIL looppads: pad 9 is not REVERSE (%u)\n", loop[0].dmode), fail++;
+    ch_pad(7);
+    if (loop[0].rate != LS_DOUBLE || loop[0].dmode != LD_REV)
+        printf("FAIL looppads: pad 16 is not DOUBLE, with REVERSE kept (%u %u)\n", loop[0].rate, loop[0].dmode), fail++;
+    ch_pad(1);
+    ch_pad(6);
+    if (loop[0].dmode != LD_PEND || loop[0].rate != LS_HALF)
+        printf("FAIL looppads: pads 10 and 15 are not PENDULUM at HALF (%u %u)\n", loop[0].dmode, loop[0].rate), fail++;
+    ch_pad(1);
+    ch_pad(6);
+    if (loop[0].dmode != LD_FWD || loop[0].rate != LS_NORMAL)
+        printf("FAIL looppads: the lit pads again are not forward, normal (%u %u)\n", loop[0].dmode, loop[0].rate), fail++;
+    ch_pad(2);
+    if (loop[0].dmode != LD_RAND)
+        printf("FAIL looppads: pad 11 is not RANDOM (%u)\n", loop[0].dmode), fail++;
+    host_press |= 1u << BTN_LOOP;                    /* LOOP again: the pads free; the pads do nothing */
+    ui_input();
+    ch_pad(0);
+    if (ui.pad_page != PP_NONE || loop[0].dmode != LD_RAND)
+        printf("FAIL looppads: LOOP again does not free the pads (%u, %u)\n", ui.pad_page, loop[0].dmode), fail++;
+    printf("looppads: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 static int cmd_backup(void)
 {
     static uint8_t rec[8][60000];
@@ -6652,6 +6692,8 @@ int main(int argc, char **argv)
         return cmd_bricks(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "bkserve"))
         return cmd_bkserve();
+    if (argc >= 2 && !strcmp(argv[1], "looppads"))
+        return cmd_looppads();
     if (argc >= 2 && !strcmp(argv[1], "loopvel"))
         return cmd_loopvel();
     if (argc >= 2 && !strcmp(argv[1], "backup"))

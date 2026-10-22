@@ -93,7 +93,12 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define PAD_AMB 6u                       /* (top row, hardware pads 0 .. 7: the 7th and the 8th) */
 #define BTN_CHORD 6u                     /* CHORD: the first button of the top row (smk_input.h's ARP): pressed, chord
                                           * mode on or off; held, the chords on the bottom row of pads */
-enum { PP_NONE, PP_CHORD };              /* the bottom row of pads: free, the chords */
+#define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
+                                          * bottom row of pads (pressed again: the pads freed) */
+enum { PP_NONE, PP_CHORD, PP_LOOP };     /* the bottom row of pads: free, the chords, the loops' direction and speed */
+/* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 15, 16 (14, 15)
+ * the speed, HALF DOUBLE (none lit: normal); the lit one pressed again: back to forward / normal */
+static const uint8_t LOOP_PAD_FN[8] = {FN_REV, FN_PEND, FN_RAND, 0xFF, 0xFF, 0xFF, FN_HALF, FN_DOUBLE};
 #define PAD_EXP 7u
 #ifdef HOST_FN
 static uint32_t host_fn;                 /* (the host tests: the functions, held) */
@@ -1241,17 +1246,27 @@ static void ui_input(void)
             mac_apply(ui.sel);
         }
     }
-    {   /* the bottom row of pads: the chosen track's chord, pad 1 .. 8 */
-        uint32_t h = smk_pad_take() >> 8, j;
-        for (j = 0; j < CH_N && ui.pad_page == PP_CHORD; j++)
-            if ((h >> j) & 1u) {
-                ui.chord_form[ui.sel] = (uint8_t)j;
-                say(CH_NAME[j], 900);
-                ui.force = 1;                    /* (its name under CHO) */
-            }
-    }
     fk = fn_keys();                              /* (the black-key functions: fn_keys) */
     fch = fk ^ ui.fkeys;
+    {   /* the bottom row of pads, by its page: the chosen track's chord (pads 9 .. 16), or the loops' direction and
+         * speed (as presses of those functions) */
+        uint32_t h = smk_pad_take() >> 8, j;
+        for (j = 0; j < 8u; j++)
+            if ((h >> j) & 1u) {
+                if (ui.pad_page == PP_CHORD && j < CH_N) {
+                    ui.chord_form[ui.sel] = (uint8_t)j;
+                    say(CH_NAME[j], 900);
+                    ui.force = 1;                /* (its name under CHO) */
+                } else if (ui.pad_page == PP_LOOP && LOOP_PAD_FN[j] != 0xFFu) {
+                    fch |= 1u << LOOP_PAD_FN[j];  /* (pressed now) */
+                    fk |= 1u << LOOP_PAD_FN[j];
+                }
+            }
+    }
+    if ((press >> BTN_LOOP) & 1u) {              /* LOOP: the loops' options on the pads, or off them */
+        ui.pad_page = (uint8_t)(ui.pad_page == PP_LOOP ? PP_NONE : PP_LOOP);
+        say(ui.pad_page == PP_LOOP ? "LOOP PADS" : "PADS FREE", 900);
+    }
     if (ui.bl_page && bl.on[ui.sel]) {           /* BRICKLAYER's page: the same keys, its own direction and speed */
         uint32_t l = ui.sel;
         if ((fch & fk) >> FN_REV & 1u || (fch & fk) >> FN_PEND & 1u || (fch & fk) >> FN_RAND & 1u) {
@@ -1376,7 +1391,7 @@ static void ui_input(void)
             ui.path[ui.sel] = (uint8_t)(ui.path[ui.sel] == pa ? PATH_OPEN : pa);
             say(ui.path[ui.sel] == PATH_AMBIENT ? "AMBIENT" : ui.path[ui.sel] == PATH_EXP ? "EXPERIMENTAL" : "OPEN", 1200);
         }
-    ui.fkeys = fk;
+    ui.fkeys = fn_keys();                        /* (a pad's press is a moment: never held) */
     keys[0] = fm1_in.keyw[0];
     keys[1] = fm1_in.keyw[1];
     ch[0] = keys[0] ^ ui.keys[0];
@@ -1451,9 +1466,12 @@ static uint32_t key_lit[2], fn_lit, fn_glow;
 static void fn_led(uint32_t f, int on) { fn_lit = on ? fn_lit | 1u << f : fn_lit & ~(1u << f); }
 static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_glow & ~(1u << f); }
 /* the top row of pads: the six tracks, each in its colour -- the chosen one full, the others dim (on the clipboard:
- * blinking); then the AMBIENT and EXPERIMENTAL paths (white); the bottom row, its page's (the chords: blue) or dark */
+ * blinking); then the AMBIENT and EXPERIMENTAL paths (white); the bottom row, its page's (the chords: blue; the loops:
+ * red) or dark */
 #define C_PATH RGB(255, 255, 255)        /* (both paths white: unlike any track's colour) */
 #define C_CHORD RGB(40, 80, 255)         /* (the chords, the bottom row: blue) */
+#define C_LOOP_DIR RGB(255, 20, 20)      /* (the loops' direction: red; their speed, a warmer red) */
+#define C_LOOP_SPD RGB(255, 90, 40)
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1469,7 +1487,14 @@ static void pads_show(void)
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
             pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
-        else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
+        else if (p >= 8u && ui.pad_page == PP_LOOP && LOOP_PAD_FN[p - 8u] != 0xFFu) {   /* the loops': as set, lit */
+            uint32_t f = LOOP_PAD_FN[p - 8u];
+            int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own) */
+            uint32_t dm = blp ? bl.dir[ui.sel] : loop[ui.sel].dmode, rt = blp ? bl.spd[ui.sel] : loop[ui.sel].rate;
+            int on = f == FN_REV ? dm == LD_REV : f == FN_PEND ? dm == LD_PEND : f == FN_RAND ? dm == LD_RAND
+                     : f == FN_HALF ? rt == LS_HALF : rt == LS_DOUBLE;
+            pad_rgb(p, f == FN_HALF || f == FN_DOUBLE ? C_LOOP_SPD : C_LOOP_DIR, on ? 256u : PAD_DIM);
+        } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
             pad_rgb(p, C_PATH,
                     ui.path[ui.sel] == (p == PAD_AMB ? PATH_AMBIENT : PATH_EXP) ? 256u : PAD_DIM);
         else
@@ -1501,6 +1526,7 @@ static void ui_leds(void)
     pads_show();
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
+    fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */

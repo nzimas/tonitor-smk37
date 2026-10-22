@@ -47,6 +47,7 @@ build/host balls build/screens
 build/host bricks build/screens
 build/host vary
 build/host loopvel
+build/host looppads
 build/host backup
 if command -v node >/dev/null; then                  # the backup page's protocol against the firmware's
     node tests/web/test_backup.mjs build/host
