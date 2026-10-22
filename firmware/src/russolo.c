@@ -488,10 +488,13 @@ static const char *rus_mac_name(const rus_design_t *d, uint32_t j)
  * 0.1 RMS (as cal_measure) -- but no more than keeps its loudest click under half of full scale, and never above
  * x1 (dust and crackle are mostly silence: by their usual level alone they would be raised until their clicks
  * broke; at x1 nothing it makes can) */
-static rus_t rus_probe;
+/* (the measuring organism: in ANIMA's probe voice -- one sound measured at a time; RAM is short) */
+#define rus_probe (*(rus_t *)(void *)&an_probe)
+_Static_assert(sizeof(rus_t) <= sizeof(an_voice_t), "RUSSOLO's probe fits ANIMA's");
 static void rus_measure(rus_design_t *d)
 {
-    static int32_t win[2067u / 16u + 1u];
+    int32_t *win = meas_win;                      /* (the measuring window: dsp.h, shared) */
+    _Static_assert((2067u / 16u + 1u) <= MEAS_WIN_N, "the measuring window is too small");
     int32_t out[CTL];
     uint32_t b, k, nwin = 0;
     int64_t acc = 0;
@@ -508,7 +511,7 @@ static void rus_measure(rus_design_t *d)
                 peak = absi(out[i]);
         }
         if ((b & 15u) == 15u) {
-            if (nwin < NELEM(win))
+            if (nwin < (2067u / 16u + 1u))
                 win[nwin++] = (int32_t)((acc >> 9) > 0x7FFFFFFF ? 0x7FFFFFFF : (acc >> 9));
             acc = 0;
         }

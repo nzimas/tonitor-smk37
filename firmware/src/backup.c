@@ -97,6 +97,8 @@ static void bk_handle(const uint8_t *m, uint32_t d)
         uint32_t k = 0;
         for (i = 0; i < ses.n; i++) {
             ses_head_t h;
+            if (ses.num[i] == CLIP_NUM)
+                continue;                        /* (the clipboard: not kept) */
             ses_flash_read(SES_LO + ses.sect[i] * SES_SECT, &h, sizeof h);
             bk_msg[7u + k * 6u] = (uint8_t)ses.num[i];
             bk_msg[8u + k * 6u] = (uint8_t)(ses.num[i] >> 8);

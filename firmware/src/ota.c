@@ -313,7 +313,12 @@ static int ota_board_check(const uint8_t *hdr, uint32_t fl_off, uint32_t fl_len,
 
 static int ota_stage(void)                       /* steps 1..6; 0 = host said success */
 {
+#ifdef FELUCCA_LOADER
     static uint8_t hdr[0x400], b[512], mine[512];
+#else                                            /* (the app: the sessions' buffer, idle while an update stages -- RAM is
+                                                  * short) */
+    uint8_t *const hdr = ses_chunk, *const b = ses_chunk + 0x400, *const mine = ses_chunk + 0x600;
+#endif
     uint32_t i, n, ota_off, ota_len, fl_off, fl_len, fl_crc, c, len, own, official;
     int rc;
     /* 1. UFW header + entry list */

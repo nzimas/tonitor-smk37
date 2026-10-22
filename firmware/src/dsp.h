@@ -37,6 +37,10 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
 /* the macros on a sound (the SMK-37's eight, one a knob): -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
 #define MAC_MAX 64
 #define NMAC 8u
+/* the window the engines' level measures fill (a new sound measured: one at a time, in the main loop): one shared
+ * (RAM is short), as large as the largest (ANIMA's: 2 x 2067 / 16 blocks) */
+#define MEAS_WIN_N 258u
+static int32_t meas_win[MEAS_WIN_N];
 
 AINL int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
 AINL int32_t mulq15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }

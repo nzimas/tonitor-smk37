@@ -28,6 +28,7 @@
                                   * a layer (1: one) */
 #define SES_MAX 40u              /* records in the list (one a sector at most) */
 #define SES_SLOTS 64u            /* the slots: sessions 1 .. 64 */
+#define CLIP_NUM 1006u           /* (the clipboard's record: clip_copy) */
 /* the largest session: the head, the globals, six layers with their sounds and full loopers (~54 KiB) */
 #define SES_BUF (32u + 8u + NLAYER * (16u + NENG * NMAC + 2u + 52u + sizeof(fm_patch_t) + sizeof(an_design_t) + sizeof(cal_design_t) + \
                                       sizeof(rus_design_t) + sizeof(dr_design_t) + sizeof(ba_design_t) + sizeof(hv_design_t) + \
@@ -238,6 +239,19 @@ static void ses_scan(int flash_ok)
         } else {                                         /* a dead record: dirty */
             for (; ns && s < SES_NSECT; ns--, s++)
                 ses.dirty[s] = 1;
+        }
+    }
+    {   /* (a clipboard from before: let go -- it is the power-on's, as it was in RAM) */
+        int c = ses_find(CLIP_NUM);
+        if (c >= 0) {
+            uint32_t sect = ses.sect[c], ns = ses.nsect[c];
+            ses_kill(sect, ns);
+            ses.n--;
+            for (; (uint32_t)c < ses.n; c++) {
+                ses.num[c] = ses.num[c + 1u];
+                ses.sect[c] = ses.sect[c + 1u];
+                ses.nsect[c] = ses.nsect[c + 1u];
+            }
         }
     }
 }
@@ -912,139 +926,179 @@ static void ses_fresh(uint32_t num)
     ses_choose(num);
     ui.force = 1;
 }
-/* the clipboard: a track's tone (its engine, its four sounds and their macros, filter, granulator, crush, send,
- * octave, path) and its loops, copied by holding its button; pasted onto another track by holding that one's.
- * Level and pan stay with the track pasted onto (its place in the mix) */
-static struct {
-    uint8_t full, from, engine, path, play;
+/* the clipboard: a track's tone (its engine, its sounds and their macros, filter, granulator, crush, sends, octave,
+ * path, its sequencers) and its loops, copied by holding its pad; pasted onto another track by holding that one's.
+ * Level and pan stay with the track pasted onto (its place in the mix). Kept in the sessions' store as record CLIP_NUM
+ * (RAM is short: a copy writes it -- a sector erased may hush the audio a moment -- a paste reads it), streamed there
+ * from the track and back as a session is; let go at power-on (ses_scan). In RAM only whether there is one, and from */
+static struct { uint8_t full, from; } clip;
+typedef struct {                 /* the record's first part: the track's settings */
+    uint8_t engine, path, play;
     int8_t oct, send, flt, gr, cr, lxt, dsend, dist;
     int8_t bn, bspeed, bbase, bunst;
     uint8_t bon;
     uint8_t lon, ln, llen;
     int8_t lrate, lharm, lunst, lw[BL_MAX], lo[BL_MAX];
-    uint8_t ldir, lspd;
-    uint8_t chord_on, chord_form;
-    uint8_t dmode, rate, vary;
+    uint8_t ldir, lspd, lfx, chord_on, chord_form;
+    uint8_t dmode, rate, vary, ntrk, fx;
+    uint16_t mute;
+    uint32_t nev, gseed;
     int8_t env[NENG][4];
     uint8_t env_on[NENG];
-    uint32_t gseed;
     int8_t mac[NENG][NMAC];
-    fm_patch_t fm;
-    an_design_t an;
-    cal_design_t cal;
-    rus_design_t rus;
-    dr_design_t dr;
-    ba_design_t ba;
-    hv_design_t hv;
-    mod_t mod;
-    uint8_t ntrk;
-    uint16_t mute;
-    uint32_t nev;
-    loop_trk_t trk[LOOP_TRK];
-    uint32_t ev[LOOP_N];
-} clip;                          /* (in RAM: the pool keeps its headroom) */
+} clip_rec_t;
 static int clip_from(void) { return clip.full ? (int)clip.from : -1; }
+static void clip_emit(uint32_t l, const clip_rec_t *r)   /* the record's body, from track l (ses_out: counted or written) */
+{
+    const looper_t *p = &loop[l];
+    ses_out(r, sizeof *r);
+    ses_out(&fm_buf[l][fm_pub[l]], sizeof(fm_patch_t));
+    ses_out(&an_buf[l][an_pub[l]], sizeof(an_design_t));
+    ses_out(&cal_buf[l][cal_pub[l]], sizeof(cal_design_t));
+    ses_out(&rus_buf[l][rus_pub[l]], sizeof(rus_design_t));
+    ses_out(&dr_buf[l][dr_pub[l]], sizeof(dr_design_t));
+    ses_out(&ba_buf[l][ba_pub[l]], sizeof(ba_design_t));
+    ses_out(&hv_buf[l][hv_pub[l]], sizeof(hv_design_t));
+    ses_out(&lay_mod[l], sizeof(mod_t));
+    ses_out(p->trk, sizeof p->trk);
+    ses_out(p->ev, r->nev * 4u);
+}
 static void clip_copy(uint32_t l)
 {
     const looper_t *p = &loop[l];
-    uint32_t nt = p->ntrk, n = nt ? p->trk[nt - 1u].first + p->trk[nt - 1u].n : 0;   /* (the loops closed) */
-    clip.from = (uint8_t)l;
-    clip.engine = ui.engine[l];
-    clip.path = ui.path[l];
-    clip.oct = ui.oct[l];
-    clip.send = ui.send[l];
-    clip.dsend = ui.dsend[l];
-    clip.dist = ui.dist[l];
-    clip.bon = bb.on[l];
-    clip.bn = bb.n[l];
-    clip.bspeed = bb.speed[l];
-    clip.bbase = bb.base[l];
-    clip.bunst = bb.unst[l];
-    clip.lon = bl.on[l];
-    clip.ln = bl.n[l];
-    clip.llen = bl.len[l];
-    clip.lrate = bl.rate[l];
-    clip.lharm = bl.harm[l];
-    clip.lunst = bl.unst[l];
-    clip.ldir = bl.dir[l];
-    clip.lspd = bl.spd[l];
-    memcpy(clip.lw, bl.w[l], BL_MAX);
-    memcpy(clip.lo, bl.o[l], BL_MAX);
-    clip.chord_on = ui.chord_on[l];
-    clip.chord_form = ui.chord_form[l];
-    clip.flt = ui.flt[l];
-    clip.gr = ui.gr[l];
-    clip.cr = ui.cr[l];
-    clip.lxt = ui.lxt[l];
-    clip.dmode = loop[l].dmode;
-    clip.rate = loop[l].rate;
-    clip.vary = loop[l].vary;
-    clip.gseed = gran[l].seed;
-    memcpy(clip.mac, ui.mac[l], sizeof clip.mac);
-    memcpy(clip.env, ui.env[l], sizeof clip.env);
-    memcpy(clip.env_on, ui.env_on[l], sizeof clip.env_on);
-    clip.fm = fm_buf[l][fm_pub[l]];
-    clip.an = an_buf[l][an_pub[l]];
-    clip.cal = cal_buf[l][cal_pub[l]];
-    clip.rus = rus_buf[l][rus_pub[l]];
-    clip.dr = dr_buf[l][dr_pub[l]];
-    clip.ba = ba_buf[l][ba_pub[l]];
-    clip.hv = hv_buf[l][hv_pub[l]];
-    clip.mod = lay_mod[l];
-    clip.ntrk = (uint8_t)nt;
-    clip.mute = p->mute;
-    clip.play = p->play;
-    clip.nev = n;
-    memcpy(clip.trk, p->trk, sizeof clip.trk);
-    memcpy(clip.ev, p->ev, n * 4u);
-    clip.full = 1;
+    uint32_t nt = p->ntrk, tries;
+    clip_rec_t r;
+    memset(&r, 0, sizeof r);
+    r.engine = ui.engine[l];
+    r.path = ui.path[l];
+    r.oct = ui.oct[l];
+    r.send = ui.send[l];
+    r.dsend = ui.dsend[l];
+    r.dist = ui.dist[l];
+    r.bon = bb.on[l];
+    r.bn = bb.n[l];
+    r.bspeed = bb.speed[l];
+    r.bbase = bb.base[l];
+    r.bunst = bb.unst[l];
+    r.lon = bl.on[l];
+    r.ln = bl.n[l];
+    r.llen = bl.len[l];
+    r.lrate = bl.rate[l];
+    r.lharm = bl.harm[l];
+    r.lunst = bl.unst[l];
+    r.ldir = bl.dir[l];
+    r.lspd = bl.spd[l];
+    r.lfx = bl.fx[l];
+    memcpy(r.lw, bl.w[l], BL_MAX);
+    memcpy(r.lo, bl.o[l], BL_MAX);
+    r.chord_on = ui.chord_on[l];
+    r.chord_form = ui.chord_form[l];
+    r.flt = ui.flt[l];
+    r.gr = ui.gr[l];
+    r.cr = ui.cr[l];
+    r.lxt = ui.lxt[l];
+    r.dmode = p->dmode;
+    r.rate = p->rate;
+    r.vary = p->vary;
+    r.fx = lfx[l];
+    r.gseed = gran[l].seed;
+    memcpy(r.mac, ui.mac[l], sizeof r.mac);
+    memcpy(r.env, ui.env[l], sizeof r.env);
+    memcpy(r.env_on, ui.env_on[l], sizeof r.env_on);
+    r.ntrk = (uint8_t)nt;
+    r.mute = p->mute;
+    r.play = p->play;
+    r.nev = nt ? p->trk[nt - 1u].first + p->trk[nt - 1u].n : 0;   /* (the loops closed) */
+    clip.full = 0;
+    if (!ses.ok)
+        return;
+    for (tries = 0; tries < 2u; tries++) {        /* (as ses_save: counted, placed, written, checked, committed) */
+        ses_head_t h;
+        uint32_t len, ns;
+        uint16_t crc;
+        int at;
+        ss_begin(SS_COUNT, 0);
+        ss.pos = sizeof h;
+        clip_emit(l, &r);
+        len = ss.pos;
+        crc = ss.crc;
+        ses_head_fill(&h, CLIP_NUM, SES_FORMAT, len, crc);
+        at = ses_place(len, &ns);
+        if (at < 0)
+            return;                              /* (no room: no copy) */
+        ss_begin(SS_WRITE, SES_LO + (uint32_t)at * SES_SECT);
+        ses_out(&h, sizeof h);
+        clip_emit(l, &r);
+        ss_end();
+        if (!ss.err && ss.pos == len && ss.crc == crc && ses_commit(CLIP_NUM, at, ns, &h) == SES_OK) {
+            clip.from = (uint8_t)l;
+            clip.full = 1;
+            return;
+        }
+    }
 }
 static void clip_paste(uint32_t l)
 {
     looper_t *lp = &loop[l];
-    uint32_t fk, ak, ck, rk, dk, bk, hk, k;
+    uint32_t fk, ak, ck, rk, dk, bk, hk, k, base;
+    clip_rec_t r;
+    ses_head_t h;
+    int i = ses_find(CLIP_NUM);
+    if (!clip.full || i < 0)
+        return;
+    base = SES_LO + ses.sect[i] * SES_SECT;
+    ses_flash_read(base, &h, sizeof h);
+    ss_begin(SS_READ, base);                            /* (whole, its CRC, before anything changes) */
+    ses_in(0, h.len);
+    if (!ses_head_ok(&h) || ss.crc != h.body_crc)
+        return;
+    ss_begin(SS_READ, base);
+    ses_in(0, sizeof h);
+    ses_in(&r, sizeof r);
     ui.latch[l][0] = ui.latch[l][1] = 0;                /* silence there, its loops emptied, its latches let go */
     ev_post(EV_STOP, l, 0, 0);
     ev_post(EV_LOOP_CLEAR, l, 0, 0);
     ses_events_drain();
-    ui.engine[l] = clip.engine;
-    ui.path[l] = clip.path;
-    ui.oct[l] = clip.oct;
-    ui.send[l] = clip.send;
-    ui.dsend[l] = clip.dsend;
-    ui.dist[l] = clip.dist;
+    ui.engine[l] = r.engine;
+    ui.path[l] = r.path;
+    ui.oct[l] = r.oct;
+    ui.send[l] = r.send;
+    ui.dsend[l] = r.dsend;
+    ui.dist[l] = r.dist;
     bb_release(l);
     bb.on[l] = 0;
-    bb.n[l] = clip.bn;
-    bb.speed[l] = clip.bspeed;
-    bb.base[l] = clip.bbase;
-    bb.unst[l] = clip.bunst;
-    if (clip.bon)
+    bb.n[l] = r.bn;
+    bb.speed[l] = r.bspeed;
+    bb.base[l] = r.bbase;
+    bb.unst[l] = r.bunst;
+    if (r.bon)
         bb_toggle(l);
     bl_release(l);
     bl.on[l] = 0;
-    bl.n[l] = clip.ln;
-    bl.len[l] = clip.llen;
-    bl.rate[l] = clip.lrate;
-    bl.harm[l] = clip.lharm;
-    bl.unst[l] = clip.lunst;
-    bl.dir[l] = clip.ldir;
-    bl.spd[l] = clip.lspd;
-    memcpy(bl.w[l], clip.lw, BL_MAX);
-    memcpy(bl.o[l], clip.lo, BL_MAX);
-    if (clip.lon)
+    bl.n[l] = r.ln;
+    bl.len[l] = r.llen;
+    bl.rate[l] = r.lrate;
+    bl.harm[l] = r.lharm;
+    bl.unst[l] = r.lunst;
+    bl.dir[l] = r.ldir;
+    bl.spd[l] = r.lspd;
+    bl.fx[l] = r.lfx;
+    bl.climb[l] = 0;
+    memcpy(bl.w[l], r.lw, BL_MAX);
+    memcpy(bl.o[l], r.lo, BL_MAX);
+    if (r.lon)
         bl_toggle(l);
-    ui.chord_on[l] = clip.chord_on;
-    ui.chord_form[l] = clip.chord_form;
-    ui.flt[l] = clip.flt;
-    ui.gr[l] = clip.gr;
-    ui.cr[l] = clip.cr;
-    ui.lxt[l] = clip.lxt;
+    ui.chord_on[l] = r.chord_on;
+    ui.chord_form[l] = r.chord_form;
+    ui.flt[l] = r.flt;
+    ui.gr[l] = r.gr;
+    ui.cr[l] = r.cr;
+    ui.lxt[l] = r.lxt;
     lx_post();                                          /* (its loops move as they were heard; empty yet: nothing moves) */
-    memcpy(ui.mac[l], clip.mac, sizeof clip.mac);
-    memcpy(ui.env[l], clip.env, sizeof clip.env);
-    memcpy(ui.env_on[l], clip.env_on, sizeof clip.env_on);
-    gran_profile(l, clip.gseed);
+    memcpy(ui.mac[l], r.mac, sizeof r.mac);
+    memcpy(ui.env[l], r.env, sizeof r.env);
+    memcpy(ui.env_on[l], r.env_on, sizeof r.env_on);
+    gran_profile(l, r.gseed);
     level_pan_apply(l);
     sound_slot_free(&fm_pub[l], &fm_use[l]);            /* the sounds, into the buffers the ISR is not using */
     sound_slot_free(&an_pub[l], &an_use[l]);
@@ -1060,14 +1114,14 @@ static void clip_paste(uint32_t l)
     ck = cal_use[l] ^ 1u;
     rk = rus_use[l] ^ 1u;
     dk = dr_use[l] ^ 1u;
-    fm_buf[l][fk] = clip.fm;
-    an_buf[l][ak] = clip.an;
-    cal_buf[l][ck] = clip.cal;
-    rus_buf[l][rk] = clip.rus;
-    dr_buf[l][dk] = clip.dr;
-    ba_buf[l][bk] = clip.ba;
-    hv_buf[l][hk] = clip.hv;
-    lay_mod[l] = clip.mod;
+    ses_in(&fm_buf[l][fk], sizeof(fm_patch_t));
+    ses_in(&an_buf[l][ak], sizeof(an_design_t));
+    ses_in(&cal_buf[l][ck], sizeof(cal_design_t));
+    ses_in(&rus_buf[l][rk], sizeof(rus_design_t));
+    ses_in(&dr_buf[l][dk], sizeof(dr_design_t));
+    ses_in(&ba_buf[l][bk], sizeof(ba_design_t));
+    ses_in(&hv_buf[l][hk], sizeof(hv_design_t));
+    ses_in(&lay_mod[l], sizeof(mod_t));
     RING_PUBLISH();
     cal_pub[l] = (uint8_t)ck;
     rus_pub[l] = (uint8_t)rk;
@@ -1079,21 +1133,23 @@ static void clip_paste(uint32_t l)
     an_pub[l] = (uint8_t)ak;
     ev_post(EV_ENGINE, l, 0, ui.engine[l]);
     mac_apply(l);
-    if (clip.ntrk) {                                    /* the loops: into the emptied looper, then set going */
-        memcpy(lp->trk, clip.trk, sizeof lp->trk);
-        memcpy(lp->ev, clip.ev, clip.nev * 4u);
-        for (k = 0; k < clip.ntrk; k++)
+    lfx[l] = (uint8_t)(r.fx & 7u);
+    lclimb[l] = 0;
+    if (r.ntrk && r.ntrk <= LOOP_TRK && r.nev <= LOOP_N) {   /* the loops: into the emptied looper, then set going */
+        ses_in(lp->trk, sizeof lp->trk);
+        ses_in(lp->ev, r.nev * 4u);
+        for (k = 0; k < r.ntrk; k++)
             lp->trk[k].pos = lp->trk[k].ix = lp->trk[k].wrap = 0;
-        lp->nev = clip.nev;
-        lp->mute = clip.mute;
-        lp->dmode = clip.dmode;
-        lp->rate = clip.rate;
-        lp->vary = clip.vary;
+        lp->nev = r.nev;
+        lp->mute = r.mute;
+        lp->dmode = r.dmode;
+        lp->rate = r.rate;
+        lp->vary = r.vary;
         lp->nheld = 0;
         RING_PUBLISH();
-        lp->ntrk = clip.ntrk;
+        lp->ntrk = r.ntrk;
         RING_PUBLISH();
-        ev_post(EV_LOOP_SET, l, 0, clip.play);
+        ev_post(EV_LOOP_SET, l, 0, r.play);
     }
     ses_events_drain();
     clip.full = 0;

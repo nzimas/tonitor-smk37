@@ -800,10 +800,13 @@ static void cal_design(cal_design_t *d, int32_t kind, uint32_t seed, uint32_t pa
 /* the design's level from how loud it usually is (as an_measure): C3 held 2 s (the hand playing, the slow
  * pairs swelling), the 75th percentile of 12 ms windows brought to 0.1 RMS */
 #define CAL_PROBE_BLOCKS 2756u
-static cal_t cal_probe POOL;
+/* (the measuring organism: in ANIMA's probe voice -- one sound measured at a time; the pool is short) */
+#define cal_probe (*(cal_t *)(void *)&an_probe)
+_Static_assert(sizeof(cal_t) <= sizeof(an_voice_t), "CALIGULA's probe fits ANIMA's");
 static void cal_measure(cal_design_t *d)
 {
-    static int32_t win[CAL_PROBE_BLOCKS / 16u + 1u];
+    int32_t *win = meas_win;                      /* (the measuring window: dsp.h, shared) */
+    _Static_assert((CAL_PROBE_BLOCKS / 16u + 1u) <= MEAS_WIN_N, "the measuring window is too small");
     int32_t out[CTL];
     uint32_t b, k, nwin = 0;
     int64_t acc = 0;
@@ -816,7 +819,7 @@ static void cal_measure(cal_design_t *d)
         for (i = 0; i < CTL; i++)
             acc += ((int64_t)out[i] * out[i]) >> 6;      /* Q24 */
         if ((b & 15u) == 15u) {
-            if (nwin < NELEM(win))
+            if (nwin < (CAL_PROBE_BLOCKS / 16u + 1u))
                 win[nwin++] = (int32_t)((acc >> 9) > 0x7FFFFFFF ? 0x7FFFFFFF : (acc >> 9));   /* / (16 x 32) */
             acc = 0;
         }

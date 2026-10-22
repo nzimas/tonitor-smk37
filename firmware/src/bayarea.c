@@ -511,7 +511,8 @@ static void ba_env_adsr(const ba_design_t *d, int32_t *a)
  * keeps its loudest moment under half of full scale */
 static void ba_measure_on(ba_design_t *d, ba_voice_t *probe)
 {
-    static int32_t win[2067u / 16u + 1u];
+    int32_t *win = meas_win;                      /* (the measuring window: dsp.h, shared) */
+    _Static_assert((2067u / 16u + 1u) <= MEAS_WIN_N, "the measuring window is too small");
     int32_t out[CTL];
     uint32_t b, k, nwin = 0;
     int64_t acc = 0;
@@ -531,7 +532,7 @@ static void ba_measure_on(ba_design_t *d, ba_voice_t *probe)
                 peak = absi(out[i]);
         }
         if ((b & 15u) == 15u) {
-            if (nwin < NELEM(win))
+            if (nwin < (2067u / 16u + 1u))
                 win[nwin++] = (int32_t)((acc >> 9) > 0x7FFFFFFF ? 0x7FFFFFFF : (acc >> 9));
             acc = 0;
         }

@@ -2419,7 +2419,8 @@ static an_voice_t an_probe POOL;
 #define AN_PROBE_WIN 16u         /* blocks a window */
 static void an_measure(an_design_t *d)
 {
-    static int32_t win[2u * AN_PROBE_BLOCKS / AN_PROBE_WIN];
+    int32_t *win = meas_win;                      /* (the measuring window: dsp.h, shared) */
+    _Static_assert((2u * AN_PROBE_BLOCKS / AN_PROBE_WIN) <= MEAS_WIN_N, "the measuring window is too small");
     int32_t out[CTL];
     uint32_t b, k, nwin = 0, p;
     int64_t acc;
@@ -2432,7 +2433,7 @@ static void an_measure(an_design_t *d)
                 break;
             acc += an_probe.blkms;
             if ((b % AN_PROBE_WIN) == AN_PROBE_WIN - 1u) {
-                if (nwin < NELEM(win))
+                if (nwin < (2u * AN_PROBE_BLOCKS / AN_PROBE_WIN))
                     win[nwin++] = (int32_t)((acc >> 4) > 0x7FFFFFFF ? 0x7FFFFFFF : (acc >> 4));   /* / AN_PROBE_WIN */
                 acc = 0;
             }

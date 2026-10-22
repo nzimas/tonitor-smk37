@@ -681,7 +681,8 @@ static const char *dr_mac_name(const dr_design_t *d, uint32_t j)
  * more than keeps its loudest moment under half of full scale (as rus_measure) */
 static void dr_measure_on(dr_design_t *d, dr_voice_t *probe)
 {
-    static int32_t win[2067u / 16u + 1u];
+    int32_t *win = meas_win;                      /* (the measuring window: dsp.h, shared) */
+    _Static_assert((2067u / 16u + 1u) <= MEAS_WIN_N, "the measuring window is too small");
     int32_t out[CTL];
     uint32_t b, k, nwin = 0;
     int64_t acc = 0;
@@ -701,7 +702,7 @@ static void dr_measure_on(dr_design_t *d, dr_voice_t *probe)
                 peak = absi(out[i]);
         }
         if ((b & 15u) == 15u) {
-            if (nwin < NELEM(win))
+            if (nwin < (2067u / 16u + 1u))
                 win[nwin++] = (int32_t)((acc >> 9) > 0x7FFFFFFF ? 0x7FFFFFFF : (acc >> 9));
             acc = 0;
         }
