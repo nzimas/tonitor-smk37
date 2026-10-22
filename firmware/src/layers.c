@@ -1521,6 +1521,18 @@ static void loops_run(void)
 
 /* the loops' transposition changed (its steps, or the scale it walks): the loop notes sounding move to their new
  * notes at once -- let go at the old, struck at the new */
+/* the velocity layer l's looper sounds note at (its voice's; 127 if none is found) */
+static uint32_t loop_vel_of(uint32_t l, uint32_t note)
+{
+    uint32_t k;
+    for (k = 0; k < NVOICE; k++) {
+        const voice_t *v = &vox[k];
+        if (v->gate && v->src == SRC_LOOP && v->note == note && vox_owner(v) == l)
+            return v->vel ? v->vel : 127u;
+    }
+    return 127u;
+}
+static uint8_t rt_vel[NLAYER][128];      /* (loop_retune: each sounding raw note's velocity, between its passes; CPU0) */
 static void loop_retune(void)
 {
     int32_t s = lx_want_steps, tr[NLAYER];
@@ -1532,7 +1544,8 @@ static void loop_retune(void)
     }
     if (same && (m == lx_mask || still))
         return;
-    for (pass = 0; pass < 2u; pass++) {           /* every old note off first, then every new one on */
+    for (pass = 0; pass < 2u; pass++) {           /* every old note off first, then every new one on, at the velocity
+                                                   * it sounded at (its voice's, read before it is let go) */
         for (l = 0; l < NLAYER; l++) {
             looper_t *p = &loop[l];
             if (!p->play)
@@ -1547,10 +1560,14 @@ static void loop_retune(void)
                         uint32_t was = loop_note(l, p, t, n), now = lx_map(n, s + tr[l] + lclimb[l] - t->xb, m);
                         if (was == now)
                             continue;
-                        if (!pass)
+                        if (!pass) {
+                            rt_vel[l][n] = (uint8_t)loop_vel_of(l, was);
                             note_off(l, was, SRC_LOOP);
-                        else
+                        } else {
+                            note_vel = rt_vel[l][n];
                             note_on(l, now, SRC_LOOP);
+                            note_vel = 127;
+                        }
                     }
             }
         }

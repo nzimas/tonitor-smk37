@@ -6343,6 +6343,74 @@ static int cmd_seqplay(void)
     return fail ? 1 : 0;
 }
 
+/* a transposition keeps the velocities: a latched note struck soft, moved with SHIFT + OCT, sounds soft still; a loop's
+ * soft note moved while it sounds, too */
+static int cmd_xpvel(void)
+{
+    uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    fm1_in.key_vel[3] = 30;                          /* a soft key, latched with SHIFT */
+    press_phys(KEY_SHIFT, 1);
+    press_phys(3, 1);
+    press_phys(3, 0);
+    press_phys(KEY_SHIFT, 0);
+    run_blocks(20, 0);
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].gate && vox_owner(&vox[k]) == 0u)
+            v0 = vox[k].vel;
+    shift_oct(1);                                    /* SHIFT + OCT+: a step up */
+    run_blocks(20, 0);
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].gate && vox_owner(&vox[k]) == 0u)
+            v1 = vox[k].vel;
+    if (!v0 || v0 >= 100u || v1 != v0)
+        printf("FAIL xpvel: a latched note moved does not keep its velocity (%u, then %u)\n", v0, v1), fail++;
+    for (b = 0; b < 2u; b++) {                       /* let go (SHIFT and the key), back down */
+        press_phys(KEY_SHIFT, 1);
+        press_phys(3, 1);
+        press_phys(3, 0);
+        press_phys(KEY_SHIFT, 0);
+    }
+    run_blocks(20, 0);
+    ui.lx = 0;
+    lx_post();
+    run_blocks(20, 0);
+    while (ui.latch[0][0] | ui.latch[0][1]) {
+        press_phys(KEY_SHIFT, 1);
+        for (k = 0; k < NKEY; k++)
+            if (kb(ui.latch[0], k)) {
+                press_phys(k, 1);
+                press_phys(k, 0);
+            }
+        press_phys(KEY_SHIFT, 0);
+    }
+    fm1_in.key_vel[0] = 30;                          /* a loop: a soft note held through it */
+    press_btn(B_REC);
+    press_phys(0, 1);
+    run_blocks(400, 0);
+    press_btn(B_REC);
+    press_phys(0, 0);
+    loop_to(0, 100);
+    v0 = v1 = 0;
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].gate && vox[k].src == SRC_LOOP)
+            v0 = vox[k].vel;
+    shift_oct(1);                                    /* moved while it sounds */
+    run_blocks(4, 0);
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].gate && vox[k].src == SRC_LOOP)
+            v1 = vox[k].vel;
+    if (!v0 || v0 >= 100u || v1 != v0)
+        printf("FAIL xpvel: a loop's note moved while it sounds does not keep its velocity (%u, then %u)\n", v0, v1), fail++;
+    fm1_in.key_vel[0] = fm1_in.key_vel[3] = 0;
+    printf("xpvel: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 static int cmd_backup(void)
 {
     static uint8_t rec[8][60000];
@@ -6906,6 +6974,8 @@ int main(int argc, char **argv)
         return cmd_bricks(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "bkserve"))
         return cmd_bkserve();
+    if (argc >= 2 && !strcmp(argv[1], "xpvel"))
+        return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))
         return cmd_seqplay();
     if (argc >= 2 && !strcmp(argv[1], "looppads"))

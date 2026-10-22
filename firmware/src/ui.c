@@ -170,6 +170,8 @@ static struct {
     uint8_t chord_on[NLAYER], chord_form[NLAYER];   /* each track's chord mode, and its form (CH_*) */
     uint8_t key_form[NKEY];      /* a key down: the chord it holds (form + 1; 0: a note) */
     uint8_t latch_form[NLAYER][NKEY];   /* .. a latched key's */
+    uint8_t key_vel[NKEY];       /* a key down: the velocity it was struck at (press_vel's: 0 full) .. */
+    uint8_t latch_vel[NLAYER][NKEY];   /* .. a latched key's: it sounds at it again when moved */
     uint8_t cho_down, cho_done;  /* the chord button down since cho_t0; held long enough: done */
     uint8_t pad_page;            /* what the bottom row of pads shows and does: PP_* (a top-row button held opens its
                                   * own, held again closes it) */
@@ -406,15 +408,18 @@ static void latch_move(uint32_t l, int32_t d)
 {
     uint32_t k, m = scale_mask();
     uint32_t latch[2] = {0, 0};
-    uint8_t note[NKEY], form[NKEY];
+    uint8_t note[NKEY], form[NKEY], vel[NKEY];
     if (!d)
         return;
     for (k = 0; k < NKEY; k++)
         if (kb(ui.latch[l], k)) {
             uint32_t was = ui.latch_note[l][k], now = lx_map(was, d, m);
             int32_t k2 = (int32_t)k + d;         /* the key it stands on moves as the hand would: d keys along */
+            uint32_t pv = press_vel;
             chord_press(l, was, ui.latch_form[l][k], 0);
+            press_vel = ui.latch_vel[l][k];      /* (at the velocity it was latched at) */
             chord_press(l, now, ui.latch_form[l][k], 1);
+            press_vel = (uint8_t)pv;
             if (k2 < 0 || k2 >= (int32_t)NKEY || kb(latch, (uint32_t)k2))
                 k2 = (int32_t)k;
             if (kb(latch, (uint32_t)k2))
@@ -424,12 +429,14 @@ static void latch_move(uint32_t l, int32_t d)
                 kset(latch, (uint32_t)k2, 1);
                 note[k2] = (uint8_t)now;
                 form[k2] = ui.latch_form[l][k];
+                vel[k2] = ui.latch_vel[l][k];
             }
         }
     for (k = 0; k < NKEY; k++)
         if (kb(latch, k)) {
             ui.latch_note[l][k] = note[k];
             ui.latch_form[l][k] = form[k];
+            ui.latch_vel[l][k] = vel[k];
         } else
             ui.latch_form[l][k] = 0;
     ui.latch[l][0] = latch[0];
@@ -1475,6 +1482,7 @@ static void ui_input(void)
                 kset(ui.latch[l], k, 1);
                 ui.latch_note[l][k] = ui.key_note[k];
                 ui.latch_form[l][k] = ui.key_form[k];
+                ui.latch_vel[l][k] = ui.key_vel[k];
                 ui.key_layer[k] = KEY_NONE;     /* (letting go of the key no longer ends it) */
             }
     }
@@ -1519,12 +1527,14 @@ static void ui_input(void)
                 ui.key_form[k] = (uint8_t)f1;
                 vel = vel_apply(vel);            /* (GLOBAL SETUP's VELOCITY) */
                 press_vel = (uint8_t)(vel && vel < 127u ? vel : 0u);   /* the key's velocity (0: full) */
+                ui.key_vel[k] = press_vel;
                 chord_press(ui.sel, note, f1, 1);
                 press_vel = (uint8_t)pv;
                 if (shift_held()) {              /* SHIFT held: it latches at once (letting go does not end it) */
                     kset(ui.latch[ui.sel], k, 1);
                     ui.latch_note[ui.sel][k] = (uint8_t)note;
                     ui.latch_form[ui.sel][k] = (uint8_t)f1;
+                    ui.latch_vel[ui.sel][k] = ui.key_vel[k];
                     ui.key_layer[k] = KEY_NONE;
                 }
             }
