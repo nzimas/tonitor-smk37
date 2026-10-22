@@ -69,8 +69,9 @@ static void kset(uint32_t *m, uint32_t k, int on)
     else
         m[k >> 5] &= ~(1u << (k & 31u));
 }
-/* a key's velocity (1 .. 127, as struck) as GLOBAL SETUP's VELOCITY has it: its curve -- LINEAR, LIGHT (soft playing
- * louder: 1 - (1 - x)^2), HEAVY (a firmer touch wanted: x^2) -- into LOWEST .. HIGHEST; or FIXED, every note the same */
+/* a key's velocity (1 .. 127, as struck) as GLOBAL SETUP's VELOCITY has it: its curve -- EVEN, SOFT (for a light touch:
+ * soft playing louder, 1 - (1 - x)^2), HARD (a firmer touch wanted: x^2) -- into LOWEST .. HIGHEST; or FIXED, every note
+ * the same */
 static uint32_t vel_apply(uint32_t v)
 {
     uint32_t x = v ? (v > 127u ? 127u : v) : 127u, lo = mcfg.vel_lo, hi = mcfg.vel_hi, y;   /* (0: not measured, full) */
@@ -96,6 +97,8 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
                                           * mode on or off; held, the chords on the bottom row of pads */
 #define BTN_MACRO 8u                     /* MACRO: the third button of the top row: pressed, the macros on or off (the
                                           * FM-1's EDIT: the knobs on the chosen track's sound) */
+#define BTN_BALLS 9u                     /* BALLSY: the fourth button of the top row; BRICKLAYER: the fifth (ui_input) */
+#define BTN_BRICKS 10u
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
 enum { PP_NONE, PP_CHORD, PP_LOOP };     /* the bottom row of pads: free, the chords, the loops' direction and speed */
@@ -166,8 +169,9 @@ static struct {
     uint8_t cho_down, cho_done;  /* the chord button down since cho_t0; held long enough: done */
     uint8_t pad_page;            /* what the bottom row of pads shows and does: PP_* (a top-row button held opens its
                                   * own, held again closes it) */
-    uint8_t edit_down, edit_done;   /* EDIT down since edit_t0 (let go soon: EDIT; held: the balls' page) */
-    uint32_t edit_t0;
+    uint8_t edit_down;           /* MACRO down */
+    uint8_t sq_down[2], sq_done[2];   /* BALLSY's, BRICKLAYER's button down since sq_t0; held long enough: done */
+    uint32_t sq_t0[2];
     uint8_t bb_page;             /* the chosen track's balls' page is up (it closes as the other pages do) */
     uint8_t vary_shown;
     uint8_t bl_page;             /* the chosen track's BRICKLAYER page is up (closes as the other pages do) */
@@ -780,6 +784,15 @@ static void mod_knob(uint32_t l, uint32_t ix, uint32_t j, int32_t s);   /* (the 
 static void draw_mod_page(void);
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
+/* BALLSY's page (k 0) or BRICKLAYER's (1) up: every other page down */
+static void seq_page_only(uint32_t k)
+{
+    ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.mod_page = 0;
+    if (k)
+        ui.bb_page = 0;
+    else
+        ui.bl_page = 0;
+}
 static void ui_input(void)
 {
     uint32_t rel, press = fm1_input_edges(&rel), keys[2], ch[2], fk, fch, k, l;
@@ -1363,37 +1376,47 @@ static void ui_input(void)
             ui.force = 1;
         }
     }
-    if ((fch & fk) >> FN_EDIT & 1u) {          /* with SHIFT: the chosen track's balls on (their page up) or off */
-        if (shift_held() && !bb.on[ui.sel] && bl.on[ui.sel]) {
-            say("NOT ALLOWED", 1200);             /* (one sequencer a track: BRICKLAYER there) */
-            ui.edit_down = 0;
-        } else if (shift_held()) {
-            bb_toggle(ui.sel);
-            ui.bb_page = bb.on[ui.sel];
-            if (ui.bb_page)
-                ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bl_page = 0;
-            say(bb.on[ui.sel] ? "BALLSY" : "BALLSY OFF", 900);
-            ui.force = 1;
-            ui.edit_down = 0;
-        } else {
-            ui.edit_down = 1;
-            ui.edit_done = 0;
-            ui.edit_t0 = fm1_ms;
-        }
-    }
-    if (ui.edit_down && (fk >> FN_EDIT & 1u) && !ui.edit_done && bb.on[ui.sel] &&
-        (uint32_t)(fm1_ms - ui.edit_t0) >= 600u) {   /* held, the balls running: their page up or down */
-        ui.edit_done = 1;
-        ui.bb_page = (uint8_t)!ui.bb_page;
-        if (ui.bb_page)
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bl_page = 0;
-        ui.force = 1;
-    }
-    if (ui.edit_down && !(fk >> FN_EDIT & 1u)) {   /* let go soon: EDIT on or off */
+    if ((fch & fk) >> FN_EDIT & 1u)              /* MACRO: pressed, the macros on or off */
+        ui.edit_down = 1;
+    if (ui.edit_down && !(fk >> FN_EDIT & 1u)) {
         ui.edit_down = 0;
-        if (!ui.edit_done) {
-            ui.edit = (uint8_t)!ui.edit;
-            say(ui.edit ? "EDIT" : "EDIT OFF", 900);
+        ui.edit = (uint8_t)!ui.edit;
+        say(ui.edit ? "EDIT" : "EDIT OFF", 900);
+    }
+    for (k = 0; k < 2u; k++) {                   /* BALLSY (k 0) and BRICKLAYER (1), the chosen track's: pressed, on (its
+                                                  * page up) or off (stopped, its page down); held while on, its page up
+                                                  * or down. PLAY starts and stops it, its page up */
+        uint32_t id = k ? BTN_BRICKS : BTN_BALLS, held = (fm1_in.buttons >> id) & 1u;
+        uint8_t *on = k ? bl.on : bb.on, *pg = k ? &ui.bl_page : &ui.bb_page;
+        if ((press >> id) & 1u) {
+            ui.sq_down[k] = 1;
+            ui.sq_done[k] = 0;
+            ui.sq_t0[k] = fm1_ms;
+        }
+        if (ui.sq_down[k] && held && !ui.sq_done[k] && on[ui.sel] && (uint32_t)(fm1_ms - ui.sq_t0[k]) >= 600u) {
+            ui.sq_done[k] = 1;
+            *pg = (uint8_t)!*pg;
+            if (*pg)
+                seq_page_only(k);
+            ui.force = 1;
+        }
+        if (ui.sq_down[k] && !held) {
+            ui.sq_down[k] = 0;
+            if (ui.sq_done[k])
+                continue;
+            if (!on[ui.sel] && (k ? bb.on : bl.on)[ui.sel]) {
+                say("NOT ALLOWED", 1200);         /* (one sequencer a track: the other is on there) */
+                continue;
+            }
+            if (k)
+                bl_toggle(ui.sel);               /* (off: stopped) */
+            else
+                bb_toggle(ui.sel);
+            *pg = on[ui.sel];
+            if (*pg)
+                seq_page_only(k);
+            say(on[ui.sel] ? (k ? "BRICKLAYER" : "BALLSY") : (k ? "BRICKLAYER OFF" : "BALLSY OFF"), 900);
+            ui.force = 1;
         }
     }
     for (k = FN_AMB; k <= FN_EXP; k++)
@@ -1540,7 +1563,9 @@ static void ui_leds(void)
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
-    fm1_led_key(BTN_MACRO, bb.on[ui.sel] ? (fm1_ms / 250u) & 1u : ui.edit);   /* (MACRO: lit while on; BALLSY: blinks) */
+    fm1_led_key(BTN_MACRO, ui.edit);             /* (MACRO: lit while on) */
+    fm1_led_key(BTN_BALLS, bb.on[ui.sel] && (!bb.run[ui.sel] || (fm1_ms / 250u) & 1u));   /* (on: lit; playing: blinks) */
+    fm1_led_key(BTN_BRICKS, bl.on[ui.sel] && (!bl.run[ui.sel] || (fm1_ms / 250u) & 1u));
     for (k = 0; k < NKEY; k++) {
         int32_t w = white_ix(k);
         if (ui.ovd)                              /* PLAY held: the loops that play, lit */
@@ -2428,6 +2453,11 @@ static void ui_draw(void)
         fmt_int(lp + str_len(lp), loop[ui.sel].ntrk + 1);
         c = lp;
         msg = st == LR_REC ? 2 : (fm1_ms / 250u) & 1u ? 2 : 3;
+    }
+    if (!msg && ui.edit) {                       /* MACRO on: EDIT over the sound, in red, as long as it is (the knobs
+                                                  * change the sound, kept in the session) */
+        c = "EDIT";
+        msg = 3;
     }
     if (ui.force || ui.shown_sel != ui.sel || ui.shown_top != top_key()) {
         draw_number();

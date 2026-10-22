@@ -165,6 +165,8 @@ static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uin
  * (no control on the SMK-37 yet: ui.c fn_keys reads host_fn) */
 #define KEY_FN0 100u
 #define KEY_SHIFT 200u
+#define KEY_BALLS 201u            /* (the 4th and 5th buttons of the top row: BALLSY, BRICKLAYER) */
+#define KEY_BRICKS 202u
 #define KEY_AMB (KEY_FN0 + FN_AMB)
 #define KEY_EXP (KEY_FN0 + FN_EXP)
 #define KEY_ENV (KEY_FN0 + FN_ENV)
@@ -177,7 +179,8 @@ static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uin
 #define KEY_DOUBLE (KEY_FN0 + FN_DOUBLE)
 static int key_on(uint32_t k)            /* a key's (or function's) light as ui.c keeps it; SHIFT: held */
 {
-    return k == KEY_SHIFT ? shift_held() : k >= KEY_FN0 ? (int)((fn_lit >> (k - KEY_FN0)) & 1u) : kb(key_lit, k);
+    return k == KEY_SHIFT ? shift_held() : k == KEY_BALLS ? host_led[BTN_BALLS] : k == KEY_BRICKS ? host_led[BTN_BRICKS]
+           : k >= KEY_FN0 ? (int)((fn_lit >> (k - KEY_FN0)) & 1u) : kb(key_lit, k);
 }
 #include "sessions.c"
 #include "setup.c"
@@ -368,12 +371,13 @@ static void run_blocks(uint32_t nb, int to_wav)
 /* a key by its place on the keyboard (0 = C3 .. 36 = C6); KEY_SHIFT: KNOB BANK; KEY_FN0 + f: function f */
 static void press_phys(uint32_t k, int down)
 {
-    if (k == KEY_SHIFT) {
+    if (k == KEY_SHIFT || k == KEY_BALLS || k == KEY_BRICKS) {
+        uint32_t id = k == KEY_SHIFT ? SMK_BTN_KNOB_BANK : k == KEY_BALLS ? BTN_BALLS : BTN_BRICKS;
         if (down) {
-            fm1_in.buttons |= 1u << SMK_BTN_KNOB_BANK;
-            host_press |= 1u << SMK_BTN_KNOB_BANK;
+            fm1_in.buttons |= 1u << id;
+            host_press |= 1u << id;
         } else
-            fm1_in.buttons &= ~(1u << SMK_BTN_KNOB_BANK);
+            fm1_in.buttons &= ~(1u << id);
     } else if (k >= KEY_FN0)
         host_fn = down ? host_fn | 1u << (k - KEY_FN0) : host_fn & ~(1u << (k - KEY_FN0));
     else
@@ -4797,27 +4801,27 @@ static int cmd_balls(const char *dir)
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
     press_btn(B_FX);
-    press_phys(KEY_SHIFT, 1);
-    lm_key(KEY_EDIT);
-    press_phys(KEY_SHIFT, 0);
+    lm_key(KEY_BALLS);
     if (!bb.on[0] || ui.edit)
-        printf("FAIL balls: SHIFT + EDIT does not turn them on (or turns EDIT on)\n"), fail++;
+        printf("FAIL balls: BALLSY's button does not turn them on (or turns EDIT on)\n"), fail++;
     ui_leds();
-    {
-        int a = key_on(KEY_EDIT);
-        fm1_ms += 250;
-        ui_leds();
-        if (a == key_on(KEY_EDIT))
-            printf("FAIL balls: EDIT does not blink\n"), fail++;
-    }
+    if (!key_on(KEY_BALLS))
+        printf("FAIL balls: BALLSY's button is not lit while they are on\n"), fail++;
     memset(bb.hits, 0, sizeof bb.hits);               /* on, they wait for PLAY */
     bb_run(1000);
     if (bb.run[0] || bb.hits[0] + bb.hits[1] + bb.hits[2] + bb.hits[3])
         printf("FAIL balls: they move before PLAY\n"), fail++;
     press_btn(B_PLAY);
-    ui_leds();
-    if (!bb.run[0] || !host_led[PANEL_BTN[B_PLAY]] || loop[0].play)
-        printf("FAIL balls: PLAY does not start them (or is not lit, or plays the loops)\n"), fail++;
+    {   /* (PLAY blinks while they move: lit at one of two moments a blink apart) */
+        int lit;
+        ui_leds();
+        lit = host_led[PANEL_BTN[B_PLAY]];
+        fm1_ms += 250u;
+        ui_leds();
+        lit |= host_led[PANEL_BTN[B_PLAY]];
+        if (!bb.run[0] || !lit || loop[0].play)
+            printf("FAIL balls: PLAY does not start them (or is not lit, or plays the loops)\n"), fail++;
+    }
     n = SCALE_N[ui.scale];
     for (j = 0; j < 4u; j++)                         /* clockwise, rising */
         for (s = 0; s < n; s++) {
@@ -4844,7 +4848,7 @@ static int cmd_balls(const char *dir)
     host_enc[PANEL_ENC[EN_K1]] = 3;                   /* four balls, faster, lower, falling */
     host_enc[PANEL_ENC[EN_K2]] = 10;
     host_enc[PANEL_ENC[EN_K3]] = -1;
-    host_enc[PANEL_ENC[EN_K4]] = 40;
+    host_enc[PANEL_ENC[EN_DLY]] = 40;
     ui_input();
     if (bb.n[0] != 4 || bb.speed[0] != 70 || bb.base[0] != -2 || bb.unst[0] != 80 || ui.flt[0] || ui.cr[0])
         printf("FAIL balls: the knobs do not set them (%d %d %d %d)\n", bb.n[0], bb.speed[0], bb.base[0], bb.unst[0]), fail++;
@@ -4883,11 +4887,11 @@ static int cmd_balls(const char *dir)
     for (k = 0; k < 4u; k++)
         if (bb.hits[k] < (bb.hits[0] + bb.hits[1] + bb.hits[2] + bb.hits[3]) / 8u)
             printf("FAIL balls: wall %u is hardly ever hit\n", k), fail++;
-    press_phys(KEY_EDIT, 1);                          /* EDIT held: the page down, the knobs the track's */
+    press_phys(KEY_BALLS, 1);                         /* BALLSY held: the page down, the knobs the track's */
     bb_run(700);
-    press_phys(KEY_EDIT, 0);
+    press_phys(KEY_BALLS, 0);
     if (ui.bb_page || !bb.on[0] || ui.edit)
-        printf("FAIL balls: EDIT held does not put the page down (or stops them, or turns EDIT on)\n"), fail++;
+        printf("FAIL balls: BALLSY held does not put the page down (or stops them, or turns EDIT on)\n"), fail++;
     host_enc[PANEL_ENC[EN_K1]] = 3;
     ui_input();
     memset(bb.hits, 0, sizeof bb.hits);
@@ -4898,14 +4902,14 @@ static int cmd_balls(const char *dir)
     if (!ui.edit || ui.bb_page)
         printf("FAIL balls: a short press of EDIT is not EDIT any more\n"), fail++;
     lm_key(KEY_EDIT);
-    press_phys(KEY_EDIT, 1);                          /* held again: the page up */
+    press_phys(KEY_BALLS, 1);                         /* held again: the page up */
     bb_run(700);
-    press_phys(KEY_EDIT, 0);
+    press_phys(KEY_BALLS, 0);
     if (!ui.bb_page || ui.edit)
-        printf("FAIL balls: EDIT held does not bring the page back\n"), fail++;
-    host_enc[PANEL_ENC[EN_K4]] = 10;                  /* (instability shown, as just turned: 100) */
+        printf("FAIL balls: BALLSY held does not bring the page back\n"), fail++;
+    host_enc[PANEL_ENC[EN_DLY]] = 10;                  /* (instability shown, as just turned: 100) */
     ui_input();
-    host_enc[PANEL_ENC[EN_K4]] = -10;
+    host_enc[PANEL_ENC[EN_DLY]] = -10;
     ui_input();
     bb.unst[0] = 100;
     ui.force = 1;
@@ -4914,9 +4918,7 @@ static int cmd_balls(const char *dir)
     ppm(path);
     if (ses_save(1) != SES_OK)
         printf("FAIL balls: not saved\n"), fail++;
-    press_phys(KEY_SHIFT, 1);
-    lm_key(KEY_EDIT);
-    press_phys(KEY_SHIFT, 0);
+    lm_key(KEY_BALLS);
     run_blocks(400, 0);
     {
         uint32_t i, held = 0;
@@ -5591,6 +5593,23 @@ static int cmd_setup(void)
     ui_draw();
     ppm("build/screens/screen-33-battery-usb.ppm");
     usb.config = 0;
+    {   /* every row: its name and its widest value side by side, 8 px apart at least (no overlap) */
+        uint32_t pi, r;
+        for (pi = 0; pi < SET_NPART; pi++)
+            for (r = 0; r < SET_PART[pi].n; r++) {
+                const set_row_t *w = &SET_PART[pi].rows[r];
+                int32_t v, wide = 0;
+                char b[12];
+                for (v = set_lo(w); v <= set_hi(w); v++) {
+                    set_text(w, v, b);
+                    if (text_w(&FONT_S, b) > wide)
+                        wide = text_w(&FONT_S, b);
+                }
+                if (8 + text_w(&FONT_S, w->name) + 8 + wide > 232)
+                    printf("FAIL setup: %s's row: the name and its value overlap (%d + %d px)\n", w->name,
+                           text_w(&FONT_S, w->name), wide), fail++;
+            }
+    }
     printf("setup: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
@@ -5730,19 +5749,12 @@ static int cmd_bricks(const char *dir)
     ses_scan(1);
     press_btn(B_FX);
     ui.env_on[0][ui.engine[0]] = 1;
-    press_phys(KEY_SHIFT, 1);
-    lm_key(KEY_ENV);
-    press_phys(KEY_SHIFT, 0);
+    lm_key(KEY_BRICKS);
     if (!bl.on[0] || !ui.bl_page || !ui.env_on[0][ui.engine[0]] || ui.env_page)
-        printf("FAIL bricks: SHIFT + the envelope key does not start it (or touches the envelope)\n"), fail++;
+        printf("FAIL bricks: BRICKLAYER's button does not start it (or touches the envelope)\n"), fail++;
     ui_leds();
-    {
-        int a = key_on(KEY_ENV);
-        fm1_ms += 250;
-        ui_leds();
-        if (a == key_on(KEY_ENV))
-            printf("FAIL bricks: the envelope key does not blink\n"), fail++;
-    }
+    if (!key_on(KEY_BRICKS))
+        printf("FAIL bricks: BRICKLAYER's button is not lit while it is on\n"), fail++;
     if (bl.run[0])
         printf("FAIL bricks: it runs before PLAY\n"), fail++;
     press_btn(B_PLAY);
@@ -5760,7 +5772,7 @@ static int cmd_bricks(const char *dir)
         press_key(i * 2u, 0);
         run_blocks(20, 0);
     }
-    if (bl.n[0] != 3u || bl.len[0] != 3u || bl_pitch(0, 1, 0) != scale_note(2, 0))
+    if (bl.n[0] != 3u || bl.len[0] != 3u || bl_pitch(0, 1, 0) != scale_note(2, oct_eff(0)))
         printf("FAIL bricks: the keys are not added (%u notes, %u steps)\n", bl.n[0], bl.len[0]), fail++;
     host_enc[PANEL_ENC[EN_K1]] = 5;                   /* eight steps: three notes spread over them */
     ui_input();
@@ -5781,7 +5793,7 @@ static int cmd_bricks(const char *dir)
         press_phys(KEY_SHIFT, 0);
         fm1_in.buttons &= ~(1u << PANEL_BTN[LAYER_BTN[0]]);
         ui_input();
-        if (bl_pitch(0, 0, 0) != scale_note(1, 0) || bl_pitch(0, 0, 0) == before)
+        if (bl_pitch(0, 0, 0) != scale_note(1, oct_eff(0)) || bl_pitch(0, 0, 0) == before)
             printf("FAIL bricks: the track's transposition does not move them\n"), fail++;
         ui.lxt[0] = 0;
         lx_post();
@@ -5794,7 +5806,7 @@ static int cmd_bricks(const char *dir)
     if (ons2 < ons + ons / 2u || d < 4u)
         printf("FAIL bricks: HARMONY adds no notes\n"), fail++;
     host_enc[PANEL_ENC[EN_K3]] = -50;
-    host_enc[PANEL_ENC[EN_K4]] = 50;                  /* instability 100 */
+    host_enc[PANEL_ENC[EN_DLY]] = 50;                  /* instability 100 */
     ui_input();
     {
         uint32_t w, lo = 0xFFFFFFFFu, hi = 0, dd;
@@ -5900,12 +5912,12 @@ static int cmd_bricks(const char *dir)
     ui_input();
     if (bl.n[0] || !bl.rec[0])
         printf("FAIL bricks: REC held does not empty it (or turns entry off)\n"), fail++;
-    press_phys(KEY_ENV, 1);                           /* the key held: the page down, KNOB 1 the filter */
+    press_phys(KEY_BRICKS, 1);                        /* the button held: the page down, the knobs the track's */
     for (i = 0; i < 60u; i++) {
         run_blocks(20, 0);
         ui_input();
     }
-    press_phys(KEY_ENV, 0);
+    press_phys(KEY_BRICKS, 0);
     host_enc[PANEL_ENC[EN_K1]] = 2;
     ui_input();
     if (ui.bl_page || ui.env_page || !bl.on[0] || ui.flt[0] != 4)
@@ -5914,9 +5926,7 @@ static int cmd_bricks(const char *dir)
     if (!ui.env_page)
         printf("FAIL bricks: a short press is not the ENVELOPE page\n"), fail++;
     lm_key(KEY_ENV);
-    press_phys(KEY_SHIFT, 1);                         /* one sequencer a track: BALLSY refused while it runs */
-    lm_key(KEY_EDIT);
-    press_phys(KEY_SHIFT, 0);
+    lm_key(KEY_BALLS);                                /* one sequencer a track: BALLSY refused while it runs */
     if (bb.on[0] || !bl.on[0] || strcmp(ui.msg, "NOT ALLOWED"))
         printf("FAIL bricks: BALLSY starts beside it\n"), fail++;
     if (ui.bl_page || ui.bb_page)                     /* PLAY: the sequencer's on its page (blinking), else the looper's */

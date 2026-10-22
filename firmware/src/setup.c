@@ -12,9 +12,9 @@
  *          SEND       NOTES, CC                                 ON / OFF
  *          PORTS      USB IN                                    ON / OFF
  *          (the SMK-37 has no MIDI IN jack: trs_in stays in the record, unused)
- *   VELOCITY  KEYS    CURVE                                     LINEAR, LIGHT, HEAVY, FIXED
+ *   VELOCITY  KEYS    CURVE                                     EVEN, SOFT (light touch), HARD (firm), FIXED
  *                     LOWEST, HIGHEST (the range it maps into)  1 .. 127
- *                     FIXED AT (every note, the curve FIXED)    1 .. 127
+ *                     FIXED (every note, the curve FIXED)       1 .. 127
  *
  * And what the settings do in the main loop: MIDI in routed by channel to the tracks (midi_take), its CCs set the
  * tracks' level, pan, macros, filter and sends; the same sent out when they change (midi_poll). */
@@ -24,7 +24,7 @@
 #define SET_LEN (32u + sizeof(midi_cfg_t))
 #define SET_LEN1 (32u + __builtin_offsetof(midi_cfg_t, vel_curve))
 enum { SK_ONOFF, SK_CHAN, SK_VCURVE, SK_VEL };   /* (a value: ON / OFF; OFF, 1 .. 16; a curve; 1 .. 127) */
-static const char *const VC_NAME[VC_N] = {"LINEAR", "LIGHT", "HEAVY", "FIXED"};
+static const char *const VC_NAME[VC_N] = {"EVEN", "SOFT", "HARD", "FIXED"};   /* (short: beside CURVE on its row) */
 typedef struct { const char *name; uint8_t off, kind; } set_row_t;
 #define SR(n, f, k) {n, (uint8_t)__builtin_offsetof(midi_cfg_t, f), k}
 static const set_row_t SET_IN[] = {SR("TRACK 1", in_ch[0], SK_CHAN), SR("TRACK 2", in_ch[1], SK_CHAN),
@@ -38,7 +38,7 @@ static const set_row_t SET_RCV[] = {SR("NOTES", rcv_note, SK_ONOFF), SR("CC", rc
 static const set_row_t SET_SND[] = {SR("NOTES", send_note, SK_ONOFF), SR("CC", send_cc, SK_ONOFF)};
 static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF)};
 static const set_row_t SET_VEL[] = {SR("CURVE", vel_curve, SK_VCURVE), SR("LOWEST", vel_lo, SK_VEL),
-                                    SR("HIGHEST", vel_hi, SK_VEL), SR("FIXED AT", vel_fix, SK_VEL)};
+                                    SR("HIGHEST", vel_hi, SK_VEL), SR("FIXED", vel_fix, SK_VEL)};
 #define SET_NPART 6u
 static const struct { const char *name; const set_row_t *rows; uint8_t n, sec; } SET_PART[SET_NPART] = {
     {"IN CHAN", SET_IN, NELEM(SET_IN), 0}, {"OUT CHAN", SET_OUT, NELEM(SET_OUT), 0}, {"RECEIVE", SET_RCV, NELEM(SET_RCV), 0},
