@@ -136,6 +136,7 @@ static volatile uint32_t mi_w, mi_r;
 /* the panel (the SMK-37's ids: smk_input.h; its 8 knobs, K1 MASTER) */
 #define SMK_BTN_KNOB_BANK 0u      /* (smk_input.h: SHIFT) */
 #define SMK_PADBTN0 24u           /* (the top row of pads: buttons from here) */
+#define SMK_BTN_FADER_BANK 1u     /* (the ENVELOPE page) */
 #define SMK_BTN_LEFT 2u           /* (< and >: what the PRESETS knob did) */
 #define SMK_BTN_RIGHT 3u
 #define HOST_FN 1                 /* (ui.c: the black-key functions from host_fn) */
@@ -4089,12 +4090,10 @@ static int cmd_delay(const char *dir)
     press_btn(B_FX);
     {
         int8_t sd = ui.send[0];
-        press_phys(KEY_SHIFT, 1);
-        host_enc[PANEL_ENC[EN_K4]] = 15;
+        host_enc[PANEL_ENC[EN_DLY]] = 15;            /* K7: the track's delay send */
         ui_input();
-        press_phys(KEY_SHIFT, 0);
         if (ui.dsend[0] != 30 || ui.send[0] != sd || ui.dial != DIAL_DSEND || lay_dsend[0] != 30 * 32767 / 100)
-            printf("FAIL delay: SHIFT + KNOB 4 does not set the track's delay send (%d)\n", ui.dsend[0]), fail++;
+            printf("FAIL delay: K7 does not set the track's delay send (%d)\n", ui.dsend[0]), fail++;
         ui.force = 1;
         ui_draw();
         snprintf(path, sizeof path, "%s/screen-37-delay-send.ppm", dir);
@@ -4102,7 +4101,7 @@ static int cmd_delay(const char *dir)
         host_enc[PANEL_ENC[EN_K4]] = 2;
         ui_input();
         if (ui.dsend[0] != 30 || ui.send[0] != sd + 4)
-            printf("FAIL delay: KNOB 4 alone is no longer the reverb send\n"), fail++;
+            printf("FAIL delay: K8 is not the reverb send\n"), fail++;
     }
     if (ses_save(1) != SES_OK)
         printf("FAIL delay: not saved\n"), fail++;
@@ -4436,9 +4435,9 @@ static int cmd_env(const char *dir)
         host_enc[PANEL_ENC[EN_K1]] = -60;
         host_enc[PANEL_ENC[EN_K2]] = -60;
         host_enc[PANEL_ENC[EN_K3]] = 60;
-        host_enc[PANEL_ENC[EN_K4]] = -60;
+        host_enc[PANEL_ENC[PAGE_K[3]]] = -60;        /* (the pages' fourth: K6) */
         ui_input();
-        host_enc[PANEL_ENC[EN_K4]] = 10;
+        host_enc[PANEL_ENC[PAGE_K[3]]] = 10;
         ui_input();
         if (!ui.env_on[0][e] || !lay_env_on[0] || ui.env[0][e][0] || ui.env[0][e][1] || ui.env[0][e][2] != 100 ||
             ui.env[0][e][3] != 20 || lay_env[0][3] != 20)
@@ -4455,7 +4454,7 @@ static int cmd_env(const char *dir)
         press_key(0, 0);
         run_blocks(60, 0);
         after = env_peak(40);
-        host_enc[PANEL_ENC[EN_K4]] = 60;             /* a long release: 20 s */
+        host_enc[PANEL_ENC[PAGE_K[3]]] = 60;         /* a long release: 20 s */
         ui_input();
         press_key(0, 1);
         run_blocks(310, 0);
@@ -4587,12 +4586,10 @@ static int cmd_dist(void)
     press_btn(B_FX);
     {
         int8_t cr = ui.cr[0];
-        press_phys(KEY_SHIFT, 1);
-        host_enc[PANEL_ENC[EN_K3]] = 20;
+        host_enc[PANEL_ENC[EN_DIST]] = 20;           /* K6: the distortion */
         ui_input();
-        press_phys(KEY_SHIFT, 0);
         if (ui.dist[0] != 40 || lay_dist[0] != 40 || ui.cr[0] != cr || ui.dial != DIAL_DIST)
-            printf("FAIL dist: SHIFT + KNOB 3 does not set it (%d)\n", ui.dist[0]), fail++;
+            printf("FAIL dist: K6 does not set it (%d)\n", ui.dist[0]), fail++;
     }
     press_key(0, 1);
     run_blocks(200, 0);
@@ -4848,7 +4845,7 @@ static int cmd_balls(const char *dir)
     host_enc[PANEL_ENC[EN_K1]] = 3;                   /* four balls, faster, lower, falling */
     host_enc[PANEL_ENC[EN_K2]] = 10;
     host_enc[PANEL_ENC[EN_K3]] = -1;
-    host_enc[PANEL_ENC[EN_DLY]] = 40;
+    host_enc[PANEL_ENC[EN_DIST]] = 40;
     ui_input();
     if (bb.n[0] != 4 || bb.speed[0] != 70 || bb.base[0] != -2 || bb.unst[0] != 80 || ui.flt[0] || ui.cr[0])
         printf("FAIL balls: the knobs do not set them (%d %d %d %d)\n", bb.n[0], bb.speed[0], bb.base[0], bb.unst[0]), fail++;
@@ -4907,9 +4904,9 @@ static int cmd_balls(const char *dir)
     press_phys(KEY_BALLS, 0);
     if (!ui.bb_page || ui.edit)
         printf("FAIL balls: BALLSY held does not bring the page back\n"), fail++;
-    host_enc[PANEL_ENC[EN_DLY]] = 10;                  /* (instability shown, as just turned: 100) */
+    host_enc[PANEL_ENC[EN_DIST]] = 10;                  /* (instability shown, as just turned: 100) */
     ui_input();
-    host_enc[PANEL_ENC[EN_DLY]] = -10;
+    host_enc[PANEL_ENC[EN_DIST]] = -10;
     ui_input();
     bb.unst[0] = 100;
     ui.force = 1;
@@ -5806,7 +5803,7 @@ static int cmd_bricks(const char *dir)
     if (ons2 < ons + ons / 2u || d < 4u)
         printf("FAIL bricks: HARMONY adds no notes\n"), fail++;
     host_enc[PANEL_ENC[EN_K3]] = -50;
-    host_enc[PANEL_ENC[EN_DLY]] = 50;                  /* instability 100 */
+    host_enc[PANEL_ENC[EN_DIST]] = 50;                  /* instability 100 */
     ui_input();
     {
         uint32_t w, lo = 0xFFFFFFFFu, hi = 0, dd;
@@ -5821,7 +5818,7 @@ static int cmd_bricks(const char *dir)
     }
     {   /* its page: the loop keys its own -- backwards, half speed, at random; the looper untouched; lit */
         uint32_t seq[6], j, back = 1, ms0 = bl_step_ms(0);
-        host_enc[PANEL_ENC[EN_K4]] = -50;             /* (steady, to follow its steps) */
+        host_enc[PANEL_ENC[PAGE_K[3]]] = -50;             /* (steady, to follow its steps) */
         ui_input();
         lm_key(KEY_REV);
         ui_leds();
@@ -5865,7 +5862,7 @@ static int cmd_bricks(const char *dir)
         lm_key(KEY_RAND);                             /* (forwards again) */
         if (bl.dir[0] != LD_FWD)
             printf("FAIL bricks: RANDOM again is not forwards\n"), fail++;
-        host_enc[PANEL_ENC[EN_K4]] = 50;
+        host_enc[PANEL_ENC[PAGE_K[3]]] = 50;
         ui_input();
     }
     {   /* VARIATION: the notes' levels spread */

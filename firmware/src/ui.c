@@ -48,15 +48,15 @@
  * FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+; SHIFT on KNOB BANK. The knobs: K1 is
  * the track's level (the master: fader 4, smk_input.h); the knobs: PANEL_ENC */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
-enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, EN_DLY, EN_K8, NE };
+enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, EN_DLY, EN_DIST, NE };
 static const uint8_t PANEL_BTN[NB] = {SMK_PADBTN0, SMK_PADBTN0 + 1u, SMK_PADBTN0 + 2u, SMK_PADBTN0 + 3u, SMK_PADBTN0 + 4u,
                                       SMK_PADBTN0 + 5u, 12, 13, 14, 15, 16, 17, 4, 5};
-/* the knobs, K1 .. K8 = 0 .. 7: the track's level (K1), pan (K2), filter (K3), grain (K4), crush (K5), delay send (K6),
- * reverb send (K7); K8 free (EN_PRESET, 8: no knob -- only the host tests turn it, as the FM-1's PRESETS; < and > do
- * that). The pages' four values on K3 .. K6 (PAGE_K); MACRO on, the eight macros on K1 .. K8 (MAC_K) */
-static const uint8_t PANEL_ENC[NE] = {0, 1, 8, 2, 3, 4, 6, 5, 7};
-static const uint8_t PAGE_K[4] = {EN_K1, EN_K2, EN_K3, EN_DLY};
-static const uint8_t MAC_K[NMAC] = {EN_SELECT, EN_ALGO, EN_K1, EN_K2, EN_K3, EN_DLY, EN_K4, EN_K8};
+/* the knobs, K1 .. K8 = 0 .. 7: the track's level (K1), pan (K2), filter (K3), grain (K4), crush (K5), distortion
+ * (K6), delay send (K7), reverb send (K8) (EN_PRESET, 8: no knob -- only the host tests turn it, as the FM-1's
+ * PRESETS; < and > do that). The pages' four values on K3 .. K6 (PAGE_K); MACRO on, the eight macros on K1 .. K8 */
+static const uint8_t PANEL_ENC[NE] = {0, 1, 8, 2, 3, 4, 7, 6, 5};
+static const uint8_t PAGE_K[4] = {EN_K1, EN_K2, EN_K3, EN_DIST};
+static const uint8_t MAC_K[NMAC] = {EN_SELECT, EN_ALGO, EN_K1, EN_K2, EN_K3, EN_DIST, EN_DLY, EN_K4};
 static const uint8_t LAYER_BTN[NLAYER] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 37u                 /* the keybed, C3 .. C6: every key plays */
 #define KEY_NONE 0xFFu
@@ -115,7 +115,8 @@ static uint32_t host_fn;                 /* (the host tests: the functions, held
 static uint32_t fn_keys(void)
 {
     uint32_t b = fm1_in.buttons, f = ((b >> (SMK_PADBTN0 + PAD_AMB)) & 1u) << FN_AMB | ((b >> (SMK_PADBTN0 + PAD_EXP)) & 1u) << FN_EXP |
-                                    ((b >> BTN_CHORD) & 1u) << FN_CHORD | ((b >> BTN_MACRO) & 1u) << FN_EDIT;
+                                    ((b >> BTN_CHORD) & 1u) << FN_CHORD | ((b >> BTN_MACRO) & 1u) << FN_EDIT |
+                                    ((b >> SMK_BTN_FADER_BANK) & 1u) << FN_ENV;   /* (FADER BANK: the ENVELOPE page) */
 #ifdef HOST_FN
     f |= host_fn;
 #endif
@@ -177,8 +178,6 @@ static struct {
     uint8_t bb_page;             /* the chosen track's balls' page is up (it closes as the other pages do) */
     uint8_t vary_shown;
     uint8_t bl_page;             /* the chosen track's BRICKLAYER page is up (closes as the other pages do) */
-    uint8_t env_down, env_done;  /* the envelope key down since env_t0 (let go soon: ENVELOPE; held: BRICKLAYER's page) */
-    uint32_t env_t0;
     uint8_t blrec_down, blrec_done;   /* REC down on BRICKLAYER's page since blrec_t0 (held 1 s: emptied) */
     uint32_t blrec_t0;          /* (VARY just set: what the screen shows until the ISR has taken it, + 1) */
     uint32_t cho_t0;
@@ -773,7 +772,7 @@ static void new_sound(int same) { new_sound_of(same ? cur_kind(ui.sel) : -1, sam
 static int32_t enc_take(uint32_t role) { return fm1_enc_take(PANEL_ENC[role]); }
 /* KNOB 1 .. 4 for their own functions: with SHIFT held, KNOB 3 and 4 are SHIFT's (distortion, delay send) -- a
  * click arriving between SHIFT's read and this one must not reach the crush or the reverb send */
-static int32_t knob_take(uint32_t role, int sh) { return sh && role == EN_K3 ? 0 : enc_take(role); }   /* (SHIFT + crush: the distortion) */
+static int32_t knob_take(uint32_t role, int sh) { (void)sh; return enc_take(role); }
 static int btn_bit(uint32_t mask, uint32_t label) { return (int)((mask >> PANEL_BTN[label]) & 1u); }
 
 /* GLOBAL SETUP and the MIDI in (setup.c, after the sessions') */
@@ -935,12 +934,6 @@ static void ui_input(void)
         }
     }
     sh = shift_held();  /* (SHIFT read once: the knobs below all see the same) */
-    if (sh && (s = enc_take(EN_K3)) != 0) {   /* SHIFT + the crush knob (K5): the track's distortion */
-        ui.dist[ui.sel] = (int8_t)clampi(ui.dist[ui.sel] + 2 * s, 0, 100);
-        level_pan_apply(ui.sel);
-        ui.dial = DIAL_DIST;
-        ui.dial_until = fm1_ms + 1000u;
-    }
     if (ui.env_page) {                           /* KNOB 1 .. 4: the track's own envelope, A D S R; the first turn
                                                   * takes it from the sound's own (as drawn) */
         const uint8_t *K = PAGE_K;
@@ -1027,14 +1020,21 @@ static void ui_input(void)
             ui.dial = DIAL_CR;
             ui.dial_until = fm1_ms + 1000u;
         }
-        s = enc_take(EN_DLY);                    /* K6: the layer's delay send */
+        s = enc_take(EN_DIST);                   /* K6: the layer's distortion */
+        if (s) {
+            ui.dist[ui.sel] = (int8_t)clampi(ui.dist[ui.sel] + 2 * s, 0, 100);
+            level_pan_apply(ui.sel);
+            ui.dial = DIAL_DIST;
+            ui.dial_until = fm1_ms + 1000u;
+        }
+        s = enc_take(EN_DLY);                    /* K7: the layer's delay send */
         if (s) {
             ui.dsend[ui.sel] = (int8_t)clampi(ui.dsend[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
             ui.dial = DIAL_DSEND;
             ui.dial_until = fm1_ms + 1000u;
         }
-        s = enc_take(EN_K4);                     /* K7: the layer's reverb send */
+        s = enc_take(EN_K4);                     /* K8: the layer's reverb send */
         if (s) {
             ui.send[ui.sel] = (int8_t)clampi(ui.send[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
@@ -1375,39 +1375,10 @@ static void ui_input(void)
     }
     if (ui.pad_page == PP_CHORD && !ui.chord_on[ui.sel])
         ui.pad_page = PP_NONE;                   /* (chord mode off -- or a track chosen without it: the shapes go) */
-    if ((fch & fk) >> FN_ENV & 1u) {           /* with SHIFT: BRICKLAYER on (its page up) or off */
-        if (shift_held() && !bl.on[ui.sel] && bb.on[ui.sel]) {
-            say("NOT ALLOWED", 1200);             /* (one sequencer a track: BALLSY there) */
-            ui.env_down = 0;
-        } else if (shift_held()) {
-            bl_toggle(ui.sel);
-            ui.bl_page = bl.on[ui.sel];
-            if (ui.bl_page)
-                ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bb_page = 0;
-            say(bl.on[ui.sel] ? "BRICKLAYER" : "BRICKLAYER OFF", 900);
-            ui.force = 1;
-            ui.env_down = 0;
-        } else {
-            ui.env_down = 1;
-            ui.env_done = 0;
-            ui.env_t0 = fm1_ms;
-        }
-    }
-    if (ui.env_down && (fk >> FN_ENV & 1u) && !ui.env_done && bl.on[ui.sel] &&
-        (uint32_t)(fm1_ms - ui.env_t0) >= 600u) {   /* held, BRICKLAYER running: its page up or down */
-        ui.env_done = 1;
-        ui.bl_page = (uint8_t)!ui.bl_page;
-        if (ui.bl_page)
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.bb_page = 0;
+    if ((fch & fk) >> FN_ENV & 1u) {             /* FADER BANK: the ENVELOPE page up or down (K3 .. K6 its A D S R) */
+        ui.env_page = (uint8_t)!ui.env_page;
+        ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
         ui.force = 1;
-    }
-    if (ui.env_down && !(fk >> FN_ENV & 1u)) {   /* let go soon: the ENVELOPE page up or down */
-        ui.env_down = 0;
-        if (!ui.env_done) {
-            ui.env_page = (uint8_t)!ui.env_page;
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = 0;
-            ui.force = 1;
-        }
     }
     if ((fch & fk) >> FN_EDIT & 1u)              /* MACRO: pressed, the macros on or off */
         ui.edit_down = 1;
@@ -1631,6 +1602,7 @@ static void ui_leds(void)
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
     fm1_led_key(BTN_MACRO, ui.edit);             /* (MACRO: lit while on) */
+    fm1_led_key(SMK_BTN_FADER_BANK, ui.env_page);   /* (FADER BANK: lit while the ENVELOPE page is up) */
     fm1_led_key(BTN_BALLS, bb.on[ui.sel] && (!bb.run[ui.sel] || (fm1_ms / 250u) & 1u));   /* (on: lit; playing: blinks) */
     fm1_led_key(BTN_BRICKS, bl.on[ui.sel] && (!bl.run[ui.sel] || (fm1_ms / 250u) & 1u));
     for (k = 0; k < NKEY; k++) {
