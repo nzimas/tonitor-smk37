@@ -6743,6 +6743,39 @@ static int cmd_shadow(void)
     printf("shadow: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
+/* FM generation 5: GLISSE and RUBBER drawn no more (WARP has them); asked for, a WARP; generation 4 as it was */
+static int cmd_warp5(void)
+{
+    static fm_patch_t pt;
+    uint32_t fail = 0, s, path, cnt[FF_N];
+    memset(cnt, 0, sizeof cnt);
+    for (path = 0; path < PATH_N; path++)
+        for (s = 0; s < 3000u; s++) {
+            fm_generate(&pt, -1, 1000u + s * 7u, path, 5u);
+            cnt[pt.family]++;
+        }
+    if (cnt[FF_GLISSE] || cnt[FF_RUBBER] || cnt[FF_WARP] < 300u)
+        printf("FAIL warp5: generation 5 draws GLISSE %u, RUBBER %u, WARP %u\n", cnt[FF_GLISSE], cnt[FF_RUBBER], cnt[FF_WARP]), fail++;
+    fm_generate(&pt, FF_GLISSE, 77u, PATH_OPEN, 5u);
+    if (pt.family != FF_WARP)
+        printf("FAIL warp5: a GLISSE asked for on generation 5 is not a WARP\n"), fail++;
+    fm_generate(&pt, FF_RUBBER, 77u, PATH_OPEN, 4u);
+    if (pt.family != FF_RUBBER)
+        printf("FAIL warp5: generation 4's RUBBER is gone\n"), fail++;
+    {   /* the new warps: their pitch envelopes as various as the three were */
+        uint32_t glide = 0, bounce = 0;
+        for (s = 0; s < 400u; s++) {
+            fm_generate(&pt, FF_WARP, 5000u + s, PATH_OPEN, 5u);
+            glide += pt.p[FP_PL1 + 3] <= 30u || pt.p[FP_PL1 + 3] >= 70u;
+            bounce += pt.p[FP_PR1 + 3] == 99u && pt.p[FP_PL1 + 2] == 50u;
+        }
+        printf("warp5: WARP %u of %u drawn; of 400 warps, %u glide in from far, %u bounce\n", cnt[FF_WARP], 3000u * PATH_N, glide, bounce);
+        if (glide < 40u || bounce < 30u)
+            printf("FAIL warp5: the warps have little of GLISSE or RUBBER\n"), fail++;
+    }
+    printf("warp5: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -7375,6 +7408,8 @@ int main(int argc, char **argv)
         return cmd_react();
     if (argc >= 2 && !strcmp(argv[1], "shadow"))
         return cmd_shadow();
+    if (argc >= 2 && !strcmp(argv[1], "warp5"))
+        return cmd_warp5();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

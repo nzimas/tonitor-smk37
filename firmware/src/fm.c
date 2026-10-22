@@ -69,6 +69,12 @@ static const uint8_t FF_W3[3][FF_N] = {             /* generation 3: plucks, mal
     {3, 4, 0, 0, 1, 1, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 0, 0, 0},
     {2, 1, 4, 3, 3, 2, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 5, 5, 4},
 };
+static const uint8_t FF_W5[3][FF_N] = {             /* generation 5: GLISSE and RUBBER drawn no more -- WARP has them */
+    {2, 2, 2, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 3, 5, 3, 0},
+    {3, 4, 0, 0, 1, 0, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 1, 0, 0},
+    {2, 1, 4, 3, 3, 0, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 8, 5, 0},
+};
+static int fm_retired(int32_t f) { return f == FF_GLISSE || f == FF_RUBBER; }   /* (from generation 5: into WARP) */
 static const char *const FF_NAME[FF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "ITERATIF", "GLISSE", "SPECTRE",
                                           "ABYSS", "FRICTION", "CHOIR", "BOWED", "HOLLOW", "BLOOM", "TIDE",
                                           "SHARDS", "STATIC", "WIND", "PLUCK", "MALLET", "WARP", "GLITCH", "RUBBER"};
@@ -1045,6 +1051,45 @@ static void fm_gen_glitch(uint8_t *p, rnd_t *r)
     p[FP_LPMD] = (uint8_t)rnd_in(r, 25, 99);
     p[FP_LAMD] = (uint8_t)rnd_in(r, 30, 90);
 }
+/* generation 5's warp: the warp, its pitch now and then GLISSE's journey or RUBBER's bounce instead -- or both, the
+ * bounce at the start and the siren after -- and now and then RUBBER's low, plain ratios under it */
+static void fm_gen_warp5(uint8_t *p, rnd_t *r)
+{
+    int n;
+    uint32_t how = rnd_below(r, 10);                    /* 0 .. 3 its own; 4 .. 6 a glide; 7 .. 8 a bounce; 9 both */
+    fm_gen_warp(p, r);
+    if (how >= 4u && how != 7u && how != 8u) {           /* GLISSE: from far below or above, past the note, slowly */
+        p[FP_PL1 + 3] = (uint8_t)(rnd_chance(r, 50) ? rnd_in(r, 0, 30) : rnd_in(r, 70, 99));
+        p[FP_PL1] = (uint8_t)rnd_in(r, 20, 80);
+        p[FP_PL1 + 1] = (uint8_t)rnd_in(r, 0, 99);
+        p[FP_PL1 + 2] = (uint8_t)(rnd_chance(r, 50) ? 50 : rnd_in(r, 30, 70));
+        p[FP_PR1] = (uint8_t)rnd_in(r, 15, 55);
+        p[FP_PR1 + 1] = (uint8_t)rnd_in(r, 8, 40);
+        p[FP_PR1 + 2] = (uint8_t)rnd_in(r, 8, 40);
+        p[FP_PR1 + 3] = (uint8_t)rnd_in(r, 10, 50);
+        if (rnd_chance(r, 50)) {                         /* (a siren on top) */
+            p[FP_LFW] = (uint8_t)(rnd_chance(r, 50) ? 0 : 4);
+            p[FP_LFS] = (uint8_t)rnd_in(r, 3, 25);
+            p[FP_LPMD] = (uint8_t)rnd_in(r, 20, 70);
+            p[FP_LPMS] = (uint8_t)rnd_in(r, 5, 7);
+            p[FP_LFD] = (uint8_t)rnd_in(r, 30, 80);
+        }
+    }
+    if (how >= 7u) {                                     /* RUBBER: under, up past it, back under, to it -- fast */
+        p[FP_PL1 + 3] = (uint8_t)rnd_in(r, 15, 35);
+        p[FP_PL1] = (uint8_t)rnd_in(r, 62, 80);
+        p[FP_PL1 + 1] = (uint8_t)rnd_in(r, 42, 48);
+        p[FP_PL1 + 2] = 50;
+        p[FP_PR1] = (uint8_t)rnd_in(r, 70, 90);
+        p[FP_PR1 + 1] = (uint8_t)rnd_in(r, 60, 85);
+        p[FP_PR1 + 2] = (uint8_t)rnd_in(r, 55, 80);
+        p[FP_PR1 + 3] = 99;
+    }
+    if (rnd_chance(r, how >= 7u ? 60 : 25))             /* (RUBBER's plain ratios under the carriers) */
+        for (n = 1; n <= 6; n++)
+            if (fm_is_carrier(p, n))
+                fm_ratio(fm_op(p, n), rnd_chance(r, 50) ? 100 : rnd_chance(r, 50) ? 50 : 200);
+}
 /* rubber: low ratios, the pitch bouncing in at every note (up, under, back) */
 static void fm_gen_rubber(uint8_t *p, rnd_t *r)
 {
@@ -1314,8 +1359,12 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
         f = path == PATH_OPEN ? rnd_below(r, FF_N0) : (int32_t)rnd_weighted(r, FF_W[path], FF_N0);
     else if (gen <= 2u && (f < 0 || f >= FF_N1))
         f = (int32_t)rnd_weighted(r, FF_W1[path], FF_N1);
-    else if (f < 0 || f >= FF_N)
+    else if (gen <= 4u && (f < 0 || f >= FF_N))
         f = (int32_t)rnd_weighted(r, FF_W3[path], FF_N);
+    else if (f < 0 || f >= FF_N)
+        f = (int32_t)rnd_weighted(r, FF_W5[path], FF_N);
+    if (gen >= 5u && fm_retired(f))
+        f = FF_WARP;                                     /* (a GLISSE or a RUBBER asked for: a WARP, which has them) */
     fm_voice_defaults(p);
     switch (f) {
     case FF_METAL: fm_gen_metal(p, r); break;
@@ -1336,7 +1385,7 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
     case FF_STATIC: fm_gen_static(p, r); break;
     case FF_PLUCK: fm_gen_pluck(p, r); break;
     case FF_MALLET: fm_gen_mallet(p, r); break;
-    case FF_WARP: fm_gen_warp(p, r); break;
+    case FF_WARP: gen >= 5u ? fm_gen_warp5(p, r) : fm_gen_warp(p, r); break;
     case FF_GLITCH: gen >= 4u ? fm_gen_glitch4(p, r) : fm_gen_glitch(p, r); break;
     case FF_RUBBER: fm_gen_rubber(p, r); break;
     default: fm_gen_wind(p, r); break;

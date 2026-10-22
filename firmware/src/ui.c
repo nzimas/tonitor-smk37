@@ -1287,7 +1287,14 @@ static void ui_input(void)
             uint32_t e = ui.engine[ui.sel];
             int32_t n = e == ENG_FM ? FF_N : e == ENG_ANIMA ? AK_N : e == ENG_CAL ? CS_N : e == ENG_RUS ? RK_N
                         : e == ENG_DRUID ? DK_N : e == ENG_BAY ? BK_N : HK_N;
-            new_sound_of(clampi(cur_kind(ui.sel) + s, 0, n - 1), 0);   /* (at the first or last: that one again) */
+            {
+                int32_t k = clampi(cur_kind(ui.sel) + s, 0, n - 1);
+                while (e == ENG_FM && fm_retired(k) && k + s >= 0 && k + s < n)
+                    k += s;                  /* (FM's GLISSE and RUBBER: in WARP now) */
+                if (e == ENG_FM && fm_retired(k))
+                    k = cur_kind(ui.sel);
+                new_sound_of(k, 0);          /* (at the first or last: that one again) */
+            }
         }
         s = 0;
     } else if (s && ui.pre_page == SP_LIST) {           /* PRESETS: through the presets */

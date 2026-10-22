@@ -133,11 +133,13 @@ static int rx_in_ens(uint32_t l) { return l < NLAYER && l != rx.guide && ((rx.ma
 static int rx_role(uint32_t l) { return rx_in_ens(l) ? rx.a[l].mode : -1; }   /* (the host tests) */
 
 /* ---- the queue: a note of track l, struck in wait ms, held len ms */
+static uint32_t rx_snap(uint32_t note);
 static void rx_play(uint32_t l, uint32_t note, uint32_t vel, uint32_t len, uint32_t wait)
 {
     uint32_t i, slot = RX_Q;
     if (note > 127u || !rx_in_ens(l))
         return;
+    note = rx_snap(note);                           /* (in the scale, whatever came: the last word) */
     for (i = 0; i < RX_Q; i++)
         if (!rx.q[i].on) {
             slot = i;
@@ -194,6 +196,17 @@ static uint32_t rx_note(int32_t dg)
     dg = clampi(dg, 0, 10 * n);
     return (uint32_t)clampi(dg / n * 12 + pc[dg % n], 0, 127);
 }
+static uint32_t rx_snap(uint32_t note)              /* the nearest note of the scale (below first), in range */
+{
+    uint32_t m = scale_mask(), d;
+    for (d = 0; d < 6u; d++) {
+        if (note >= d && ((m >> ((note - d) % 12u)) & 1u))
+            return note - d;
+        if (note + d <= 127u && ((m >> ((note + d) % 12u)) & 1u))
+            return note + d;
+    }
+    return note;
+}
 /* how well pitch class pc fits the harmony now, 0 .. 256: what the guide holds counts most, then what it played lately */
 static uint32_t rx_fit(uint32_t pc)
 {
@@ -206,6 +219,27 @@ static uint32_t rx_fit(uint32_t pc)
         if (w[k] > mx)
             mx = w[k];
     return w[pc % 12u] * 256u / mx;
+}
+
+/* a note that clashes with the harmony now (in the scale, but not in it): the nearest one along the scale that fits */
+static uint32_t rx_settle(uint32_t note)
+{
+    uint32_t best = note, bf, d, f;
+    if ((bf = rx_fit(note % 12u)) >= 60u)
+        return note;
+    for (d = 1; d <= 2u; d++) {
+        int32_t s;
+        for (s = -1; s <= 1; s += 2) {
+            uint32_t m = rx_note((int32_t)rx_dg(note) + s * (int32_t)d);
+            if ((f = rx_fit(m % 12u)) > bf + 20u) {
+                bf = f;
+                best = m;
+            }
+        }
+        if (best != note)
+            break;
+    }
+    return best;
 }
 
 /* ---- the memory */
@@ -506,6 +540,9 @@ static void rx_step(uint32_t l)
         if (RX_CPLX > 70 && a->chr != RC_TEX && gap > 200u && rx_odds(RX_CPLX - 70))
             at = gap / (rx_odds(50) ? 4u : 3u);     /* (pushed off the beat) */
         c = rx_render(l, e, tx, a->sh, n);
+        if (rx.nhd && len >= 350u)                  /* a long note over what the guide holds: onto its harmony */
+            for (k = 0; k < c; k++)
+                n[k] = rx_settle(n[k]);
         if (RX_CPLX > 60 && a->chr != RC_TEX && gap >= 240u && rx_odds((RX_CPLX - 60) * 3 / 2)) {
             /* split: the step in two or three -- the event, then the next as the guide went on, sooner */
             uint32_t parts = rx_odds(50) ? 2u : 3u, p, m[3], cm = rx_kept(e + 1u) ? rx_render(l, e + 1u, tx, a->sh, m) : 0u;
