@@ -101,9 +101,9 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define BTN_BRICKS 10u
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
-enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS, PP_OVD };   /* the bottom row of pads: free, the chords, the loops' play
+enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS, PP_OVD, PP_REACT };   /* the bottom row of pads: free, the chords, the loops' play
                                                  * options, BRICKLAYER's (BRICKLAYER held: as the loops', its own colour), the
-                                                 * loops themselves (PLAY held: each in or out) */
+                                                 * loops themselves (PLAY held: each in or out), REACT's tracks (react.c) */
 /* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 12 .. 14 STUTTER,
  * CLIMB DOWN, CLIMB UP, each on or off (the climbs exclusive; layers.c lfx); 15, 16 (14, 15) the speed, HALF DOUBLE (none lit: normal); the lit one
  * pressed again: back to forward / normal */
@@ -250,8 +250,19 @@ static struct {
 /* ------------------------------------------------------------ notes --- */
 static uint8_t press_vel;                /* the level of the notes pressed now, 1 .. 126 (0: full) -- the balls set it */
 static uint8_t press_seq;                /* the notes pressed now are a sequencer's: the looper does not record them */
-static void note_press(uint32_t l, uint32_t note) { ev_post(EV_ON, l, note, press_vel | (press_seq ? EV_UNHEARD : 0u)); }
-static void note_release(uint32_t l, uint32_t note) { ev_post(EV_OFF, l, note, press_seq ? EV_UNHEARD : 0u); }
+static void rx_hear(uint32_t note, uint32_t vel, int on);   /* (REACT listens to the guide: react.c) */
+static void note_press(uint32_t l, uint32_t note)
+{
+    if (l == rx_ear)
+        rx_hear(note, press_vel, 1);
+    ev_post(EV_ON, l, note, press_vel | (press_seq ? EV_UNHEARD : 0u));
+}
+static void note_release(uint32_t l, uint32_t note)
+{
+    if (l == rx_ear)
+        rx_hear(note, 0, 0);
+    ev_post(EV_OFF, l, note, press_seq ? EV_UNHEARD : 0u);
+}
 
 static void ui_draw(void);
 static void say(const char *s, uint32_t ms)
@@ -445,6 +456,7 @@ static void latch_move(uint32_t l, int32_t d)
 
 #include "balls.c"                       /* (BALLSY, the physics sequencer: SHIFT + EDIT) */
 #include "bricks.c"                      /* (BRICKLAYER, the step sequencer: SHIFT + the envelope key) */
+#include "react.c"                       /* (REACT, the other tracks answering the chosen one: SHIFT + FADER BANK) */
 /* PLAY is the sequencer's on its page (BALLSY's or BRICKLAYER's, up), the looper's on every other */
 static int seq_on(uint32_t l) { return bl.on[l] || bb.on[l]; }
 static int seq_page(void) { return (ui.bl_page && bl.on[ui.sel]) || (ui.bb_page && bb.on[ui.sel]); }
@@ -815,6 +827,7 @@ static void ui_input(void)
     }
     bb_tick();                                   /* (the balls: their time, their notes) */
     bl_tick();                                   /* (BRICKLAYER's steps) */
+    rx_tick();                                   /* (REACT: listening, and the parts' notes) */
     if (ui.vary_shown && loop[ui.sel].vary == ui.vary_shown - 1u)
         ui.vary_shown = 0;                       /* (VARY taken by the ISR: shown from the looper again) */
     (void)rel;
@@ -1284,7 +1297,9 @@ static void ui_input(void)
         uint32_t h = smk_pad_take() >> 8, j;
         for (j = 0; j < 8u; j++)
             if ((h >> j) & 1u) {
-                if (ui.pad_page == PP_CHORD && j < CH_N) {
+                if (ui.pad_page == PP_REACT)
+                    rx_pad_hit(j);
+                else if (ui.pad_page == PP_CHORD && j < CH_N) {
                     ui.chord_form[ui.sel] = (uint8_t)j;
                     say(CH_NAME[j], 900);
                     ui.force = 1;                /* (its name under CHO) */
@@ -1383,6 +1398,31 @@ static void ui_input(void)
     }
     if (ui.pad_page == PP_CHORD && !ui.chord_on[ui.sel])
         ui.pad_page = PP_NONE;                   /* (chord mode off -- or a track chosen without it: the shapes go) */
+    if ((fch & fk) >> FN_ENV & 1u && shift_held()) {   /* SHIFT + FADER BANK: REACT on or off (its pads up with it);
+                                                  * held, its pads up or down */
+        rx.rdown = 1;
+        rx.rdone = 0;
+        rx.rt0 = fm1_ms;
+        fch &= ~(1u << FN_ENV);
+    }
+    if (rx.rdown && (fk >> FN_ENV & 1u) && !rx.rdone && (uint32_t)(fm1_ms - rx.rt0) >= 600u) {
+        rx.rdone = 1;
+        if (!rx.on)
+            rx_set(1);
+        ui.pad_page = (uint8_t)(ui.pad_page == PP_REACT ? PP_NONE : PP_REACT);
+        say(ui.pad_page == PP_REACT ? "REACT PADS" : "PADS FREE", 900);
+    }
+    if (rx.rdown && !(fk >> FN_ENV & 1u)) {
+        rx.rdown = 0;
+        if (!rx.rdone) {
+            rx_set(!rx.on);
+            if (rx.on)
+                ui.pad_page = PP_REACT;
+            else if (ui.pad_page == PP_REACT)
+                ui.pad_page = PP_NONE;
+            say(rx.on ? "REACT" : "REACT OFF", 1200);
+        }
+    }
     if ((fch & fk) >> FN_ENV & 1u) {             /* FADER BANK: the ENVELOPE page up or down (K3 .. K6 its A D S R) */
         ui.env_page = (uint8_t)!ui.env_page;
         ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
@@ -1564,6 +1604,7 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_BL_DIR RGB(120, 0, 255)        /* (BRICKLAYER's direction: violet; its speed, a pinker violet) */
 #define C_BL_SPD RGB(190, 0, 200)
 #define C_BL_FX RGB(80, 40, 255)         /* (BRICKLAYER's STUTTER and climbs: a bluer violet) */
+#define C_REACT RGB(0, 255, 170)        /* (REACT's tracks: a sea green) */
 #define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
@@ -1581,7 +1622,16 @@ static void pads_show(void)
             pad_rgb(p, LAYER_COL[p], on ? 256u : layer_sounding(p) ? PAD_SOUND : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
             pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
-        else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
+        else if (p >= 8u && ui.pad_page == PP_REACT) {   /* REACT's: the tracks in lit, out dim, the guide dark (red
+                                                  * a moment when pressed) */
+            uint32_t j = p - 8u;
+            if (j == ui.sel)
+                pad_rgb(p, RGB(255, 0, 0), (int32_t)(fm1_ms - rx.red_until) < 0 ? 256u : 0u);
+            else if (j < NLAYER)
+                pad_rgb(p, C_REACT, (rx.mask >> j) & 1u ? 256u : PAD_DIM);
+            else
+                padled_set(p, 0, 0, 0);
+        } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
             const looper_t *lp = &loop[ui.sel];
             uint32_t j = p - 8u;
             if (j < lp->ntrk)
@@ -1638,7 +1688,8 @@ static void ui_leds(void)
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
     fm1_led_key(BTN_MACRO, ui.edit);             /* (MACRO: lit while on) */
-    fm1_led_key(SMK_BTN_FADER_BANK, ui.env_page);   /* (FADER BANK: lit while the ENVELOPE page is up) */
+    fm1_led_key(SMK_BTN_FADER_BANK, ui.env_page || (rx.on && (fm1_ms / 500u) & 1u));   /* (FADER BANK: lit while the
+                                                  * ENVELOPE page is up; REACT on, a slow blink) */
     fm1_led_key(BTN_BALLS, bb.on[ui.sel] && (!bb.run[ui.sel] || (fm1_ms / 250u) & 1u));   /* (on: lit; playing: blinks) */
     fm1_led_key(BTN_BRICKS, bl.on[ui.sel] && (!bl.run[ui.sel] || (fm1_ms / 250u) & 1u));
     for (k = 0; k < NKEY; k++) {

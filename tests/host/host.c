@@ -6350,6 +6350,142 @@ static int cmd_seqplay(void)
 
 /* a transposition keeps the velocities: a latched note struck soft, moved with SHIFT + OCT, sounds soft still; a loop's
  * soft note moved while it sounds, too */
+/* REACT: SHIFT + FADER BANK on (its pads up, not the ENVELOPE page); the guide's pad not taken (red); the others taken
+ * in, each its part; a chord progression with a tune and rests on track 1: every part plays, in the scale, none on
+ * the guide; the bass under the guide, the pad holding the chord, TALK in the rests only; the guide's loops heard;
+ * another track chosen leads; off: every note let go */
+static uint32_t rx_seen[NLAYER], rx_bad, rx_why, rx_low_bass = 127, rx_pad_max, rx_talk_busy;
+static void rx_watch(uint32_t guide_lo, int resting)
+{
+    uint32_t i, m = scale_mask(), pads = 0;
+    for (i = 0; i < RX_Q; i++)
+        if (rx.q[i].on == 2u) {
+            uint32_t l = rx.q[i].layer, n = rx.q[i].note;
+            int r = rx_role(l);
+            rx_seen[l]++;
+            if (l == rx.guide || !((m >> (n % 12u)) & 1u))
+                rx_bad++, rx_why |= l == rx.guide ? 1u : 2u << r;
+            if (r == RR_BASS && n < rx_low_bass)
+                rx_low_bass = n;
+            if (r == RR_BASS && n >= guide_lo)
+                rx_bad++, rx_why |= 0x100u;
+            if (r == RR_PAD)
+                pads++;
+            if (r == RR_TALK && !resting)
+                rx_talk_busy++;
+        }
+    if (pads > rx_pad_max)
+        rx_pad_max = pads;
+}
+static void rx_run(uint32_t ms, uint32_t guide_lo, int resting)
+{
+    uint32_t t0 = fm1_ms;
+    while (fm1_ms - t0 < ms) {
+        run_blocks(2, 0);
+        ui_input();
+        rx_watch(guide_lo, resting);
+    }
+}
+static void rx_shift_fb(void)
+{
+    press_phys(KEY_SHIFT, 1);
+    press_phys(KEY_ENV, 1);
+    press_phys(KEY_ENV, 0);
+    press_phys(KEY_SHIFT, 0);
+}
+static int cmd_react(void)
+{
+    static const uint8_t PROG[4][3] = {{0, 2, 4}, {3, 5, 7}, {4, 6, 8}, {5, 7, 9}};   /* I IV V vi, as keys */
+    uint32_t fail = 0, c, j, rep, l, lo;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    rx_shift_fb();
+    if (!rx.on || ui.pad_page != PP_REACT || ui.env_page || rx_ear != 0u)
+        printf("FAIL react: SHIFT + FADER BANK does not turn it on with its pads (on %u, page %u, env %u)\n", rx.on,
+               ui.pad_page, ui.env_page), fail++;
+    ch_pad(0);
+    if (rx.mask || (int32_t)(fm1_ms - rx.red_until) >= 0)
+        printf("FAIL react: the guide's pad is taken, or not red\n"), fail++;
+    for (j = 1; j < NLAYER; j++)
+        ch_pad(j);
+    if (rx.mask != 0x3Eu || rx_role(1) != RR_ORN || rx_role(2) != RR_BASS || rx_role(3) != RR_PAD || rx_role(4) != RR_ECHO ||
+        rx_role(5) != RR_TALK)
+        printf("FAIL react: the tracks taken in (%02x) or their parts\n", rx.mask), fail++;
+    lo = 127;
+    for (rep = 0; rep < 2u; rep++)
+        for (c = 0; c < 4u; c++) {               /* a chord held two seconds, a tune over it (4 notes), a rest */
+            for (j = 0; j < 3u; j++) {
+                press_key(PROG[c][j], 1);
+                if (key_note_of(PROG[c][j], 0) < lo)
+                    lo = key_note_of(PROG[c][j], 0);
+            }
+            for (j = 0; j < 4u; j++) {
+                press_key(9u + (c + j * 2u) % 7u, 1);
+                rx_run(250, lo, 0);
+                press_key(9u + (c + j * 2u) % 7u, 0);
+                rx_run(250, lo, 0);
+            }
+            for (j = 0; j < 3u; j++)
+                press_key(PROG[c][j], 0);
+            rx_run(200, lo, 0);
+            rx_run(1200, lo, 1);                 /* (a rest: TALK's turn) */
+        }
+    for (l = 1; l < NLAYER; l++)
+        if (!rx_seen[l])
+            printf("FAIL react: track %u (%s) played nothing\n", l + 1u, RR_NAME[rx_role(l)]), fail++;
+    if (rx_seen[0] || rx_bad)
+        printf("FAIL react: notes on the guide, out of the scale, or a bass not under the guide (%u, %u, %x)\n", rx_seen[0], rx_bad, rx_why), fail++;
+    if (rx_pad_max < 3u)
+        printf("FAIL react: the pad never held a chord (%u notes at most)\n", rx_pad_max), fail++;
+    if (rx_talk_busy > 40u)
+        printf("FAIL react: TALK plays over the guide (%u)\n", rx_talk_busy), fail++;
+    printf("react: pulse %u ms, grow %u, notes seen %u %u %u %u %u, bass down to %u (guide from %u)\n", rx.pulse, rx.grow,
+           rx_seen[1], rx_seen[2], rx_seen[3], rx_seen[4], rx_seen[5], rx_low_bass, lo);
+    rx_run(8000, lo, 1);                             /* quiet: the parts let go and wait */
+    for (j = 0; j < RX_Q; j++)
+        if (rx.q[j].on)
+            printf("FAIL react: a part still sounds after the guide fell silent\n"), fail++, j = RX_Q;
+    press_btn(B_REC);                                /* the guide's loop, heard */
+    press_key(0, 1);
+    rx_run(300, 127, 1);
+    press_key(0, 0);
+    press_key(2, 1);
+    rx_run(300, 127, 1);
+    press_key(2, 0);
+    press_btn(B_REC);
+    rx_run(1000, 127, 1);
+    c = rx.last_on;
+    rx_run(1000, 127, 1);
+    if (rx.last_on == c)
+        printf("FAIL react: the guide's loop is not heard\n"), fail++;
+    press_btn(B_PLAY);                               /* (stopped) */
+    rx_run(100, 127, 1);
+    press_btn(B_SEL);                                /* track 2 leads */
+    rx_run(50, 127, 1);
+    if (rx.guide != 1u || rx_ear != 1u || rx_role(1) != -1 || rx_role(0) != -1 || rx_role(2) != RR_ORN)
+        printf("FAIL react: another track chosen does not lead (guide %u)\n", rx.guide), fail++;
+    press_key(0, 1);
+    rx_run(600, 127, 0);
+    rx_shift_fb();
+    rx_run(50, 127, 0);
+    press_key(0, 0);
+    for (j = 0; j < RX_Q; j++)
+        if (rx.q[j].on)
+            printf("FAIL react: off, a note still sounds\n"), fail++, j = RX_Q;
+    if (rx.on || rx_ear != 0xFFu || ui.pad_page == PP_REACT)
+        printf("FAIL react: SHIFT + FADER BANK does not turn it off\n"), fail++;
+    press_phys(KEY_ENV, 1);                          /* (FADER BANK alone: the ENVELOPE page, as before) */
+    press_phys(KEY_ENV, 0);
+    if (!ui.env_page)
+        printf("FAIL react: FADER BANK alone no longer opens the ENVELOPE page\n"), fail++;
+    press_phys(KEY_ENV, 1);
+    press_phys(KEY_ENV, 0);
+    printf("react: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -6978,6 +7114,8 @@ int main(int argc, char **argv)
         return cmd_bricks(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "bkserve"))
         return cmd_bkserve();
+    if (argc >= 2 && !strcmp(argv[1], "react"))
+        return cmd_react();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))
