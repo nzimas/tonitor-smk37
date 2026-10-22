@@ -2829,7 +2829,7 @@ static void shift_oct(int up)
 static int cmd_transpose(void)
 {
     uint32_t fail = 0, n, lo, hi;
-    uint32_t c3 = scale_note(0, 0);
+    uint32_t c3;
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
@@ -2837,6 +2837,7 @@ static int cmd_transpose(void)
     ui.root = 0;
     ui.lx = 0;
     lx_post();
+    c3 = scale_note(0, oct_eff(0));                   /* (the lowest key's note: the root, in the scale's octave) */
     run_blocks(4, 0);
     if (lx_map(60, 1, 0xAB5u) != 62u || lx_map(61, 1, 0xAB5u) != 63u || lx_map(60, -1, 0xAB5u) != 59u
         || lx_map(64, 2, 0xAB5u) != 67u || lx_map(60, 7, 0xAB5u) != 72u || lx_map(60, -14, 0xAB5u) != 36u)
@@ -2886,7 +2887,8 @@ static int cmd_transpose(void)
     press_key(3, 0);
     loop_to(0, 100);
     n = loop_sounding(0, &lo, &hi);
-    if (loop[0].ntrk != 2u || n != 2u || lo != c3 - 2u || hi != scale_note(3 - 1, 0))
+    if (loop[0].ntrk != 2u || n != 2u || lo != (c3 - 2u < scale_note(3 - 1, oct_eff(0)) ? c3 - 2u : scale_note(3 - 1, oct_eff(0))) ||
+        hi != (c3 - 2u > scale_note(3 - 1, oct_eff(0)) ? c3 - 2u : scale_note(3 - 1, oct_eff(0))))
         printf("FAIL transpose: an overdub made while moved does not play as played (%u loops, %u notes, %u %u)\n",
                loop[0].ntrk, n, lo, hi), fail++;
     {   /* a session keeps it all */
@@ -2900,7 +2902,8 @@ static int cmd_transpose(void)
         ses_load_slot(1);
         loop_to(0, 100);
         n = loop_sounding(0, &lo, &hi);
-        if (ui.lx != -1 || ui.scale != 5u || loop[0].trk[1].xb != xb || xb != -1 || n != 2u || lo != c3 - 2u || hi != scale_note(3 - 1, 0))
+        if (ui.lx != -1 || ui.scale != 5u || loop[0].trk[1].xb != xb || xb != -1 || n != 2u || lo != (c3 - 2u < scale_note(3 - 1, oct_eff(0)) ? c3 - 2u : scale_note(3 - 1, oct_eff(0))) ||
+        hi != (c3 - 2u > scale_note(3 - 1, oct_eff(0)) ? c3 - 2u : scale_note(3 - 1, oct_eff(0))))
             printf("FAIL transpose: a session does not keep it (lx %d, xb %d/%d, %u notes, %u %u)\n", ui.lx, loop[0].trk[1].xb, xb,
                    n, lo, hi), fail++;
     }
@@ -3600,7 +3603,7 @@ static void shift_track_oct(uint32_t btn, int up)
 }
 static int cmd_tracktransp(void)
 {
-    uint32_t fail = 0, n, lo, hi, c3 = scale_note(0, 0), e3 = scale_note(2, 0);
+    uint32_t fail = 0, n, lo, hi, c3 = scale_note(0, oct_eff(0)), e3 = scale_note(2, oct_eff(0));
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
@@ -3619,8 +3622,8 @@ static int cmd_tracktransp(void)
     shift_track_oct(B_SEL, 1);
     if (loop_sounding(0, &lo, &hi) != 1u || lo != c3)
         printf("FAIL tracktransp: track 1 moved with track 2 (%u)\n", lo), fail++;
-    if (loop_sounding(1, &lo, &hi) != 1u || lo != scale_note(3, 0))
-        printf("FAIL tracktransp: track 2 is not a step up at once (%u, want %u)\n", lo, scale_note(3, 0)), fail++;
+    if (loop_sounding(1, &lo, &hi) != 1u || lo != scale_note(3, oct_eff(0)))
+        printf("FAIL tracktransp: track 2 is not a step up at once (%u, want %u)\n", lo, scale_note(3, oct_eff(0))), fail++;
     if (clip_from() >= 0)
         printf("FAIL tracktransp: holding the track's button with SHIFT copied it\n"), fail++;
     if (!strstr(ui.msg, "T2 +1"))
@@ -3629,7 +3632,7 @@ static int cmd_tracktransp(void)
     loop_sounding(0, &lo, &hi);
     n = lo;
     loop_sounding(1, &lo, &hi);
-    if (n != scale_note(1, 0) || lo != scale_note(4, 0))
+    if (n != scale_note(1, oct_eff(0)) || lo != scale_note(4, oct_eff(0)))
         printf("FAIL tracktransp: every loop's move is not added (%u %u)\n", n, lo), fail++;
     press_btn(B_SEL);                                 /* an overdub on track 2 while moved: its key moved with the loops
                                                        * (two steps: key 4, G3, plays B3) and played back as played */
@@ -3641,7 +3644,7 @@ static int cmd_tracktransp(void)
     press_key(4, 0);
     loop_to(1, 100);
     loop_sounding(1, &lo, &hi);
-    if (loop[1].ntrk != 2u || lo != scale_note(4, 0) || hi != scale_note(6, 0))
+    if (loop[1].ntrk != 2u || lo != scale_note(4, oct_eff(0)) || hi != scale_note(6, oct_eff(0)))
         printf("FAIL tracktransp: an overdub made while moved does not play as played (%u %u)\n", lo, hi), fail++;
     if (ses_save(1) != SES_OK)
         printf("FAIL tracktransp: not saved\n"), fail++;
@@ -3653,7 +3656,7 @@ static int cmd_tracktransp(void)
     loop_to(1, 100);
     loop_sounding(1, &lo, &hi);
     loop_sounding(1, &lo, &hi);
-    if (ui.lxt[1] != 1 || ui.lx != 1 || lo != scale_note(4, 0) || hi != scale_note(6, 0))
+    if (ui.lxt[1] != 1 || ui.lx != 1 || lo != scale_note(4, oct_eff(0)) || hi != scale_note(6, oct_eff(0)))
         printf("FAIL tracktransp: a session does not keep it (lxt %d, lx %d, %u)\n", ui.lxt[1], ui.lx, lo), fail++;
     {   /* REC held: emptied, its own move gone */
         uint32_t t;
@@ -3688,7 +3691,7 @@ static int cmd_tracktransp(void)
         press_btn(B_FX);
         press_phys(k0, 1);
         run_blocks(3, 0);
-        if (!sounding || ui.key_note[k0] != scale_note(1, 0))
+        if (!sounding || ui.key_note[k0] != scale_note(1, oct_eff(0)))
             printf("FAIL tracktransp: the keys do not follow the tracks' moves (%u)\n", ui.key_note[k0]), fail++;
         press_phys(k0, 0);
     }
