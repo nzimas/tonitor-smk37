@@ -374,6 +374,8 @@ static void press_phys(uint32_t k, int down)
 {
     if (k == KEY_SHIFT || k == KEY_BALLS || k == KEY_BRICKS) {
         uint32_t id = k == KEY_SHIFT ? SMK_BTN_KNOB_BANK : k == KEY_BALLS ? BTN_BALLS : BTN_BRICKS;
+        if (down && k == KEY_SHIFT)
+            fm1_ms += 400u;                          /* (a hand's pace: two SHIFTs apart are not a double tap) */
         if (down) {
             fm1_in.buttons |= 1u << id;
             host_press |= 1u << id;
@@ -1904,14 +1906,21 @@ static int cmd_latch(void)
     run_blocks(200, 0);
     if (!lgate(0))
         printf("FAIL latch: a plain press of a latched key let go of it\n"), fail++;
-    press_phys(KEY_SHIFT, 1);                    /* SHIFT, then an unlit key: it plays, and ends, as usual */
+    press_phys(KEY_SHIFT, 1);                    /* SHIFT held, then an unlit key: it latches at once */
     press_key(2, 1);
     run_blocks(50, 0);
     press_key(2, 0);
     press_phys(KEY_SHIFT, 0);
     run_blocks(50, 0);
+    if (ui.latch[0][0] != (1u << k0 | 1u << 2) || nsounding(0) < 2u)
+        printf("FAIL latch: SHIFT held and a key does not latch it (%x)\n", ui.latch[0][0]), fail++;
+    press_phys(KEY_SHIFT, 1);                    /* SHIFT held and that key again: let go */
+    press_key(2, 1);
+    press_key(2, 0);
+    press_phys(KEY_SHIFT, 0);
+    run_blocks(50, 0);
     if (ui.latch[0][0] != 1u << k0 || nsounding(0) < 1u)
-        printf("FAIL latch: SHIFT then a key latched it (%x)\n", ui.latch[0][0]), fail++;
+        printf("FAIL latch: SHIFT held and a latched key does not let it go (%x)\n", ui.latch[0][0]), fail++;
     press_btn(B_SEL);                            /* layer 2: dark, and the key plays there as usual */
     run_blocks(10, 0);
     ui_leds();
@@ -1962,7 +1971,7 @@ static int cmd_latch(void)
         ses_load_slot(2);
         run_blocks(100, 0);
         ui_leds();
-        if (ui.latch[0][0] != keep || nsounding(0) < 2u || !lgate(0) || !key_on(2u))
+        if (ui.latch[0][0] != keep || nsounding(0) < 2u || !lgate(0) || !key_on(1u))
             printf("FAIL latch: a session does not bring its latched notes back, sounding and lit\n"), fail++;
         if (gran[2].seed != gs)
             printf("FAIL latch: a session does not keep the granulator's character\n"), fail++;
@@ -2008,6 +2017,30 @@ static int cmd_latch(void)
         run_blocks(20, 0);
         if (!loop[0].play || loop[2].play)
             printf("FAIL latch: PLAY alone does not start its own layer's loop only\n"), fail++;
+    }
+    {   /* SHIFT tapped twice quickly: every latch let go, on every track */
+        press_phys(KEY_SHIFT, 1);
+        press_key(5, 1);
+        press_key(5, 0);
+        press_phys(KEY_SHIFT, 0);
+        press_btn(B_SEL);
+        press_phys(KEY_SHIFT, 1);
+        press_key(7, 1);
+        press_key(7, 0);
+        press_phys(KEY_SHIFT, 0);
+        run_blocks(50, 0);
+        if (!kb(ui.latch[0], 5) || !kb(ui.latch[1], 7))
+            printf("FAIL latch: not latched on two tracks (%x %x)\n", ui.latch[0][0], ui.latch[1][0]), fail++;
+        fm1_ms += 400u;
+        host_press |= 1u << SMK_BTN_KNOB_BANK;       /* (two taps 0.1 s apart, no keys) */
+        ui_input();
+        fm1_ms += 100u;
+        host_press |= 1u << SMK_BTN_KNOB_BANK;
+        ui_input();
+        run_blocks(100, 0);
+        if (ui.latch[0][0] | ui.latch[0][1] | ui.latch[1][0] | ui.latch[1][1] || lgate(0) || lgate(1) || strcmp(ui.msg, "LATCH OFF"))
+            printf("FAIL latch: SHIFT tapped twice does not let every latch go\n"), fail++;
+        press_btn(B_FX);
     }
     printf("latch: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;

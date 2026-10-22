@@ -151,6 +151,7 @@ static struct {
     uint8_t latch_note[NLAYER][NKEY];
     uint8_t midi_mask[128];      /* each MIDI note held: the tracks it plays on (a bit each; setup.c) */
     uint32_t keys[2];            /* the keys down last time (kb) */
+    uint32_t shift_t;            /* SHIFT last pressed at (0: not lately): a second press soon lets every latch go */
     uint32_t fkeys;              /* the functions held last time (fn_keys) */
     char msg[16];
     uint32_t msg_until;
@@ -1451,6 +1452,22 @@ static void ui_input(void)
     keys[1] = fm1_in.keyw[1];
     ch[0] = keys[0] ^ ui.keys[0];
     ch[1] = keys[1] ^ ui.keys[1];
+    if ((press >> SMK_BTN_KNOB_BANK) & 1u) {    /* SHIFT tapped twice (within 0.35 s): every latched note let go, on
+                                                  * every track */
+        if (ui.shift_t && (uint32_t)(fm1_ms - ui.shift_t) < 350u) {
+            uint32_t l2, k2;
+            ui.shift_t = 0;
+            for (l2 = 0; l2 < NLAYER; l2++)
+                for (k2 = 0; k2 < NKEY; k2++)
+                    if (kb(ui.latch[l2], k2)) {
+                        kset(ui.latch[l2], k2, 0);
+                        chord_press(l2, ui.latch_note[l2][k2], ui.latch_form[l2][k2], 0);
+                        ui.latch_form[l2][k2] = 0;
+                    }
+            say("LATCH OFF", 900);
+        } else
+            ui.shift_t = fm1_ms ? fm1_ms : 1u;
+    }
     if ((press >> SMK_BTN_KNOB_BANK) & 1u) {    /* SHIFT pressed: the keys held latch, on the layer they play */
         for (k = 0; k < NKEY; k++)
             if (kb(ui.keys, k) && kb(keys, k) && ui.key_layer[k] != KEY_NONE) {
@@ -1504,6 +1521,12 @@ static void ui_input(void)
                 press_vel = (uint8_t)(vel && vel < 127u ? vel : 0u);   /* the key's velocity (0: full) */
                 chord_press(ui.sel, note, f1, 1);
                 press_vel = (uint8_t)pv;
+                if (shift_held()) {              /* SHIFT held: it latches at once (letting go does not end it) */
+                    kset(ui.latch[ui.sel], k, 1);
+                    ui.latch_note[ui.sel][k] = (uint8_t)note;
+                    ui.latch_form[ui.sel][k] = (uint8_t)f1;
+                    ui.key_layer[k] = KEY_NONE;
+                }
             }
         } else if (ui.key_layer[k] != KEY_NONE)
             chord_press(ui.key_layer[k], ui.key_note[k], ui.key_form[k], 0);
