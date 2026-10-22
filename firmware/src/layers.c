@@ -181,7 +181,8 @@ static layer_t lay[NLAYER];
 
 /* ------------------------------------------------------------ looper --- */
 #define LOOP_N 1024u             /* note events a track's loops hold between them (~500 notes) */
-#define LOOP_TRK 10u             /* loops a layer */
+#define LOOP_TRK 10u             /* loops a layer (as kept; the SMK-37 records up to LOOP_USE: a pad each) */
+#define LOOP_USE 8u
 enum { LR_IDLE, LR_ARMED, LR_REC };
 /* an event: t (24 bits, blocks from the loop's start), the note (7 bits), on (bit 31) */
 /* a loop event: its time (blocks of loop time, 20 bits: a loop at most LE_TMAX blocks, 12.7 minutes), its velocity
@@ -837,7 +838,8 @@ static void change_apply(uint32_t l)
 
 /* ------------------------------------------------------ the loopers --- */
 /* the loops' play options beyond direction and speed (LOOP's pads 12 .. 14), each track's, LF_* bits:
- *   STUTTER     each loop repeats the eighth of it it is in, instead of moving on (off: on from there)
+ *   STUTTER     each loop wanders about its eighths: at the end of one, the same again, the one before or one
+ *               ahead (trk_stutter)
  *   CLIMB DOWN  each pass a step of the scale lower, round an octave of it
  *   CLIMB UP    each pass a step higher (the two exclusive)
  * CLIMB moves on as the track's first playing loop comes round, its sounding notes let go then */
@@ -886,29 +888,45 @@ static void loop_pass(uint32_t l, looper_t *p, loop_trk_t *t)
     if (lclimb[l] >= (int32_t)n || lclimb[l] <= -(int32_t)n)
         lclimb[l] = 0;                           /* (round the octave: from where it began) */
 }
-/* STUTTER: loop t, just stepped (pos moved), crossing out of the eighth of it it was in, back to that eighth's start
- * (forwards; backwards, its end) -- what it sounds let go, the events from there. Eighths from its start; the last
- * one to its end */
+/* STUTTER: loop t, just stepped (pos moved), crossing out of the eighth of it it was in: the eighth it plays next
+ * drawn -- the same again, the one before, the next (twice as likely) or the one after it -- so it wanders about the
+ * loop; a jump lets go of what it sounds, the events from there. Eighths from its start; the last one to its end */
+static int32_t stut_step(looper_t *p)            /* (-1, 0, 1, 1, 2: the eighths moved on, in its direction) */
+{
+    static const int8_t D[5] = {-1, 0, 1, 1, 2};
+    if (!p->rnd)
+        p->rnd = 0x9E3779B9u ^ (blk_clock * 2654435761u);
+    p->rnd = p->rnd * 1664525u + 1013904223u;
+    return D[(p->rnd >> 24) % 5u];
+}
 static void trk_stutter(uint32_t l, looper_t *p, loop_trk_t *t)
 {
     const uint32_t *ev = p->ev + t->first;
-    int32_t sl = (int32_t)(t->len / 8u), len = (int32_t)t->len, to, i;
+    int32_t sl = (int32_t)(t->len / 8u), len = (int32_t)t->len, from, to, i;
     if (!(lfx[l] & LF_STUTTER) || p->dmode == LD_RAND || sl < 2)
         return;
-    if (t->dir > 0) {
+    if (t->dir > 0) {                            /* (forwards: out of eighth from) */
         if (t->pos >= len)
-            to = 7 * sl;                         /* (out of the last eighth) */
+            from = 7;
         else if (t->pos > 0 && t->pos <= 7 * sl && t->pos % sl == 0)
-            to = t->pos - sl;
+            from = t->pos / sl - 1;
         else
             return;
-    } else {
+        to = (from + stut_step(p) + 8) % 8;
+        if (to == (from + 1) % 8)
+            return;                              /* (on as it goes: the next eighth, or round) */
+        to *= sl;
+    } else {                                     /* (backwards: out of eighth from, downwards) */
         if (t->pos < 0)
-            to = sl - 1;                         /* (out of the first eighth) */
+            from = 0;
         else if (t->pos < 7 * sl && (t->pos + 1) % sl == 0)
-            to = t->pos + 1 == 7 * sl ? len - 1 : t->pos + sl;
+            from = (t->pos + 1) / sl;
         else
             return;
+        to = (from - stut_step(p) + 8) % 8;
+        if (to == (from + 7) % 8)
+            return;
+        to = to == 7 ? len - 1 : (to + 1) * sl - 1;
     }
     trk_release(l, p, t);
     t->pos = to;
@@ -1003,7 +1021,7 @@ static void loop_cmd(uint32_t l, uint32_t type)
             p->rec = LR_IDLE;
         } else if (p->rec == LR_ARMED) {          /* disarmed */
             p->rec = LR_IDLE;
-        } else if (p->ntrk < LOOP_TRK && p->nev < LOOP_N - 32u) {
+        } else if (p->ntrk < LOOP_USE && p->nev < LOOP_N - 32u) {
             p->rec = LR_ARMED;
         }
         break;

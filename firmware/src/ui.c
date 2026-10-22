@@ -101,9 +101,9 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define BTN_BRICKS 10u
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
-enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS };   /* the bottom row of pads: free, the chords, the loops' direction and
-                                                 * speed, BRICKLAYER's (BRICKLAYER held: pads 9 .. 11 and 15, 16 as the
-                                                 * loops', its own colour) */
+enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS, PP_OVD };   /* the bottom row of pads: free, the chords, the loops' play
+                                                 * options, BRICKLAYER's (BRICKLAYER held: as the loops', its own colour), the
+                                                 * loops themselves (PLAY held: each in or out) */
 /* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 12 .. 14 STUTTER,
  * CLIMB DOWN, CLIMB UP, each on or off (the climbs exclusive; layers.c lfx); 15, 16 (14, 15) the speed, HALF DOUBLE (none lit: normal); the lit one
  * pressed again: back to forward / normal */
@@ -1071,8 +1071,8 @@ static void ui_input(void)
         if (p->rec == LR_REC) {                  /* ended: LOOP n */
             fmt_int(m + 5, p->ntrk + 1);
             say(m, 1200);
-        } else if (p->rec == LR_IDLE && p->ntrk >= LOOP_TRK)
-            say("10 LOOPS", 1500);               /* full: not armed */
+        } else if (p->rec == LR_IDLE && p->ntrk >= LOOP_USE)
+            say("8 LOOPS", 1500);                /* full (a pad each): not armed */
     }
     if (ui.blrec_down) {                         /* (BRICKLAYER: held 1 s, emptied; let go soon, entry on or off) */
         if (!btn_bit(fm1_in.buttons, B_REC)) {
@@ -1137,8 +1137,11 @@ static void ui_input(void)
                 ui.force = 1;
             } else
                 ev_post(EV_LOOP_PLAY, ui.sel, 0, 0);
-        } else if (!ui.ovd && (uint32_t)(fm1_ms - ui.play_t0) >= 450u) {
-            ui.ovd = 1;                          /* held: the chosen layer's loops on the white keys */
+        } else if (!ui.ovd && (uint32_t)(fm1_ms - ui.play_t0) >= 600u) {
+            ui.ovd = 1;                          /* held: the chosen track's loops on the bottom row of pads, each in or
+                                                  * out (held again: the pads freed) */
+            ui.pad_page = (uint8_t)(ui.pad_page == PP_OVD ? PP_NONE : PP_OVD);
+            say(ui.pad_page == PP_OVD ? "OVERDUBS" : "PADS FREE", 900);
             ui.force = 1;
         }
     }
@@ -1277,9 +1280,25 @@ static void ui_input(void)
                     ui.chord_form[ui.sel] = (uint8_t)j;
                     say(CH_NAME[j], 900);
                     ui.force = 1;                /* (its name under CHO) */
-                } else if (ui.pad_page == PP_BRICKS && (j < 3u || j >= 6u)) {   /* BRICKLAYER's direction, speed */
+                } else if (ui.pad_page == PP_OVD) {   /* the overdubs: loop j in or out */
+                    const looper_t *lp = &loop[ui.sel];
+                    if (j < lp->ntrk) {
+                        ev_post(EV_LOOP_TRK, ui.sel, j, (lp->mute >> j) & 1u);
+                        ui.force = 1;
+                    }
+                } else if (ui.pad_page == PP_BRICKS) {   /* BRICKLAYER's direction, options, speed */
                     uint32_t l = ui.sel;
-                    if (j < 3u) {
+                    if (j >= 3u && j < 6u) {     /* STUTTER, CLIMB DOWN, CLIMB UP (the climbs exclusive) */
+                        static const uint8_t BIT[3] = {LF_STUTTER, LF_CDOWN, LF_CUP};
+                        static const char *const NM[3] = {"STUTTER", "CLIMB DOWN", "CLIMB UP"};
+                        uint32_t bit = BIT[j - 3u];
+                        bl.fx[l] = (uint8_t)(bl.fx[l] ^ bit);
+                        if ((bit & LF_CLIMB) && (bl.fx[l] & bit))
+                            bl.fx[l] = (uint8_t)(bl.fx[l] & ~(LF_CLIMB & ~bit));
+                        if (!(bl.fx[l] & LF_CLIMB))
+                            bl.climb[l] = 0;
+                        say((bl.fx[l] & bit) ? NM[j - 3u] : bit == LF_STUTTER ? "STUTTER OFF" : "CLIMB OFF", 1200);
+                    } else if (j < 3u) {
                         uint32_t want = j == 0u ? LD_REV : j == 1u ? LD_PEND : LD_RAND;
                         bl.dir[l] = (uint8_t)(bl.dir[l] == want ? LD_FWD : want);
                         say(bl.dir[l] == LD_REV ? "REVERSE" : bl.dir[l] == LD_PEND ? "PENDULUM" : bl.dir[l] == LD_RAND ? "RANDOM" : "FORWARD", 1200);
@@ -1540,6 +1559,8 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_LOOP_FX RGB(255, 0, 120)       /* (STUTTER, CLIMB DOWN, CLIMB UP: a magenta red) */
 #define C_BL_DIR RGB(120, 0, 255)        /* (BRICKLAYER's direction: violet; its speed, a pinker violet) */
 #define C_BL_SPD RGB(190, 0, 200)
+#define C_BL_FX RGB(80, 40, 255)         /* (BRICKLAYER's STUTTER and climbs: a bluer violet) */
+#define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1555,10 +1576,18 @@ static void pads_show(void)
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
             pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
-        else if (p >= 8u && ui.pad_page == PP_BRICKS && (p - 8u < 3u || p - 8u >= 6u)) {   /* BRICKLAYER's: violet */
-            uint32_t j = p - 8u, dm = bl.dir[ui.sel], rt = bl.spd[ui.sel];
-            int on = j == 0u ? dm == LD_REV : j == 1u ? dm == LD_PEND : j == 2u ? dm == LD_RAND : j == 6u ? rt == LS_HALF : rt == LS_DOUBLE;
-            pad_rgb(p, j >= 6u ? C_BL_SPD : C_BL_DIR, on ? 256u : PAD_DIM);
+        else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
+            const looper_t *lp = &loop[ui.sel];
+            uint32_t j = p - 8u;
+            if (j < lp->ntrk)
+                pad_rgb(p, C_OVD, (lp->mute >> j) & 1u ? PAD_DIM : 128u);
+            else
+                padled_set(p, 0, 0, 0);
+        } else if (p >= 8u && ui.pad_page == PP_BRICKS) {   /* BRICKLAYER's: violets */
+            uint32_t j = p - 8u, dm = bl.dir[ui.sel], rt = bl.spd[ui.sel], fx = bl.fx[ui.sel];
+            int on = j == 0u ? dm == LD_REV : j == 1u ? dm == LD_PEND : j == 2u ? dm == LD_RAND : j == 3u ? (fx & LF_STUTTER) != 0
+                     : j == 4u ? (fx & LF_CDOWN) != 0 : j == 5u ? (fx & LF_CUP) != 0 : j == 6u ? rt == LS_HALF : rt == LS_DOUBLE;
+            pad_rgb(p, j >= 6u ? C_BL_SPD : j >= 3u ? C_BL_FX : C_BL_DIR, on ? 256u : PAD_DIM);
         } else if (p >= 8u && ui.pad_page == PP_LOOP && LOOP_PAD_FN[p - 8u] != 0xFFu) {   /* the loops': as set, lit */
             uint32_t f = LOOP_PAD_FN[p - 8u];
             int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own) */

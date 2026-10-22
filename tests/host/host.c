@@ -686,7 +686,7 @@ static int cmd_flows(void)
         if (loop[4].trk[0].pos != (p0 + 1u) % loop[4].trk[0].len && loop[4].trk[0].pos != (p0 + 2u) % loop[4].trk[0].len)
             printf("FAIL flows: the first loop jumped when the overdub ended\n"), fail++;
     }
-    for (i = 0; i < 8u; i++) {               /* up to ten loops; the eleventh is refused */
+    for (i = 0; i < 8u; i++) {               /* up to eight loops (a pad each); the ninth is refused */
         press_btn(B_REC);
         press_key(i, 1);
         run_blocks(20, 0);
@@ -697,8 +697,8 @@ static int cmd_flows(void)
     }
     press_btn(B_REC);
     run_blocks(2, 0);
-    if (loop[4].ntrk != 10u || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "10 LOOPS"))
-        printf("FAIL flows: not ten loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
+    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "8 LOOPS"))
+        printf("FAIL flows: not eight loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
     run_blocks(3000, 0);
     press_btn(B_PLAY);                        /* stopped */
     run_blocks(10, 0);
@@ -6182,12 +6182,13 @@ static int cmd_looppads(void)
         }
         ch_pad(4);
     }
-    {   /* STUTTER: a loop of eight notes (one an eighth) -- on, only the eighth it was in comes again */
-        uint32_t b, k, n0 = 0, other = 0, len;
+    {   /* STUTTER: a loop of eight notes, one an eighth, rising -- on, it wanders: an eighth again, back, or ahead */
+        uint32_t b, k, len, last = 0, n = 0, odd = 0, foreign = 0, seen[8] = {0};
         press_btn(B_SEL);                            /* (track 2: its looper empty) */
         press_btn(B_REC);
         for (k = 0; k < 8u; k++) {
             press_key(k, 1);
+            seen[k] = key_note_of(k, 1);
             run_blocks(100, 0);
             press_key(k, 0);
             run_blocks(10, 0);
@@ -6195,21 +6196,24 @@ static int cmd_looppads(void)
         press_btn(B_REC);
         run_blocks(20, 0);
         len = loop[1].trk[0].len;
-        run_blocks(len / 2u, 0);                     /* (half way) */
         ch_pad(3);
-        run_blocks(len / 8u, 0);                     /* (settled into its eighth) */
-        for (b = 0; b < len; b++) {
+        for (b = 0; b < 3u * len; b++) {
             run_blocks(1, 0);
             for (k = 0; k < NVOICE; k++)
-                if (vox[k].gate && vox[k].src == SRC_LOOP && vox_owner(&vox[k]) == 1u) {
-                    if (!n0)
-                        n0 = vox[k].note;
-                    else if (vox[k].note != n0)
-                        other++;
+                if (vox[k].gate && vox[k].src == SRC_LOOP && vox_owner(&vox[k]) == 1u && vox[k].note != last) {
+                    uint32_t i2, in = 0;
+                    for (i2 = 0; i2 < 8u; i2++)
+                        in |= seen[i2] == vox[k].note;
+                    foreign += !in;
+                    if (last && vox[k].note != (uint32_t)lx_map(last, 1, scale_mask()) && vox[k].note != seen[0])
+                        odd++;                       /* (not the next step of the loop) */
+                    last = vox[k].note;
+                    n++;
                 }
         }
-        if (!n0 || other)
-            printf("FAIL looppads: STUTTER does not hold the loop to its eighth (%u, %u others)\n", n0, other), fail++;
+        if (n < 8u || !odd || foreign)
+            printf("FAIL looppads: STUTTER does not wander its eighths (%u notes, %u out of order, %u not the loop's)\n",
+                   n, odd, foreign), fail++;
         ch_pad(3);
     }
     host_press |= 1u << BTN_LOOP;                    /* LOOP again: the pads free; the pads do nothing */
@@ -6263,9 +6267,45 @@ static int cmd_seqplay(void)
     ch_pad(7);
     if (bl.dir[0] != LD_FWD || bl.spd[0] != LS_NORMAL)
         printf("FAIL seqplay: the lit pads again do not go back (%u %u)\n", bl.dir[0], bl.spd[0]), fail++;
+    ch_pad(3);                                       /* pads 12 .. 14: its STUTTER, CLIMB DOWN, CLIMB UP */
+    ch_pad(5);
+    if (bl.fx[0] != (LF_STUTTER | LF_CUP) || lfx[0])
+        printf("FAIL seqplay: pads 12 and 14 are not BRICKLAYER's STUTTER and CLIMB UP (only) (%x %x)\n", bl.fx[0], lfx[0]), fail++;
+    ch_pad(4);
+    if (bl.fx[0] != (LF_STUTTER | LF_CDOWN))
+        printf("FAIL seqplay: CLIMB DOWN does not take CLIMB UP's place (%x)\n", bl.fx[0]), fail++;
+    ch_pad(3);
+    ch_pad(4);
+    if (bl.fx[0] || bl.climb[0])
+        printf("FAIL seqplay: its options do not go off (%x %d)\n", bl.fx[0], bl.climb[0]), fail++;
     lm_key(KEY_BRICKS);                              /* off: its pads go too */
     if (bl.on[0] || ui.pad_page != PP_NONE)
         printf("FAIL seqplay: BRICKLAYER off does not take its pads off (%u)\n", ui.pad_page), fail++;
+    {   /* PLAY held: the overdubs on the pads, each in or out; held again, the pads free */
+        uint32_t t;
+        for (t = 0; t < 3u; t++)
+            rec_loop(B_FX, t, 100);
+        for (t = 0; t < 2u; t++) {
+            host_press |= 1u << PANEL_BTN[B_PLAY];
+            fm1_in.buttons |= 1u << PANEL_BTN[B_PLAY];
+            ui_input();
+            fm1_ms += 700u;
+            ui_input();
+            fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
+            ui_input();
+            if (ui.pad_page != (t ? PP_NONE : PP_OVD))
+                printf("FAIL seqplay: PLAY held does not %s the overdubs' pads (%u)\n", t ? "free" : "show", ui.pad_page), fail++;
+            if (!t) {
+                ch_pad(1);
+                if (loop[0].mute != 2u)
+                    printf("FAIL seqplay: pad 10 does not take loop 2 out (%x)\n", loop[0].mute), fail++;
+                ch_pad(1);
+                ch_pad(5);                           /* (no loop 6: nothing) */
+                if (loop[0].mute)
+                    printf("FAIL seqplay: pad 10 again does not bring loop 2 back (%x)\n", loop[0].mute), fail++;
+            }
+        }
+    }
     printf("seqplay: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }

@@ -34,7 +34,10 @@ static struct {
     uint8_t rec[NLAYER];         /* entry on (REC lit, on its page) */
     uint8_t pos[NLAYER];         /* the step to play next */
     uint8_t last[NLAYER];        /* the step played last (the screen's) */
-    uint8_t dir[NLAYER], spd[NLAYER];   /* LD_* and LS_*, as a looper's (its page: the 4th .. 8th black keys) */
+    uint8_t dir[NLAYER], spd[NLAYER];   /* LD_* and LS_*, as a looper's (BRICKLAYER held: its pads) */
+    uint8_t fx[NLAYER];          /* STUTTER, CLIMB DOWN, CLIMB UP (layers.c LF_*), as a looper's (pads 12 .. 14) */
+    int8_t climb[NLAYER];        /* CLIMB: the steps of the scale climbed; .. */
+    uint8_t passed[NLAYER];      /* .. after each run of len steps */
     int8_t pdir[NLAYER];         /* PENDULUM: which way now */
     uint8_t hist[NLAYER][4];     /* the last steps played (a beat repeat plays them again) */
     uint32_t due[NLAYER];        /* .. when (fm1_ms) */
@@ -57,6 +60,8 @@ static void bl_defaults(uint32_t l)
     bl.unst[l] = 0;
     bl.rpt[l] = 0;
     bl.dir[l] = LD_FWD;
+    bl.fx[l] = bl.passed[l] = 0;
+    bl.climb[l] = 0;
     bl.spd[l] = LS_NORMAL;
     bl.pdir[l] = 1;
     bl.pace[l] = bl.paim[l] = Q16;
@@ -87,7 +92,7 @@ static int bl_note_at(uint32_t l, uint32_t i)
 }
 static uint32_t bl_pitch(uint32_t l, int32_t k, int32_t extra)
 {
-    return scale_note(bl.w[l][k] + extra + ui.lx + ui.lxt[l], bl.o[l][k]);
+    return scale_note(bl.w[l][k] + extra + ui.lx + ui.lxt[l] + bl.climb[l], bl.o[l][k]);
 }
 /* a note of track l to strike in wait ms (0: now), for len ms, at vel (1 .. 126; 0 full) */
 static void bl_play(uint32_t l, uint32_t note, uint32_t vel, uint32_t len, uint32_t wait)
@@ -166,6 +171,24 @@ static void bl_advance(uint32_t l)
     uint32_t len = bl.len[l], p = bl.pos[l];
     if (len <= 1u) {
         bl.pos[l] = 0;
+        return;
+    }
+    if (++bl.passed[l] >= len) {                  /* CLIMB: a run of its steps played -- a step of the scale on */
+        int32_t n = SCALE_N[ui.scale];
+        bl.passed[l] = 0;
+        if (bl.fx[l] & LF_CLIMB) {
+            bl.climb[l] = (int8_t)(bl.climb[l] + ((bl.fx[l] & LF_CUP) ? 1 : -1));
+            if (bl.climb[l] >= n || bl.climb[l] <= -n)
+                bl.climb[l] = 0;                 /* (round the octave) */
+        }
+    }
+    if ((bl.fx[l] & LF_STUTTER) && bl.dir[l] != LD_RAND) {   /* STUTTER: it wanders -- the same step again, the one
+                                                  * before, the next (twice as likely) or the one after it */
+        static const int8_t D[5] = {-1, 0, 1, 1, 2};
+        int32_t d = D[bl_in(0, 4)];
+        if (bl.dir[l] == LD_REV || (bl.dir[l] == LD_PEND && bl.pdir[l] < 0))
+            d = -d;
+        bl.pos[l] = (uint8_t)(((int32_t)p + d + (int32_t)len * 2) % (int32_t)len);
         return;
     }
     if (bl.dir[l] == LD_REV)

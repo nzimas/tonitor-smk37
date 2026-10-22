@@ -23,7 +23,7 @@
 #define SES_SECT 4096u
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x31534341u    /* "ACS1" */
-#define SES_FORMAT 29u           /* 29: eight macros an engine (the SMK-37's knobs); 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
+#define SES_FORMAT 30u           /* 30: BRICKLAYER's STUTTER, CLIMB DOWN, CLIMB UP, at the end; 29: eight macros an engine (the SMK-37's knobs); 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
                                   * the latched notes; 7: the loops held out; 6: the macros; 5: the generations; 4: the paths; 3: a CALIGULA design a layer; 2: up to ten loops
                                   * a layer (1: one) */
 #define SES_MAX 40u              /* records in the list (one a sector at most) */
@@ -31,7 +31,7 @@
 /* the largest session: the head, the globals, six layers with their sounds and full loopers (~54 KiB) */
 #define SES_BUF (32u + 8u + NLAYER * (16u + NENG * NMAC + 2u + 52u + sizeof(fm_patch_t) + sizeof(an_design_t) + sizeof(cal_design_t) + \
                                       sizeof(rus_design_t) + sizeof(dr_design_t) + sizeof(ba_design_t) + sizeof(hv_design_t) + \
-                                      8u * LOOP_TRK + 4u * LOOP_N) + 4u + 2u * NLAYER + NLAYER * (2u + NKEY))
+                                      8u * LOOP_TRK + 4u * LOOP_N) + 4u + 3u * NLAYER + NLAYER * (2u + NKEY))
 
 /* the flash, for the target (main.c) or the host test (host.c); offsets from the flash's start */
 static int ses_flash_read(uint32_t off, void *p, uint32_t n);
@@ -468,6 +468,7 @@ static void ses_emit(void)
         for (l = 0; l < NLAYER; l++)
             fx[l] = lfx[l];
         ses_out(fx, NLAYER);
+        ses_out(bl.fx, NLAYER);                         /* (format 30: BRICKLAYER's STUTTER, CLIMB DOWN, CLIMB UP) */
     }
 }
 static void ses_head_fill(ses_head_t *h, uint32_t num, uint32_t format, uint32_t len, uint16_t crc)
@@ -1553,6 +1554,14 @@ static int ses_load(uint32_t i)
         for (l = 0; l < NLAYER; l++) {
             lfx[l] = (uint8_t)(fx[l] & 7u);
             lclimb[l] = 0;
+        }
+        memset(fx, 0, sizeof fx);                       /* BRICKLAYER's (before format 30: off) */
+        if (h.format >= 30u)
+            ses_in(fx, NLAYER);
+        for (l = 0; l < NLAYER; l++) {
+            bl.fx[l] = (uint8_t)(fx[l] & 7u);
+            bl.climb[l] = 0;
+            bl.passed[l] = 0;
         }
     }
     for (l = 0; l < NLAYER; l++) {
