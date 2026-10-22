@@ -458,6 +458,12 @@ static void latch_move(uint32_t l, int32_t d)
 #include "balls.c"                       /* (BALLSY, the physics sequencer: SHIFT + EDIT) */
 #include "bricks.c"                      /* (BRICKLAYER, the step sequencer: SHIFT + the envelope key) */
 #include "react.c"                       /* (REACT, the other tracks answering the chosen one: SHIFT + FADER BANK) */
+/* the REACT / SHADOW page is what the screen shows (no other page over it) */
+static int rx_page_up(void)
+{
+    return ui.rx_page && !ui.rv_page && !ui.ses_page && !ui.sc_page && !ui.pre_page && !ui.set_page && !ui.env_page &&
+           !(ui.bb_page && bb.on[ui.sel]) && !(ui.bl_page && bl.on[ui.sel]) && !ui.mod_page && !ui.ovd;
+}
 static uint8_t rx_focus;                         /* (REACT's page: the knob turned last, 0 .. 3) */
 /* PLAY is the sequencer's on its page (BALLSY's or BRICKLAYER's, up), the looper's on every other */
 static int seq_on(uint32_t l) { return bl.on[l] || bb.on[l]; }
@@ -992,7 +998,7 @@ static void ui_input(void)
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 mod_knob(ui.sel, ui.mod_ix, j, s);
-    } else if (ui.rx_page && rx.on && !ui.rv_page) {   /* REACT's page: K3 .. K6 its four */
+    } else if (rx_page_up()) {                   /* REACT's (SHADOW's) page: K3 .. K6 its four */
         const uint8_t *K = PAGE_K;
         uint32_t j;
         for (j = 0; j < 4u; j++)
@@ -1261,7 +1267,12 @@ static void ui_input(void)
         say(m, 1200);
     }
     s = arrow_steps(press);
-    if (s && ui.set_page) {                      /* PRESETS: through GLOBAL SETUP */
+    if (s && rx_page_up()) {                     /* < and > on REACT's page: REACT or SHADOW */
+        rx_mode_set(s > 0 ? RXM_SHADOW : RXM_REACT);
+        say(rx.mode ? "SHADOW" : "REACT", 900);
+        ui.force = 1;
+        s = 0;
+    } else if (s && ui.set_page) {               /* PRESETS: through GLOBAL SETUP */
         setup_preset(s);
         s = 0;
     } else if (s && ui.mod_page) {               /* PRESETS: through MOD's entries */
@@ -1408,47 +1419,39 @@ static void ui_input(void)
     }
     if (ui.pad_page == PP_CHORD && !ui.chord_on[ui.sel])
         ui.pad_page = PP_NONE;                   /* (chord mode off -- or a track chosen without it: the shapes go) */
-    if ((fch & fk) >> FN_ENV & 1u && shift_held()) {   /* SHIFT + FADER BANK: REACT on or off (its pads up with it);
-                                                  * held, its pads up or down */
-        rx.rdown = 1;
+    if ((fch & fk) >> FN_ENV & 1u) {             /* FADER BANK: with SHIFT, REACT (or SHADOW) on or off at once; alone,
+                                                  * pressed the ENVELOPE page, held the mode's page and its pads */
+        rx.rdown = (uint8_t)(shift_held() ? 2u : 1u);
         rx.rdone = 0;
         rx.rt0 = fm1_ms;
-        fch &= ~(1u << FN_ENV);
+        if (rx.rdown == 2u) {
+            rx_set(!rx.on);
+            say(rx.on ? (rx.mode ? "SHADOW" : "REACT") : rx.mode ? "SHADOW OFF" : "REACT OFF", 1200);
+            ui.force = 1;
+        }
     }
-    if (rx.rdown && (fk >> FN_ENV & 1u) && !rx.rdone && (uint32_t)(fm1_ms - rx.rt0) >= 600u) {
-        rx.rdone = 1;
-        if (!rx.on)
-            rx_set(1);
-        if (ui.pad_page == PP_REACT && ui.rx_page) {   /* (held: its page and pads down, or up) */
-            ui.pad_page = PP_NONE;
+    if (rx.rdown == 1u && (fk >> FN_ENV & 1u) && !rx.rdone && (uint32_t)(fm1_ms - rx.rt0) >= 600u) {
+        rx.rdone = 1;                            /* held: the page (REACT's or SHADOW's, < and >) and its pads, up or down */
+        rx_defaults();
+        if (rx_page_up() && ui.pad_page == PP_REACT) {
             ui.rx_page = 0;
+            ui.pad_page = PP_NONE;
         } else {
-            ui.pad_page = PP_REACT;
             ui.rx_page = 1;
+            ui.pad_page = PP_REACT;
             ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
             ui.env_page = 0;
         }
         ui.force = 1;
     }
     if (rx.rdown && !(fk >> FN_ENV & 1u)) {
-        rx.rdown = 0;
-        if (!rx.rdone) {
-            rx_set(!rx.on);
-            ui.rx_page = rx.on;                  /* (on: its page and its pads up; off: down) */
-            if (rx.on) {
-                ui.pad_page = PP_REACT;
-                ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
-                ui.env_page = 0;
-            } else if (ui.pad_page == PP_REACT)
-                ui.pad_page = PP_NONE;
+        if (rx.rdown == 1u && !rx.rdone) {       /* pressed alone: the ENVELOPE page up or down (K3 .. K6 its A D S R) */
+            ui.env_page = (uint8_t)!ui.env_page;
+            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
+            ui.rx_page = 0;
             ui.force = 1;
-            say(rx.on ? "REACT" : "REACT OFF", 1200);
         }
-    }
-    if ((fch & fk) >> FN_ENV & 1u) {             /* FADER BANK: the ENVELOPE page up or down (K3 .. K6 its A D S R) */
-        ui.env_page = (uint8_t)!ui.env_page;
-        ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
-        ui.force = 1;
+        rx.rdown = 0;
     }
     if ((fch & fk) >> FN_EDIT & 1u)              /* MACRO: pressed, the macros on or off */
         ui.edit_down = 1;
@@ -1627,6 +1630,7 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_BL_SPD RGB(190, 0, 200)
 #define C_BL_FX RGB(80, 40, 255)         /* (BRICKLAYER's STUTTER and climbs: a bluer violet) */
 #define C_REACT RGB(0, 255, 170)        /* (REACT's tracks: a sea green) */
+#define C_SHADOW RGB(150, 180, 255)     /* (SHADOW's: a pale blue) */
 #define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
@@ -1650,7 +1654,7 @@ static void pads_show(void)
             if (j == ui.sel)
                 pad_rgb(p, RGB(255, 0, 0), (int32_t)(fm1_ms - rx.red_until) < 0 ? 256u : 0u);
             else if (j < NLAYER)
-                pad_rgb(p, C_REACT, (rx.mask >> j) & 1u ? 256u : PAD_DIM);
+                pad_rgb(p, rx.mode ? C_SHADOW : C_REACT, (rx.mask >> j) & 1u ? 256u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
         } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
@@ -2008,9 +2012,11 @@ static void draw_mod_page(void)
 static void draw_rv_title(void)
 {
     cv_begin(240, 52, C_BLACK);
-    if (ui.rx_page && !ui.rv_page)
-        cv_text_c(3, &FONT_L, "REACT", C_REACT);
-    else
+    if (ui.rx_page && !ui.rv_page) {             /* (REACT or SHADOW: in its colour while on, grey while off) */
+        const char *t = rx.mode ? "SHADOW" : "REACT";
+        const font_t *f = text_w(&FONT_L, t) <= 236 ? &FONT_L : &FONT_M;
+        cv_text_c((52 - f->h) / 2, f, t, rx.on ? (rx.mode ? C_SHADOW : C_REACT) : C_GREY);
+    } else
         cv_text_c(3, &FONT_L, ui.fx ? "DELAY" : "REVERB", ui.fx ? C_DELAY : C_SEND);
     cv_blit(0, 0);
 }
@@ -2062,23 +2068,27 @@ static void draw_rv_page(void)
 
 /* REACT's page: REACT; the name of the knob turned last (DENSITY at first), as large as fits whole; its value, large;
  * then the four (K3 .. K6) side by side, each its knob's name and a bar, the one turned last black on white */
-static int8_t rx_shown[5];
+static int8_t rx_shown[7];
 static void draw_rx_page(void)
 {
     char v[8];
     uint32_t j;
     const font_t *f;
-    if (!ui.force && ui.shown_page == 13 && rx_shown[4] == (int8_t)rx_focus && !memcmp(rx_shown, rx.k, 4))
+    const int8_t *kv = rx_kv();
+    const char *const *kn = rx_kn();
+    uint16_t col = rx.mode ? C_SHADOW : C_REACT;
+    if (!ui.force && ui.shown_page == 13 && rx_shown[4] == (int8_t)rx_focus && !memcmp(rx_shown, kv, 4) &&
+        rx_shown[5] == (int8_t)rx.mode && rx_shown[6] == (int8_t)rx.on)
         return;
     draw_rv_title();
     cv_begin(240, 48, C_BLACK);                   /* the name: medium if it fits whole, else a size smaller */
-    f = text_w(&FONT_M, RX_KNAME[rx_focus]) <= 232 ? &FONT_M : &FONT_S;
-    cv_text_c((48 - f->h) / 2, f, RX_KNAME[rx_focus], C_WHITE);
+    f = text_w(&FONT_M, kn[rx_focus]) <= 232 ? &FONT_M : &FONT_S;
+    cv_text_c((48 - f->h) / 2, f, kn[rx_focus], C_WHITE);
     cv_blit(0, 52);
     cv_begin(240, 56, C_BLACK);                   /* its value */
-    fmt_int(v, rx.k[rx_focus]);
+    fmt_int(v, kv[rx_focus]);
     str_cpy(v + str_len(v), "%", 2);
-    cv_text_c(5, &FONT_L, v, C_REACT);
+    cv_text_c(5, &FONT_L, v, col);
     cv_blit(0, 100);
     for (j = 0; j < 2u; j++) {                    /* the four: K3 .. K6, and a bar each */
         uint32_t k;
@@ -2093,13 +2103,15 @@ static void draw_rx_page(void)
                 cv_text(x + (60 - text_w(&FONT_S, kn)) / 2, (42 - FONT_S.h) / 2, &FONT_S, kn, on ? C_BLACK : C_WHITE);
             } else {
                 cv_rect(x + 10, 6, 40, 30, on ? C_GREY : RGB(60, 60, 60));
-                cv_rect(x + 10, 6 + 30 - rx.k[k] * 30 / 100, 40, rx.k[k] * 30 / 100, on ? C_BLACK : C_REACT);
+                cv_rect(x + 10, 6 + 30 - kv[k] * 30 / 100, 40, kv[k] * 30 / 100, on ? C_BLACK : col);
             }
         }
         cv_blit(0, 156 + 42 * j);
     }
-    memcpy(rx_shown, rx.k, 4);
+    memcpy(rx_shown, kv, 4);
     rx_shown[4] = (int8_t)rx_focus;
+    rx_shown[5] = (int8_t)rx.mode;
+    rx_shown[6] = (int8_t)rx.on;
     ui.shown_page = 13;
     ui.force = 0;
 }
@@ -2573,7 +2585,7 @@ static void ui_draw(void)
         return;
     }
     if ((int32_t)(ui.dial_until - fm1_ms) > 0 && !ui.ses_page && !ui.sc_page && !ui.rv_page && !ui.pre_page && !ui.ovd &&
-        !ui.env_page && !(ui.rx_page && rx.on)) {
+        !ui.env_page && !rx_page_up()) {
         if (ui.shown_page != 4 ||
             (ui.shown_dial != (int16_t)(dial_value() + ui.dial * 256) && (uint32_t)(fm1_ms - ui.dial_drawn_at) >= 40u))
             draw_dial();
@@ -2639,7 +2651,7 @@ static void ui_draw(void)
         draw_rv_page();
         return;
     }
-    if (ui.rx_page && rx.on) {                   /* REACT's page */
+    if (rx_page_up()) {                          /* REACT's (SHADOW's) page */
         draw_rx_page();
         return;
     }

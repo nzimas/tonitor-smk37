@@ -6404,12 +6404,19 @@ static uint32_t rx_npitch(uint32_t l)
         c += (rx_pitch[l][k >> 5] >> (k & 31u)) & 1u;
     return c;
 }
-static void rx_shift_fb(void)
+static void rx_shift_fb(void)                    /* SHIFT + FADER BANK: on or off */
 {
     press_phys(KEY_SHIFT, 1);
     press_phys(KEY_ENV, 1);
     press_phys(KEY_ENV, 0);
     press_phys(KEY_SHIFT, 0);
+}
+static void rx_hold_fb(void)                     /* FADER BANK held: the page and its pads */
+{
+    press_phys(KEY_ENV, 1);
+    fm1_ms += 700u;
+    ui_input();
+    press_phys(KEY_ENV, 0);
 }
 static void rx_chord_keys(const uint8_t *k3, int down)
 {
@@ -6432,11 +6439,14 @@ static int cmd_react(void)
     ses_fresh(1);
     press_btn(B_FX);
     rx_shift_fb();
-    if (!rx.on || ui.pad_page != PP_REACT || ui.env_page || rx_ear != 0u)
-        printf("FAIL react: SHIFT + FADER BANK does not turn it on with its pads (on %u, page %u, env %u)\n", rx.on,
-               ui.pad_page, ui.env_page), fail++;
-    if (!ui.rx_page)
-        printf("FAIL react: on, its page is not up\n"), fail++;
+    if (!rx.on || ui.rx_page || ui.env_page || rx_ear != 0u)
+        printf("FAIL react: SHIFT + FADER BANK does not turn it on (alone, no page) (on %u, page %u, env %u)\n", rx.on,
+               ui.rx_page, ui.env_page), fail++;
+    rx_hold_fb();
+    if (ui.pad_page != PP_REACT || ui.env_page)
+        printf("FAIL react: FADER BANK held does not bring its page and pads (pads %u, env %u)\n", ui.pad_page, ui.env_page), fail++;
+    if (!ui.rx_page || rx.mode != RXM_REACT)
+        printf("FAIL react: held, its page is not up, or not REACT's\n"), fail++;
     for (j = 0; j < 4u; j++) {                       /* its rows at the large size, values 100 %% wide */
         uint32_t w = (uint32_t)(text_w(&FONT_M, RX_KNAME[j]) + text_w(&FONT_M, "100%"));
         printf("react: row %s %u px%s\n", RX_KNAME[j], w, w > 220u ? " (a size smaller)" : "");
@@ -6597,7 +6607,7 @@ static int cmd_react(void)
     for (j = 0; j < RX_Q; j++)
         if (rx.q[j].on)
             printf("FAIL react: off, a note still sounds\n"), fail++, j = RX_Q;
-    if (rx.on || rx_ear != 0xFFu || ui.pad_page == PP_REACT)
+    if (rx.on || rx_ear != 0xFFu)
         printf("FAIL react: SHIFT + FADER BANK does not turn it off\n"), fail++;
     press_phys(KEY_ENV, 1);                          /* (FADER BANK alone: the ENVELOPE page, as before) */
     press_phys(KEY_ENV, 0);
@@ -6606,6 +6616,131 @@ static int cmd_react(void)
     press_phys(KEY_ENV, 1);
     press_phys(KEY_ENV, 0);
     printf("react: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+/* SHADOW: < > on the page switch REACT and SHADOW; every knob at 0, each shadow plays the guide's notes as played, a
+ * moment behind; DELAY high, nothing for seconds, then the phrase; DRIFT high, paces apart; VARIATION high, backwards
+ * or to and fro, and rests; TRANSPOSE high, moved along the scale (still in it); the guide silent, all quiet; leaving
+ * the page keeps it running */
+static uint32_t sh_seq[NLAYER][64], sh_t[NLAYER][64], sh_n[NLAYER];
+static void sh_watch(void)
+{
+    uint32_t i;
+    for (i = 0; i < RX_Q; i++) {
+        if (rx.q[i].on == 2u && (rx_prev[i] != 2u || rx_prevn[i] != rx.q[i].note)) {
+            uint32_t l = rx.q[i].layer;
+            if (sh_n[l] < 64u) {
+                sh_seq[l][sh_n[l]] = rx.q[i].note;
+                sh_t[l][sh_n[l]++] = fm1_ms;
+            }
+            if (l == rx.guide || !((scale_mask() >> (rx.q[i].note % 12u)) & 1u))
+                rx_bad++;
+        }
+        rx_prev[i] = rx.q[i].on;
+        rx_prevn[i] = rx.q[i].note;
+    }
+}
+static void sh_run(uint32_t ms)
+{
+    uint32_t t0 = fm1_ms;
+    while (fm1_ms - t0 < ms) {
+        run_blocks(2, 0);
+        ui_input();
+        sh_watch();
+    }
+}
+static uint32_t sh_tune(uint32_t *notes)             /* eight notes, unevenly; their notes */
+{
+    static const uint8_t K[8] = {9, 11, 13, 12, 10, 14, 9, 7};
+    static const uint16_t G[8] = {200, 350, 150, 500, 250, 300, 180, 400};
+    uint32_t j;
+    for (j = 0; j < 8u; j++) {
+        notes[j] = key_note_of(K[j], 0);
+        press_key(K[j], 1);
+        sh_run(G[j]);
+        press_key(K[j], 0);
+        sh_run(60);
+    }
+    return 8;
+}
+static int cmd_shadow(void)
+{
+    uint32_t fail = 0, l, j, g[8], t0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    rx_shift_fb();
+    rx_hold_fb();
+    host_press |= 1u << SMK_BTN_RIGHT;               /* > : SHADOW */
+    ui_input();
+    if (rx.mode != RXM_SHADOW || !rx.on)
+        printf("FAIL shadow: > on the page does not switch to SHADOW (mode %u)\n", rx.mode), fail++;
+    ui_draw();
+    ppm("build/screens/shadow-page.ppm");
+    for (j = 1; j < 4u; j++)
+        ch_pad(j);
+    memset(rx.sk, 0, sizeof rx.sk);                  /* all at 0: the tune as played, a moment behind */
+    memset(sh_n, 0, sizeof sh_n);
+    rx_bad = 0;
+    t0 = fm1_ms;
+    sh_tune(g);
+    sh_run(3000);
+    for (l = 1; l < 4u; l++) {
+        uint32_t ok = sh_n[l] >= 8u;
+        for (j = 0; ok && j < 8u; j++)
+            ok = sh_seq[l][j] % 12u == g[j] % 12u;
+        printf("shadow: all at 0, track %u: %u notes, the first %u ms after the guide's\n", l + 1u, sh_n[l], sh_n[l] ? sh_t[l][0] - t0 : 0);
+        if (sh_n[l] && sh_t[l][0] - t0 > 600u)
+            printf("FAIL shadow: all at 0, track %u is not right behind the guide\n", l + 1u), fail++;
+        if (!ok)
+            printf("FAIL shadow: all at 0, track %u does not play the tune as played\n", l + 1u), fail++;
+    }
+    rx.sk[0] = 100;                                  /* DELAY 100: seconds behind */
+    rx.sv[1].until = rx.sv[2].until = rx.sv[3].until = 0;
+    sh_run(25000);                                   /* (silent longer than the delay: the tune before all shadowed) */
+    memset(sh_n, 0, sizeof sh_n);
+    j = fm1_ms;
+    sh_tune(g);
+    sh_run(25000);
+    for (l = 1; l < 4u; l++)
+        if (!sh_n[l] || sh_t[l][0] - j < 8000u)
+            printf("FAIL shadow: DELAY 100, track %u comes in after %u ms (%u notes)\n", l + 1u, sh_n[l] ? sh_t[l][0] - j : 0, sh_n[l]), fail++;
+        else
+            printf("shadow: DELAY 100, track %u comes in after %u ms\n", l + 1u, sh_t[l][0] - j);
+    {   /* DRIFT, VARIATION, TRANSPOSE high: a long improvisation */
+        uint32_t rates = 0, rev = 0, rest = 0, moved = 0, c;
+        rx.sk[0] = 20;
+        rx.sk[1] = rx.sk[2] = rx.sk[3] = 100;
+        rx.sv[1].until = rx.sv[2].until = rx.sv[3].until = 0;
+        for (c = 0; c < 12u; c++) {
+            memset(sh_n, 0, sizeof sh_n);
+            sh_tune(g);
+            for (l = 1; l < 4u; l++) {
+                rates |= rx.sv[l].rate != 65536u;
+                rev |= rx.sv[l].dir != SD_FWD;
+                rest |= rx.sv[l].paused;
+                moved |= rx.sv[l].tx != 0 || rx.sv[l].oct != 0;
+            }
+        }
+        printf("shadow: all high -- paces apart %u, backwards or to and fro %u, a rest %u, moved %u\n", rates, rev, rest, moved);
+        if (!rates || !rev || !rest || !moved)
+            printf("FAIL shadow: DRIFT, VARIATION or TRANSPOSE high does little\n"), fail++;
+    }
+    if (rx_bad)
+        printf("FAIL shadow: %u notes on the guide or out of the scale\n", rx_bad), fail++;
+    press_btn(B_SEL);                                /* off the page (a track chosen): SHADOW runs on */
+    press_btn(B_FX);
+    if (!rx.on || rx_page_up())
+        printf("FAIL shadow: leaving the page stops it, or the page stays\n"), fail++;
+    sh_run(30000);                                   /* the guide silent: quiet */
+    memset(sh_n, 0, sizeof sh_n);
+    sh_run(5000);
+    if (sh_n[1] + sh_n[2] + sh_n[3])
+        printf("FAIL shadow: notes while the guide is silent\n"), fail++;
+    rx_shift_fb();
+    printf("shadow: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
 static int cmd_xpvel(void)
@@ -7238,6 +7373,8 @@ int main(int argc, char **argv)
         return cmd_bkserve();
     if (argc >= 2 && !strcmp(argv[1], "react"))
         return cmd_react();
+    if (argc >= 2 && !strcmp(argv[1], "shadow"))
+        return cmd_shadow();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

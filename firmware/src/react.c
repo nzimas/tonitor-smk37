@@ -43,7 +43,7 @@
  *   SPREAD      how far from the guide's register: low, around its hands; high, from deep bass to high air
  * Its notes go as a sequencer's (the looper does not record them), never on the guide. It runs in the main loop. */
 
-#define RX_H 96                  /* the memory: the guide's last events */
+#define RX_H 128                 /* the memory: the guide's last events */
 #define RX_Q 32                  /* notes to come and sounding */
 #define RX_HD 10                 /* the guide's notes down */
 #define RX_NONE 0xFFFFFFFFu
@@ -64,6 +64,7 @@ typedef struct {
     uint8_t n[3], nn;            /* its notes, low to high (a chord: up to three) */
     uint8_t vel, start, dg;      /* its level; a phrase's first; its top note's step of the scale (from MIDI 0) */
     uint16_t ioi, dur;           /* the gap before it, how long it was held (0: not yet let go), ms */
+    uint32_t t;                  /* when it was played (fm1_ms) */
 } rx_item_t;
 typedef struct {
     uint8_t chr, bassy, mode;
@@ -76,8 +77,24 @@ typedef struct {
     uint32_t taboo[3];
 } rx_ag_t;
 
+/* a SHADOW: where it is in the guide's time, which way it goes, how fast, how far behind, moved how far */
+enum { SD_FWD, SD_REV, SD_PING };
+typedef struct {
+    uint8_t dir, paused;
+    int8_t sgn, tx, oct;
+    uint32_t rate;               /* its pace against the guide's, Q16 */
+    uint32_t lag;                /* how far behind the guide it means to be, ms */
+    uint32_t vt;                 /* the moment of the guide's playing it is at (fm1_ms) */
+    uint32_t ci;                 /* the event it meets next, its way (RX_NONE: none) */
+    uint32_t until, last, lo, hi;   /* (its way kept till; its last pass; PING's two ends) */
+} rx_sv_t;
+enum { RXM_REACT, RXM_SHADOW };
+
 static struct {
     uint8_t on, mask, guide;
+    uint8_t mode;                /* RXM_REACT, RXM_SHADOW (on its page: < and >) */
+    int8_t sk[4];                /* SHADOW's page: DELAY DRIFT VARIATION TRANSPOSE, 0 .. 100 */
+    rx_sv_t sv[NLAYER];
     struct { uint8_t note; uint32_t t, it; } hd[RX_HD];
     uint8_t nhd;
     uint16_t ch[12];             /* each pitch class lately (fading) */
@@ -556,16 +573,18 @@ static void rx_hear(uint32_t note, uint32_t vel, int on)
         it->ioi = (uint16_t)(ioi > 8000u ? 8000u : ioi);
         it->dur = 0;
         it->start = (uint8_t)(!rx.hn || (rx.nhd == 0u && gap > rx_rest_ms()));
+        it->t = now;
         rx.hn++;
         rx.vel = (uint8_t)((rx.vel * 3u + vel) / 4u);
         rx.last_on = now;
         rx.ans_done = 0;
         if (it->start) {
             rx.ph0 = rx.hn - 1u;
-            if ((int32_t)(now - rx.form_t) > 4500)   /* a phrase begins, some seconds on: the ensemble regroups */
+            if (rx.mode == RXM_REACT && (int32_t)(now - rx.form_t) > 4500)   /* a phrase begins, some seconds on: the
+                                                                             * ensemble regroups */
                 rx_form();
         }
-        for (l = 0; l < NLAYER; l++) {
+        for (l = 0; l < NLAYER && rx.mode == RXM_REACT; l++) {
             rx_ag_t *a = &rx.a[l];
             if (!rx_in_ens(l))
                 continue;
@@ -590,7 +609,7 @@ static void rx_hear(uint32_t note, uint32_t vel, int on)
         rx.hd[rx.nhd].it = rx.hn - 1u;
         rx.nhd++;
     }
-    for (i = 0; i < RX_Q; i++)                      /* the harmony moved: a long note that no longer fits lets go */
+    for (i = 0; i < RX_Q && rx.mode == RXM_REACT; i++)   /* the harmony moved: a long note that no longer fits lets go */
         if (rx.q[i].on == 2u && (int32_t)(rx.q[i].at - now) > 300 && rx_fit(rx.q[i].note % 12u) < 30u && rx_odds(70))
             rx.q[i].at = now + rx_in(0, 60);
     rx.last_ev = now;
@@ -614,16 +633,218 @@ static void rx_reset(void)                          /* nothing heard yet (on, or
         rx.a[l].pos = rx.a[l].echoed = RX_NONE;
         rx.a[l].mode = RM_REST;
         rx.a[l].sh = 0x7F;
+        rx.sv[l].until = 0;
     }
     rx_form();
 }
+static void rx_defaults(void)                      /* (the pages' values, the first time) */
+{
+    static const int8_t KD[4] = {50, 40, 60, 40}, SD[4] = {30, 30, 40, 30};
+    if (!rx.k[0] && !rx.k[1] && !rx.k[2] && !rx.k[3]) {
+        memcpy(rx.k, KD, sizeof rx.k);
+        memcpy(rx.sk, SD, sizeof rx.sk);
+    }
+}
 static void rx_set(int on)
 {
-    static const int8_t KD[4] = {50, 40, 60, 40};
-    if (!rx.k[0] && !rx.k[1] && !rx.k[2] && !rx.k[3])
-        memcpy(rx.k, KD, sizeof rx.k);              /* (the page's values, first time on) */
+    rx_defaults();
     rx.on = (uint8_t)on;
     rx_reset();
+}
+
+/* ---- SHADOW: the guide's own playing, shadowed by each track taken in -- a little or a long way behind, at its own
+ * pace, now and then backwards or to and fro, resting and coming in again, moved along the scale. Its page:
+ *   DELAY      how far behind: from right behind (a note or two) to 15 s, each shadow at its own distance
+ *   DRIFT      how far each one's pace strays from the guide's: from a little loose to half, two thirds, three
+ *              quarters, one and a third, one and a half, twice -- in and out of step
+ *   VARIATION  how often each changes its way: low, forwards and steady for long; high, backwards, to and fro,
+ *              resting and coming in again, its rhythm loosened (notes late, left out, struck twice)
+ *   TRANSPOSE  how far it is moved: low, as played (or an octave); high, a third, a fourth, a fifth, a sixth away
+ * It shadows what the guide sounds -- keys, chords, loops, BALLSY, BRICKLAYER -- and stops when that does. */
+#define SH_DELAY rx.sk[0]
+#define SH_DRIFT rx.sk[1]
+#define SH_VAR rx.sk[2]
+#define SH_TRANS rx.sk[3]
+static const char *const SH_KNAME[4] = {"DELAY", "DRIFT", "VARIATION", "TRANSPOSE"};
+static uint32_t sh_lag(void)                        /* 150 ms .. 15 s, this shadow's own, about DELAY's */
+{
+    uint32_t d = 150u + (uint32_t)SH_DELAY * (uint32_t)SH_DELAY * 3u / 2u;
+    return d * rx_in(70, 130) / 100u;
+}
+static uint32_t sh_rate(void)
+{
+    static const uint32_t R[7] = {32768, 43691, 49152, 65536, 87381, 98304, 131072};   /* 1/2 2/3 3/4 1 4/3 3/2 2 */
+    if (SH_DRIFT < 25)                              /* (a little loose: within 6 %) */
+        return 65536u + (uint32_t)((int32_t)rx_in(0, 2u * (uint32_t)SH_DRIFT) - SH_DRIFT) * 65536u / 400u;
+    if (rx_odds(100 - SH_DRIFT))
+        return 65536u;
+    return SH_DRIFT < 70 ? R[rx_in(1, 5)] : R[rx_in(0, 6)];
+}
+static void sh_move(rx_sv_t *v)                     /* how far it is moved, as TRANSPOSE has it */
+{
+    static const int8_t T[7] = {0, 2, -2, -5, 4, -3, 5};
+    uint32_t t = (uint32_t)SH_TRANS;
+    v->tx = t < 40u ? 0 : T[rx_odds((int32_t)t) ? rx_in(0, t < 70u ? 3u : 6u) : 0u];
+    v->oct = (int8_t)(t >= 15u && rx_odds((int32_t)t / 2) ? (rx_odds(50) ? 1 : -1) : 0);
+}
+static uint32_t sh_old(void) { return rx.hn > RX_H ? rx.hn - RX_H : 0u; }
+static void sh_find(rx_sv_t *v)                     /* the event it meets next, its way */
+{
+    uint32_t i;
+    if (v->sgn > 0) {
+        for (i = sh_old(); i < rx.hn && (int32_t)(rx_it(i)->t - v->vt) <= 0; i++)
+            ;
+        v->ci = i;                                  /* (rx.hn: the guide's next, to come) */
+    } else {
+        v->ci = RX_NONE;
+        for (i = rx.hn; i-- > sh_old();)
+            if ((int32_t)(rx_it(i)->t - v->vt) < 0) {
+                v->ci = i;
+                break;
+            }
+    }
+}
+static void sh_vary(uint32_t l, int first)          /* its way, for a while: as VARIATION has it */
+{
+    rx_sv_t *v = &rx.sv[l];
+    uint32_t now = fm1_ms, V = (uint32_t)SH_VAR, r;
+    v->until = now + rx_in(2500, 4000) + (100u - V) * rx_in(60, 160);
+    if (first || v->paused) {                       /* (in, or in again: behind the guide by its own delay) */
+        if (first) {
+            v->rate = sh_rate();
+            sh_move(v);
+        }
+        v->paused = 0;
+        v->lag = sh_lag();
+        v->vt = now - v->lag;
+        v->dir = SD_FWD;
+        v->sgn = 1;
+        sh_find(v);
+        return;
+    }
+    if (V && rx_odds((int32_t)V / 4)) {             /* a rest */
+        v->paused = 1;
+        rx_cut(l);
+        v->until = now + rx_in(800, 4000);
+        return;
+    }
+    r = rx_in(0, 99);
+    if (r < V * 30u / 100u) {                       /* backwards */
+        v->dir = SD_REV;
+        v->sgn = -1;
+    } else if (r < V * 55u / 100u) {                /* to and fro, over a stretch behind it */
+        v->dir = SD_PING;
+        v->sgn = -1;
+        v->hi = v->vt;
+        v->lo = v->vt - rx_in(1500, 6000);
+    } else {
+        v->dir = SD_FWD;
+        v->sgn = 1;
+    }
+    if (rx_odds(20 + SH_DRIFT / 2))
+        v->rate = sh_rate();
+    if (rx_odds(SH_TRANS))
+        sh_move(v);
+    if (rx_odds((int32_t)V / 3))
+        v->lag = sh_lag();
+    sh_find(v);
+}
+static void sh_play(uint32_t l, uint32_t e)         /* the guide's event e, as this shadow plays it */
+{
+    const rx_item_t *it = rx_it(e);
+    const rx_sv_t *v = &rx.sv[l];
+    uint32_t V = (uint32_t)SH_VAR, k, lo = 0, hi = it->nn, len, wait = 0, vel = it->vel * 4u / 5u;
+    if (V > 20u && rx_odds((int32_t)V / 10))
+        return;                                     /* (left out) */
+    if (rx.a[l].chr == RC_TEX)
+        hi = 1;                                     /* (a texture: the lowest; plucked: the top) */
+    else if (rx.a[l].chr == RC_PLUCK)
+        lo = it->nn - 1u;
+    len = it->dur ? it->dur : rx_kept(e + 1u) ? rx_it(e + 1u)->ioi : rx.typ;
+    len = (uint32_t)clampi((int32_t)((uint64_t)len * 65536u / v->rate), 50, 10000);
+    if (V > 30u)                                    /* (late, a little: its rhythm loosened) */
+        wait = rx_in(0, V * (rx.typ < 600u ? rx.typ : 600u) / 400u);
+    for (k = lo; k < hi; k++) {
+        uint32_t n = (uint32_t)clampi((int32_t)rx_note((int32_t)rx_dg(it->n[k]) + v->tx) + 12 * v->oct, 24, 108);
+        if (V > 40u && len > 200u && rx_odds((int32_t)V / 6)) {   /* struck twice */
+            rx_play(l, n, vel, len / 2u, wait);
+            rx_play(l, n, vel * 4u / 5u, len / 2u, wait + len / 2u);
+        } else
+            rx_play(l, n, vel, len, wait);
+    }
+}
+static void sh_tick(void)
+{
+    uint32_t now = fm1_ms, l;
+    for (l = 0; l < NLAYER; l++) {
+        rx_sv_t *v = &rx.sv[l];
+        uint32_t dt = now - v->last, step;
+        v->last = now;
+        if (!rx_in_ens(l) || !rx.hn || !rx.last_on)
+            continue;
+        if (!v->until)
+            sh_vary(l, 1);
+        if (!rx.nhd && now - rx.last_ev > v->lag + 4000u) {
+            v->until = 0;                           /* (the guide silent, all of it shadowed: waiting, to come in afresh) */
+            continue;
+        }
+        if ((int32_t)(now - v->until) >= 0)
+            sh_vary(l, 0);
+        if (v->paused)
+            continue;
+        if (dt > 200u)
+            dt = 200u;
+        step = (uint32_t)(((uint64_t)dt * v->rate) >> 16);
+        v->vt = v->sgn > 0 ? v->vt + step : v->vt - step;
+        if ((int32_t)(v->vt - (now - 80u)) > 0) {   /* (never ahead of the guide: right behind it, then) */
+            v->vt = now - 80u;
+            if (v->dir == SD_PING) {
+                v->sgn = -1;
+                sh_find(v);
+            }
+        }
+        if (v->dir == SD_PING && ((v->sgn < 0 && (int32_t)(v->vt - v->lo) < 0) || (v->sgn > 0 && (int32_t)(v->vt - v->hi) > 0))) {
+            v->sgn = (int8_t)-v->sgn;               /* (to and fro: turned at either end) */
+            sh_find(v);
+        }
+        if ((int32_t)(v->vt - rx_it(sh_old())->t) < 0 || (v->sgn < 0 && v->ci == RX_NONE)) {
+            if (v->sgn < 0) {                       /* (back past what is kept: forwards again) */
+                v->sgn = 1;
+                v->dir = v->dir == SD_PING ? SD_PING : SD_FWD;
+                if ((int32_t)(v->vt - rx_it(sh_old())->t) < 0)
+                    v->vt = rx_it(sh_old())->t;
+            } else
+                v->vt = now - v->lag;
+            sh_find(v);
+        }
+        if (v->dir == SD_FWD && now - v->vt > v->lag + 8000u) {   /* (fallen far behind: caught up) */
+            v->vt = now - v->lag;
+            sh_find(v);
+        }
+        if (v->sgn > 0) {
+            if (v->ci != RX_NONE && v->ci < rx.hn && !rx_kept(v->ci))
+                sh_find(v);
+            while (v->ci < rx.hn && rx_kept(v->ci) && (int32_t)(rx_it(v->ci)->t - v->vt) <= 0)
+                sh_play(l, v->ci++);
+        } else
+            while (rx_kept(v->ci) && (int32_t)(rx_it(v->ci)->t - v->vt) >= 0) {
+                sh_play(l, v->ci);
+                v->ci = v->ci ? v->ci - 1u : RX_NONE;
+            }
+    }
+}
+static void rx_mode_set(uint32_t m)                 /* REACT or SHADOW (< and > on the page): the notes let go */
+{
+    uint32_t l;
+    if (m == rx.mode)
+        return;
+    rx_cut(NLAYER);
+    rx.mode = (uint8_t)m;
+    for (l = 0; l < NLAYER; l++) {
+        rx.sv[l].until = 0;
+        rx.a[l].pos = rx.a[l].echoed = RX_NONE;
+    }
+    rx_form();
 }
 
 /* the main loop, every pass: the guide's loops heard; the musicians' steps as they fall due; its rests answered,
@@ -644,7 +865,9 @@ static void rx_tick(void)
         for (i = 0; i < 12u; i++)
             rx.ch[i] = (uint16_t)(rx.ch[i] - rx.ch[i] / 14u);
     }
-    if (rx.on && rx.last_on && rx.hn >= 2u) {
+    if (rx.on && rx.mode == RXM_SHADOW)
+        sh_tick();
+    if (rx.on && rx.mode == RXM_REACT && rx.last_on && rx.hn >= 2u) {
         uint32_t gap = now - rx.last_ev, playing = rx.nhd || gap < rx_rest_ms() * 2u;
         if (!rx.nhd && !rx.ans_done && gap > rx_ans_ms()) {   /* a rest: the echoes finish the line, one answers */
             uint32_t na = 0, k, j = 0, phl = 0;
@@ -721,10 +944,13 @@ static void rx_tick(void)
     }
 }
 
+static int8_t *rx_kv(void) { return rx.mode == RXM_SHADOW ? rx.sk : rx.k; }   /* (the page's four, of the mode) */
+static const char *const *rx_kn(void) { return rx.mode == RXM_SHADOW ? SH_KNAME : RX_KNAME; }
 static void rx_knob(uint32_t j, int32_t s)        /* the page: K3 .. K6 */
 {
-    rx.k[j] = (int8_t)clampi(rx.k[j] + 2 * s, 0, 100);
-    if (j == 3u || j == 2u)
+    rx_defaults();
+    rx_kv()[j] = (int8_t)clampi(rx_kv()[j] + 2 * s, 0, 100);
+    if (rx.mode == RXM_REACT && (j == 3u || j == 2u))
         rx.form_t = fm1_ms - 5000u;                 /* (SPREAD, CONTINUITY: the ensemble regroups a second after) */
 }
 /* REACT's pads (the bottom row, 9 .. 14): track j in or out; the guide's, red a moment */
@@ -741,6 +967,7 @@ static void rx_pad_hit(uint32_t j)
     rx.mask = (uint8_t)(rx.mask ^ (1u << j));
     rx_cut(j);
     rx.a[j].pos = rx.a[j].echoed = RX_NONE;
+    rx.sv[j].until = 0;
     rx_form();                                      /* (the ensemble regrouped with it, or without) */
     m[0] = (char)('1' + j);
     m[1] = ' ';
