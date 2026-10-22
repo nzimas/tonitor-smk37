@@ -834,6 +834,76 @@ static void change_apply(uint32_t l)
 }
 
 /* ------------------------------------------------------ the loopers --- */
+/* the loops' play options beyond direction and speed (LOOP's pads 12 .. 14), each track's, LF_* bits:
+ *   SCATTER  each recorded pitch played as another of the loop's own, drawn afresh each pass (the rhythm kept)
+ *   DRIFT    each pass starts a little later (1/50 of the loop): it slides out of phase with the other tracks'
+ *   CLIMB    each pass a step of the scale higher, round an octave of it
+ * SCATTER and CLIMB move on as the track's first playing loop comes round; its sounding notes let go then */
+enum { LF_SCATTER = 1, LF_DRIFT = 2, LF_CLIMB = 4 };
+static volatile uint8_t lfx[NLAYER];
+static int8_t lclimb[NLAYER];            /* CLIMB: the steps climbed */
+static uint32_t lscat[NLAYER];           /* SCATTER: this pass's draw */
+static uint32_t loop_raw(uint32_t l, const looper_t *p, const loop_trk_t *t, uint32_t raw)
+{
+    const uint32_t *ev = p->ev + t->first;
+    uint32_t i, k;
+    if (!(lfx[l] & LF_SCATTER) || !t->n)
+        return raw;
+    i = ((raw * 2654435761u) ^ lscat[l]) % t->n;   /* (the same note, the same stand-in, all the pass) */
+    for (k = 0; k < t->n; k++, i = i + 1u == t->n ? 0u : i + 1u)
+        if (LE_ON(ev[i]))
+            return LE_NOTE(ev[i]);
+    return raw;
+}
+/* the note a loop's recorded note sounds as: SCATTER's stand-in, moved along the scale (the loops', the track's, CLIMB's) */
+static uint32_t loop_note(uint32_t l, const looper_t *p, const loop_trk_t *t, uint32_t raw)
+{
+    return lx_map(loop_raw(l, p, t, raw), lx_steps + lx_tr[l] + lclimb[l] - t->xb, lx_mask);
+}
+/* every note layer l's loops sound now, let go (before what maps them changes) */
+static void loop_release(uint32_t l)
+{
+    looper_t *p = &loop[l];
+    uint32_t k, n;
+    for (k = 0; k < p->ntrk; k++) {
+        loop_trk_t *t = &p->trk[k];
+        for (n = 0; n < 128u; n++)
+            if ((t->snd[n >> 5] >> (n & 31u)) & 1u)
+                note_off(l, loop_note(l, p, t, n), SRC_LOOP);
+        memset(t->snd, 0, sizeof t->snd);
+    }
+}
+/* loop t of layer l has come round (forwards or backwards): DRIFT waits a little; the first playing loop moves
+ * SCATTER and CLIMB on */
+static void loop_pass(uint32_t l, looper_t *p, loop_trk_t *t)
+{
+    uint32_t k, n = 0, m = lx_mask;
+    if ((lfx[l] & LF_DRIFT) && p->dmode != LD_RAND) {
+        int32_t d = (int32_t)(t->len / 50u) + 1;
+        t->pos += t->dir > 0 ? -d : d;           /* (nothing due until it has waited) */
+    }
+    for (k = 0; k < p->ntrk && ((p->mute >> k) & 1u); k++)
+        ;
+    if (t != &p->trk[k] || !(lfx[l] & (LF_SCATTER | LF_CLIMB)))
+        return;
+    loop_release(l);
+    while (m) {                                  /* (the scale's steps in an octave) */
+        n += m & 1u;
+        m >>= 1;
+    }
+    if (lfx[l] & LF_CLIMB)
+        lclimb[l] = (int8_t)((lclimb[l] + 1) % (int32_t)(n ? n : 7u));
+    lscat[l] = lscat[l] * 1664525u + 1013904223u + blk_clock;
+}
+/* LOOP's pads 12 .. 14: an option on or off (its notes let go first; CLIMB off: back where it was) */
+static void loop_fx_toggle(uint32_t l, uint32_t bit)
+{
+    loop_release(l);
+    lfx[l] = (uint8_t)(lfx[l] ^ bit);
+    if (!(lfx[l] & LF_CLIMB))
+        lclimb[l] = 0;
+}
+
 /* the velocity code of note's last on recorded (an off carries it) */
 static uint32_t loop_on_vc(const looper_t *p, uint32_t note)
 {
@@ -979,7 +1049,7 @@ static void loop_trk_set(uint32_t l, uint32_t k, uint32_t on)
             uint32_t n;
             for (n = 0; n < 128u; n++)
                 if ((t->snd[n >> 5] >> (n & 31u)) & 1u)
-                    note_off(l, lx_map(n, lx_steps + lx_tr[l] - t->xb, lx_mask), SRC_LOOP);
+                    note_off(l, loop_note(l, p, t, n), SRC_LOOP);
             memset(t->snd, 0, sizeof t->snd);
         }
         p->mute |= (uint16_t)bit;
@@ -1049,7 +1119,7 @@ static void vq_add(uint32_t l, uint32_t wait, uint32_t note, uint32_t vel, uint3
 /* a loop note under VARY */
 static void vary_strike(uint32_t l, looper_t *p, loop_trk_t *t, uint32_t raw)
 {
-    uint32_t nt = lx_map(raw, lx_steps + lx_tr[l] - t->xb, lx_mask), wait = 0, vel, len, k;
+    uint32_t nt = loop_note(l, p, t, raw), wait = 0, vel, len, k;
     if (lv_odds(p, 5))
         return;                                   /* dropped, this time round */
     vel = lv_in(p, 40, 126);
@@ -1106,7 +1176,7 @@ static void loop_strike(uint32_t l, looper_t *p, loop_trk_t *t, uint32_t raw, ui
         return;
     }
     note_vel = (uint8_t)LE_VEL(vc);               /* (as it was played) */
-    note_on(l, lx_map(raw, lx_steps + lx_tr[l] - t->xb, lx_mask), SRC_LOOP);
+    note_on(l, loop_note(l, p, t, raw), SRC_LOOP);
     note_vel = 127;
     t->snd[raw >> 5] |= 1u << (raw & 31u);
 }
@@ -1130,11 +1200,12 @@ static void lv_tick(uint32_t l)
  * first block, its end the last; backwards the other way round) */
 static void trk_play(uint32_t l, loop_trk_t *t, looper_t *p, uint32_t e, int as_on)
 {
-    uint32_t raw = LE_NOTE(e), nt = lx_map(raw, lx_steps + lx_tr[l] - t->xb, lx_mask);
+    uint32_t raw = LE_NOTE(e), nt = loop_note(l, p, t, raw);
     int tied = trk_tied(p, t, e);
     if (as_on) {
-        if (t->wrap && tied && !p->vary)
-            return;                               /* (still sounding from the round before) */
+        if (t->wrap && tied && !p->vary && !(lfx[l] & (LF_SCATTER | LF_CLIMB)))
+            return;                               /* (still sounding from the round before -- but SCATTER and CLIMB
+                                                   * let it go at the pass: struck again, as it now maps) */
         (void)nt;
         loop_strike(l, p, t, raw, LE_VC(e));
         TELE(20);
@@ -1155,7 +1226,7 @@ static void trk_jump(uint32_t l, looper_t *p, loop_trk_t *t)
     uint32_t n, j, k;
     for (n = 0; n < 128u; n++)
         if ((t->snd[n >> 5] >> (n & 31u)) & 1u)
-            note_off(l, lx_map(n, lx_steps + lx_tr[l] - t->xb, lx_mask), SRC_LOOP);
+            note_off(l, loop_note(l, p, t, n), SRC_LOOP);
     memset(t->snd, 0, sizeof t->snd);
     t->rgo = 0;
     t->wrap = 0;
@@ -1193,7 +1264,7 @@ static void trk_step(uint32_t l, looper_t *p, loop_trk_t *t)
                 t->rgo = 1;
             } else if ((t->snd[LE_NOTE(e) >> 5] >> (LE_NOTE(e) & 31u)) & 1u) {   /* (only what it struck as
                                                                                     * recorded -- VARY's, never) */
-                note_off(l, lx_map(LE_NOTE(e), lx_steps + lx_tr[l] - t->xb, lx_mask), SRC_LOOP);
+                note_off(l, loop_note(l, p, t, LE_NOTE(e)), SRC_LOOP);
                 t->snd[LE_NOTE(e) >> 5] &= ~(1u << (LE_NOTE(e) & 31u));
             }
         }
@@ -1216,6 +1287,7 @@ static void trk_step(uint32_t l, looper_t *p, loop_trk_t *t)
                 t->ix = 0;
             }
             t->wrap = 1;
+            loop_pass(l, p, t);
             TELE(21);
         }
     } else {
@@ -1234,6 +1306,7 @@ static void trk_step(uint32_t l, looper_t *p, loop_trk_t *t)
                 t->ix = (int16_t)(t->n - 1u);
             }
             t->wrap = 1;
+            loop_pass(l, p, t);
             TELE(21);
         }
     }
@@ -1268,6 +1341,10 @@ static void loop_mode(uint32_t l, uint32_t what, uint32_t val)
 {
     looper_t *p = &loop[l];
     uint32_t k;
+    if (what == 3u) {                             /* SCATTER, DRIFT, CLIMB (val: the LF_ bit) on or off */
+        loop_fx_toggle(l, val & 7u);
+        return;
+    }
     if (what == 2u) {                             /* VARY on or off */
         p->vary = (uint8_t)(val != 0);
         return;
@@ -1417,7 +1494,7 @@ static void loop_retune(void)
                     continue;
                 for (n = 0; n < 128u; n++)
                     if ((t->snd[n >> 5] >> (n & 31u)) & 1u) {
-                        uint32_t was = lx_map(n, lx_steps + lx_tr[l] - t->xb, lx_mask), now = lx_map(n, s + tr[l] - t->xb, m);
+                        uint32_t was = loop_note(l, p, t, n), now = lx_map(loop_raw(l, p, t, n), s + tr[l] + lclimb[l] - t->xb, m);
                         if (was == now)
                             continue;
                         if (!pass)
@@ -1485,7 +1562,7 @@ static void events_take(void)        /* audio ISR, at a block start */
             for (k = 0; k < NLAYER; k++)
                 midi_layer_off(k);
             break;
-        case EV_LOOP_MODE:                        /* (note: 0 the direction, 1 the speed, 2 VARY; val: which) */
+        case EV_LOOP_MODE:                        /* (note: 0 the direction, 1 the speed, 2 VARY, 3 SCATTER DRIFT CLIMB; val: which) */
             loop_mode(e.layer, e.note, e.val);
             break;
         case EV_LOOP_XP:                          /* SHIFT and OCT: the loops moved along the scale */

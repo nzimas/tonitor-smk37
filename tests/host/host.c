@@ -6120,10 +6120,44 @@ static int cmd_looppads(void)
     ch_pad(2);
     if (loop[0].dmode != LD_RAND)
         printf("FAIL looppads: pad 11 is not RANDOM (%u)\n", loop[0].dmode), fail++;
+    ch_pad(3);                                       /* pads 12 .. 14: SCATTER, DRIFT, CLIMB, each on or off */
+    ch_pad(5);
+    if (lfx[0] != (LF_SCATTER | LF_CLIMB))
+        printf("FAIL looppads: pads 12 and 14 are not SCATTER and CLIMB (%x)\n", lfx[0]), fail++;
+    ch_pad(4);
+    ch_pad(3);
+    if (lfx[0] != (LF_DRIFT | LF_CLIMB))
+        printf("FAIL looppads: pad 13 is not DRIFT, or 12 again does not take SCATTER off (%x)\n", lfx[0]), fail++;
+    ch_pad(4);
+    ch_pad(5);
+    if (lfx[0] || lclimb[0])
+        printf("FAIL looppads: DRIFT and CLIMB do not go off (%x, %d)\n", lfx[0], lclimb[0]), fail++;
+    {   /* CLIMB: a loop of one note, each pass a step higher */
+        uint32_t b, k, seen[8], ns = 0, last = 0;
+        ui.scale = 0;
+        ui.root = 0;
+        lx_post();
+        run_blocks(2, 0);
+        ch_pad(2);                                   /* (RANDOM again: forward) */
+        rec_loop(B_FX, 0, 200);
+        ch_pad(5);
+        for (b = 0; b < 4000u && ns < 4u; b++) {
+            run_blocks(1, 0);
+            for (k = 0; k < NVOICE; k++)
+                if (vox[k].gate && vox[k].src == SRC_LOOP && vox[k].note != last) {
+                    last = vox[k].note;
+                    seen[ns++] = last;
+                }
+        }
+        if (ns < 4u || !(seen[1] > seen[0] && seen[2] > seen[1] && seen[3] > seen[2]))
+            printf("FAIL looppads: CLIMB does not take the loop up a step each pass (%u notes: %u %u %u %u)\n", ns,
+                   seen[0], seen[1], seen[2], seen[3]), fail++;
+        ch_pad(5);
+    }
     host_press |= 1u << BTN_LOOP;                    /* LOOP again: the pads free; the pads do nothing */
     ui_input();
     ch_pad(0);
-    if (ui.pad_page != PP_NONE || loop[0].dmode != LD_RAND)
+    if (ui.pad_page != PP_NONE || loop[0].dmode != LD_FWD)
         printf("FAIL looppads: LOOP again does not free the pads (%u, %u)\n", ui.pad_page, loop[0].dmode), fail++;
     printf("looppads: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;

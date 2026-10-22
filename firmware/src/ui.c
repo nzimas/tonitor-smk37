@@ -89,16 +89,17 @@ static uint32_t vel_apply(uint32_t v)
 static int shift_held(void) { return (int)((fm1_in.buttons >> SMK_BTN_KNOB_BANK) & 1u); }
 /* the functions the FM-1 had on its black keys (fn_keys(): bit FN_x held): the two paths on pads 7 and 8 of the top
  * row, CHORD on the first button of the top row; the others no control of their own yet */
-enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_HALF, FN_DOUBLE };
+enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_HALF, FN_DOUBLE, FN_SCAT, FN_DRIFT, FN_CLIMB };
 #define PAD_AMB 6u                       /* (top row, hardware pads 0 .. 7: the 7th and the 8th) */
 #define BTN_CHORD 6u                     /* CHORD: the first button of the top row (smk_input.h's ARP): pressed, chord
                                           * mode on or off; held, the chords on the bottom row of pads */
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
 enum { PP_NONE, PP_CHORD, PP_LOOP };     /* the bottom row of pads: free, the chords, the loops' direction and speed */
-/* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 15, 16 (14, 15)
- * the speed, HALF DOUBLE (none lit: normal); the lit one pressed again: back to forward / normal */
-static const uint8_t LOOP_PAD_FN[8] = {FN_REV, FN_PEND, FN_RAND, 0xFF, 0xFF, 0xFF, FN_HALF, FN_DOUBLE};
+/* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 12 .. 14 SCATTER,
+ * DRIFT, CLIMB, each on or off (layers.c lfx); 15, 16 (14, 15) the speed, HALF DOUBLE (none lit: normal); the lit one
+ * pressed again: back to forward / normal */
+static const uint8_t LOOP_PAD_FN[8] = {FN_REV, FN_PEND, FN_RAND, FN_SCAT, FN_DRIFT, FN_CLIMB, FN_HALF, FN_DOUBLE};
 #define PAD_EXP 7u
 #ifdef HOST_FN
 static uint32_t host_fn;                 /* (the host tests: the functions, held) */
@@ -1294,6 +1295,13 @@ static void ui_input(void)
             say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
     }
+    for (k = FN_SCAT; k <= FN_CLIMB; k++)        /* SCATTER, DRIFT, CLIMB: the chosen track's loops, on or off */
+        if ((fch & fk) >> k & 1u) {
+            uint32_t bit = k == FN_SCAT ? LF_SCATTER : k == FN_DRIFT ? LF_DRIFT : LF_CLIMB, on = !(lfx[ui.sel] & bit);
+            static const char *const NM[3] = {"SCATTER", "DRIFT", "CLIMB"}, *const OFF[3] = {"SCATTER OFF", "DRIFT OFF", "CLIMB OFF"};
+            ev_post(EV_LOOP_MODE, ui.sel, 3, bit);
+            say(on ? NM[k - FN_SCAT] : OFF[k - FN_SCAT], 1200);
+        }
     if ((fch & fk) >> FN_CHORD & 1u) {         /* the chord button: pressed, chord mode on or off; held, its chords on
                                                   * the bottom row of pads (held again: the pads freed) */
         ui.cho_down = 1;
@@ -1472,6 +1480,7 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_CHORD RGB(40, 80, 255)         /* (the chords, the bottom row: blue) */
 #define C_LOOP_DIR RGB(255, 20, 20)      /* (the loops' direction: red; their speed, a warmer red) */
 #define C_LOOP_SPD RGB(255, 90, 40)
+#define C_LOOP_FX RGB(255, 0, 120)       /* (SCATTER, DRIFT, CLIMB: a magenta red) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1492,8 +1501,9 @@ static void pads_show(void)
             int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own) */
             uint32_t dm = blp ? bl.dir[ui.sel] : loop[ui.sel].dmode, rt = blp ? bl.spd[ui.sel] : loop[ui.sel].rate;
             int on = f == FN_REV ? dm == LD_REV : f == FN_PEND ? dm == LD_PEND : f == FN_RAND ? dm == LD_RAND
-                     : f == FN_HALF ? rt == LS_HALF : rt == LS_DOUBLE;
-            pad_rgb(p, f == FN_HALF || f == FN_DOUBLE ? C_LOOP_SPD : C_LOOP_DIR, on ? 256u : PAD_DIM);
+                     : f == FN_SCAT ? (lfx[ui.sel] & LF_SCATTER) != 0 : f == FN_DRIFT ? (lfx[ui.sel] & LF_DRIFT) != 0
+                     : f == FN_CLIMB ? (lfx[ui.sel] & LF_CLIMB) != 0 : f == FN_HALF ? rt == LS_HALF : rt == LS_DOUBLE;
+            pad_rgb(p, f == FN_HALF || f == FN_DOUBLE ? C_LOOP_SPD : f >= FN_SCAT ? C_LOOP_FX : C_LOOP_DIR, on ? 256u : PAD_DIM);
         } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
             pad_rgb(p, C_PATH,
                     ui.path[ui.sel] == (p == PAD_AMB ? PATH_AMBIENT : PATH_EXP) ? 256u : PAD_DIM);
