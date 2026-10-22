@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * TONITOR: the sounds of each past generation of the generators -- 0 (up to 0.20), 1 (0.21), 2 (0.22, and RUSSOLO from 0.26), 3 (0.29) -- fingerprinted, so
+ * TONITOR: the sounds of each past generation of the generators -- 0 (up to 0.20), 1 (0.21), 2 (0.22, and RUSSOLO from 0.26), 3 (0.29), 4 (0.47), 5 (SMK-37 build 25) -- fingerprinted, so
  * that every later firmware draws them again bit for bit from their seeds: the sessions and presets that keep only
  * seeds depend on it. `golden G` prints one line per (engine, kind, path): an FNV-1a hash over many seeds of the
  * design's fields as generation G had them. Built with the host harness (tests/run_tests.sh). */

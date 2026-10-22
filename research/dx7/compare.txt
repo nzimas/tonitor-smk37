@@ -1,0 +1,36 @@
+family       bright   inharm   attack     left     move   travel     fall
+ABYSS          1.88     0.00     3.11    -4.54     0.77     6.40     0.04
+BLOOM          2.70     0.31     2.92    -1.97     0.15    13.08    -0.00
+BOWED          2.41     0.00     2.69    -5.34     0.43     4.00     0.10
+BRUIT          3.38     0.66     1.70   -19.17     0.26    14.37     0.19
+CHOIR          2.70     0.18     2.45    -4.83     0.16     8.36     0.09
+DRONE          2.39     0.06     2.99    -4.02     1.04     9.19    -0.11
+FRICTION       2.81     0.46     2.16   -20.35     0.33    17.02    -0.13
+GLISSE         2.62     0.34     2.40    -3.75     0.34    11.88     0.16
+GLITCH         2.74     0.33     1.00   -18.90     0.14     7.21     0.08
+HOLLOW         2.29     0.00     3.25    -8.97     0.48     0.00    -0.01
+IMPACT         2.55     0.20     1.00   -31.99     0.81     3.21     0.02
+ITERATIF       2.80     0.43     1.25   -12.89     3.69     9.88     0.25
+MALLET         2.37     0.00     1.00   -58.76     0.91     0.00     0.08
+METAL          3.14     0.71     1.00   -21.05     0.16    22.05    -0.21
+PLUCK          2.35     0.00     1.13   -52.42     0.71     0.00    -0.03
+RUBBER         2.57     0.26     2.26    -3.52     0.33     7.87    -0.03
+SHARDS         2.90     0.57     1.00   -20.59     3.34     9.09     0.17
+SPECTRE        2.47     0.00     3.14    -9.07     1.15     8.63    -0.28
+STATIC         2.81     0.48     1.54   -11.92     1.59    13.94     0.31
+TIDE           2.58     0.06     2.88    -6.73     0.22     3.22     0.05
+WARP           2.58     0.27     1.93    -5.71     0.19     9.83     0.15
+WIND           2.70     0.13     3.07    -3.91     0.63     7.06    -0.07
+CLANG          2.61     0.26     1.00   -42.27     0.93    14.03     0.04   (new)
+CREEP          2.82     0.25     1.59    -5.58     0.28    22.39     0.38   (new)
+DIVE           2.82     0.38     1.59   -17.20     0.37    26.72     0.19   (new)
+LADDER         2.56     0.15     1.78   -26.26     0.71     8.83    -0.08   (new)
+REVERSE        2.97     0.35     3.43    -2.28     0.72     3.92    -0.07   (new)
+SHAPER         2.77     0.20     1.36   -11.42     0.93    16.01     0.00   (new)
+
+SHAPER: nearest earlier families WARP (1.31), GLITCH (1.33), FRICTION (1.49); (two earlier families lie 2.73 apart, the closest pair 0.57)
+LADDER: nearest earlier families IMPACT (1.02), GLITCH (1.37), FRICTION (1.52); (two earlier families lie 2.73 apart, the closest pair 0.57)
+DIVE: nearest earlier families FRICTION (1.52), STATIC (1.75), WARP (1.78); (two earlier families lie 2.73 apart, the closest pair 0.57)
+REVERSE: nearest earlier families WIND (1.05), BLOOM (1.27), CHOIR (1.53); (two earlier families lie 2.73 apart, the closest pair 0.57)
+CREEP: nearest earlier families WARP (1.49), STATIC (1.74), CHOIR (1.80); (two earlier families lie 2.73 apart, the closest pair 0.57)
+CLANG: nearest earlier families IMPACT (1.14), GLITCH (1.73), PLUCK (1.74); (two earlier families lie 2.73 apart, the closest pair 0.57)
