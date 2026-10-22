@@ -1203,7 +1203,7 @@ static int cmd_sessions(const char *dir)
         static uint8_t b[8192];
         ses_head_t *h = (ses_head_t *)b;
         uint8_t *q = b + sizeof *h;
-        uint32_t ev[2] = {LE(10, 60, 1), LE(300, 60, 0)};
+        uint32_t ev[2] = {LE(10, 60, 1, 15u), LE(300, 60, 0, 15u)};
         int slot;
         memset(b, 0, sizeof b);
         q += 8;                                   /* globals: layer 1, reverb 0, C major */
@@ -1271,7 +1271,7 @@ static int cmd_sessions(const char *dir)
                 lp->trk[k2].len = 5000u + k2 * 77u + l2;
             }
             for (k2 = 0; k2 < LOOP_N; k2++)
-                lp->ev[k2] = LE((k2 % per) * 20u, 40u + (k2 * 7u + l2) % 40u, (k2 & 1u) == 0u);
+                lp->ev[k2] = LE((k2 % per) * 20u, 40u + (k2 * 7u + l2) % 40u, (k2 & 1u) == 0u, k2 & 15u);
             lp->nev = per * LOOP_TRK;
             lp->ntrk = LOOP_TRK;
             lp->mute = (uint16_t)(0x155u >> (l2 & 1u));
@@ -6039,6 +6039,46 @@ static int bk_put(uint32_t num, const uint8_t *rec, uint32_t len)   /* a record 
     bk_ask(0x54, q, 0);
     return bkr[6];
 }
+/* the looper keeps each note's velocity: two notes recorded, soft and hard, played back as they were struck (to the
+ * loop's 16 steps) */
+static int cmd_loopvel(void)
+{
+    uint32_t fail = 0, k, b, seen_soft = 0, seen_hard = 0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    press_btn(B_REC);                                 /* armed: the first note starts it */
+    fm1_in.key_vel[0] = 40;
+    press_phys(0, 1);
+    run_blocks(200, 0);
+    press_phys(0, 0);
+    run_blocks(100, 0);
+    fm1_in.key_vel[4] = 120;
+    press_phys(4, 1);
+    run_blocks(200, 0);
+    press_phys(4, 0);
+    run_blocks(100, 0);
+    press_btn(B_REC);                                 /* the loop closed: it plays */
+    run_blocks(20, 0);
+    if (loop[0].ntrk != 1u)
+        printf("FAIL loopvel: no loop recorded (%u)\n", loop[0].ntrk), fail++;
+    for (b = 0; b < 1400u; b++) {                     /* (round it twice: its notes struck by the looper) */
+        run_blocks(1, 0);
+        for (k = 0; k < NVOICE; k++)
+            if (vox[k].gate && vox[k].vel) {
+                seen_soft |= vox[k].vel == LE_VEL(LE_CODE(40u));
+                seen_hard |= vox[k].vel == LE_VEL(LE_CODE(120u));
+            }
+    }
+    if (!seen_soft || !seen_hard)
+        printf("FAIL loopvel: the loop does not play its notes as struck (soft %u, hard %u)\n", seen_soft, seen_hard), fail++;
+    fm1_in.key_vel[0] = fm1_in.key_vel[4] = 0;
+    printf("loopvel: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 static int cmd_backup(void)
 {
     static uint8_t rec[8][60000];
@@ -6602,6 +6642,8 @@ int main(int argc, char **argv)
         return cmd_bricks(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "bkserve"))
         return cmd_bkserve();
+    if (argc >= 2 && !strcmp(argv[1], "loopvel"))
+        return cmd_loopvel();
     if (argc >= 2 && !strcmp(argv[1], "backup"))
         return cmd_backup();
     if (argc >= 2 && !strcmp(argv[1], "glow"))

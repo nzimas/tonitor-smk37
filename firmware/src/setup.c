@@ -12,14 +12,19 @@
  *          SEND       NOTES, CC                                 ON / OFF
  *          PORTS      USB IN                                    ON / OFF
  *          (the SMK-37 has no MIDI IN jack: trs_in stays in the record, unused)
+ *   VELOCITY  KEYS    CURVE                                     LINEAR, LIGHT, HEAVY, FIXED
+ *                     LOWEST, HIGHEST (the range it maps into)  1 .. 127
+ *                     FIXED AT (every note, the curve FIXED)    1 .. 127
  *
  * And what the settings do in the main loop: MIDI in routed by channel to the tracks (midi_take), its CCs set the
  * tracks' level, pan, macros, filter and sends; the same sent out when they change (midi_poll). */
 
 #define SET_NUM (PRE_NUM + 2u)                   /* (the record's number: after the presets' two) */
-#define SET_FORMAT 1u
+#define SET_FORMAT 2u                            /* 2: VELOCITY (format 1: the MIDI settings only, read still) */
 #define SET_LEN (32u + sizeof(midi_cfg_t))
-enum { SK_ONOFF, SK_CHAN };                      /* (a value: ON / OFF; OFF, 1 .. 16) */
+#define SET_LEN1 (32u + __builtin_offsetof(midi_cfg_t, vel_curve))
+enum { SK_ONOFF, SK_CHAN, SK_VCURVE, SK_VEL };   /* (a value: ON / OFF; OFF, 1 .. 16; a curve; 1 .. 127) */
+static const char *const VC_NAME[VC_N] = {"LINEAR", "LIGHT", "HEAVY", "FIXED"};
 typedef struct { const char *name; uint8_t off, kind; } set_row_t;
 #define SR(n, f, k) {n, (uint8_t)__builtin_offsetof(midi_cfg_t, f), k}
 static const set_row_t SET_IN[] = {SR("TRACK 1", in_ch[0], SK_CHAN), SR("TRACK 2", in_ch[1], SK_CHAN),
@@ -32,11 +37,32 @@ static const set_row_t SET_OUT[] = {SR("TRACK 1", out_ch[0], SK_CHAN), SR("TRACK
 static const set_row_t SET_RCV[] = {SR("NOTES", rcv_note, SK_ONOFF), SR("CC", rcv_cc, SK_ONOFF)};
 static const set_row_t SET_SND[] = {SR("NOTES", send_note, SK_ONOFF), SR("CC", send_cc, SK_ONOFF)};
 static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF)};
-#define SET_NPART 5u
-static const struct { const char *name; const set_row_t *rows; uint8_t n; } SET_PART[SET_NPART] = {
-    {"IN CHAN", SET_IN, NELEM(SET_IN)}, {"OUT CHAN", SET_OUT, NELEM(SET_OUT)}, {"RECEIVE", SET_RCV, NELEM(SET_RCV)},
-    {"SEND", SET_SND, NELEM(SET_SND)}, {"PORTS", SET_PORT, NELEM(SET_PORT)}};
-static const char *const SET_SECTION[1] = {"MIDI"};
+static const set_row_t SET_VEL[] = {SR("CURVE", vel_curve, SK_VCURVE), SR("LOWEST", vel_lo, SK_VEL),
+                                    SR("HIGHEST", vel_hi, SK_VEL), SR("FIXED AT", vel_fix, SK_VEL)};
+#define SET_NPART 6u
+static const struct { const char *name; const set_row_t *rows; uint8_t n, sec; } SET_PART[SET_NPART] = {
+    {"IN CHAN", SET_IN, NELEM(SET_IN), 0}, {"OUT CHAN", SET_OUT, NELEM(SET_OUT), 0}, {"RECEIVE", SET_RCV, NELEM(SET_RCV), 0},
+    {"SEND", SET_SND, NELEM(SET_SND), 0}, {"PORTS", SET_PORT, NELEM(SET_PORT), 0}, {"KEYS", SET_VEL, NELEM(SET_VEL), 1}};
+static const char *const SET_SECTION[2] = {"MIDI", "VELOCITY"};
+/* the parts of section sec: how many, and the k-th's place in SET_PART */
+static uint32_t set_nparts(uint32_t sec)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < SET_NPART; i++)
+        n += SET_PART[i].sec == sec;
+    return n;
+}
+static uint32_t set_part_at(uint32_t sec, uint32_t k)
+{
+    uint32_t i;
+    for (i = 0; i < SET_NPART; i++)
+        if (SET_PART[i].sec == sec && !k--)
+            return i;
+    return 0;
+}
+/* a row's range: its lowest and highest value */
+static int32_t set_lo(const set_row_t *r) { return r->kind == SK_VEL ? 1 : 0; }
+static int32_t set_hi(const set_row_t *r) { return r->kind == SK_ONOFF ? 1 : r->kind == SK_CHAN ? 16 : r->kind == SK_VCURVE ? VC_N - 1 : 127; }
 #define C_SET RGB(150, 200, 255)
 
 static struct {
@@ -79,27 +105,32 @@ static void setup_load(void)                     /* (the start, a restore: the s
     if (!ses.ok || (at = ses_find(SET_NUM)) < 0)
         return;
     ses_flash_read(SES_LO + ses.sect[at] * SES_SECT, &h, sizeof h);
-    if (h.format != SET_FORMAT || h.len != SET_LEN)
+    if (!(h.format == SET_FORMAT && h.len == SET_LEN) && !(h.format == 1u && h.len == SET_LEN1))
         return;
-    ses_flash_read(SES_LO + ses.sect[at] * SES_SECT + 32u, &c, sizeof c);
-    if (ses_crc((const uint8_t *)&c, sizeof c, 0) != h.body_crc)
+    c = D;                                       /* (format 1: VELOCITY as the defaults) */
+    ses_flash_read(SES_LO + ses.sect[at] * SES_SECT + 32u, &c, h.len - 32u);
+    if (ses_crc((const uint8_t *)&c, h.len - 32u, 0) != h.body_crc)
         return;
     for (i = 0; i < SET_NPART; i++)              /* (each value in its range, or the default) */
         for (r = 0; r < SET_PART[i].n; r++) {
-            uint8_t *v = (uint8_t *)&c + SET_PART[i].rows[r].off;
-            if (SET_PART[i].rows[r].kind == SK_ONOFF ? *v > 1u : *v > 16u)
-                *v = *((const uint8_t *)&D + SET_PART[i].rows[r].off);
+            const set_row_t *w = &SET_PART[i].rows[r];
+            uint8_t *v = (uint8_t *)&c + w->off;
+            if ((int32_t)*v < set_lo(w) || (int32_t)*v > set_hi(w))
+                *v = *((const uint8_t *)&D + w->off);
         }
     mcfg = c;
 }
 
 /* ------------------------------------------------------------ page --- */
 static uint8_t *set_ptr(const set_row_t *r) { return (uint8_t *)&mcfg + r->off; }
-static int32_t set_hi(const set_row_t *r) { return r->kind == SK_ONOFF ? 1 : 16; }
 static void set_text(const set_row_t *r, int32_t v, char *b)
 {
     if (r->kind == SK_ONOFF)
         str_cpy(b, v ? "ON" : "OFF", 4);
+    else if (r->kind == SK_VCURVE)
+        str_cpy(b, VC_NAME[v < VC_N ? v : 0], 8);
+    else if (r->kind == SK_VEL)
+        fmt_int(b, v);
     else if (!v)
         str_cpy(b, "OFF", 4);
     else
@@ -133,7 +164,7 @@ static void setup_press(int sh)
         set.lvl = 0;
     else if (set.lvl == 1u) {
         set.lvl = 2;
-        set.part = (uint8_t)(set.pc - 1u);
+        set.part = (uint8_t)set_part_at(set.sec, set.pc - 1u);
         set.row = 1;
         set.edit = 0;
     } else if (!set.edit && !set.row)            /* (BACK) */
@@ -157,11 +188,12 @@ static void setup_preset(int32_t s)
     if (set.lvl == 0u)
         set.sec = (uint8_t)clampi((int32_t)set.sec + s, 0, (int32_t)NELEM(SET_SECTION) - 1);
     else if (set.lvl == 1u)
-        set.pc = (uint8_t)clampi((int32_t)set.pc + s, 0, (int32_t)SET_NPART);
+        set.pc = (uint8_t)clampi((int32_t)set.pc + s, 0, (int32_t)set_nparts(set.sec));
     else if (!set.edit)
         set.row = (uint8_t)clampi((int32_t)set.row + s, 0, (int32_t)SET_PART[set.part].n);
     else
-        set.val = (int16_t)clampi(set.val + s, 0, set_hi(&SET_PART[set.part].rows[set.row - 1u]));
+        set.val = (int16_t)clampi(set.val + s, set_lo(&SET_PART[set.part].rows[set.row - 1u]),
+                                  set_hi(&SET_PART[set.part].rows[set.row - 1u]));
 }
 /* each pass: the page left (a track's button, SHIFT + SAVE), what changed written */
 static void setup_poll(void)
@@ -187,8 +219,11 @@ static void set_line(uint32_t r, const char *name, const char *val, int chosen, 
 {
     int32_t y = (37 - (int32_t)FONT_S.h) / 2;
     cv_begin(240, 37, chosen && !focus ? C_WHITE : C_BLACK);
-    if (focus)
-        cv_rect(160, 1, 80, 35, C_WHITE);
+    if (focus) {                                 /* (the white field as wide as the value needs) */
+        int32_t x = val && val[0] ? 232 - text_w(&FONT_S, val) - 8 : 160;
+        x = x < 160 ? x : 160;
+        cv_rect(x, 1, 240 - x, 35, C_WHITE);
+    }
     if (name)
         cv_text(8, y, &FONT_S, name, chosen && !focus ? C_BLACK : C_WHITE);
     if (val && val[0])
@@ -211,11 +246,12 @@ static void setup_draw(void)
         sel = set.sec;
     } else if (set.lvl == 1u) {
         set_title(SET_SECTION[set.sec]);
-        n = SET_NPART + 1u;                      /* (BACK, then the parts) */
+        n = set_nparts(set.sec) + 1u;            /* (BACK, then the section's parts) */
         sel = set.pc;
     } else {
-        str_cpy(t, "MIDI ", sizeof t);
-        str_cpy(t + 5, SET_PART[set.part].name, sizeof t - 5);
+        str_cpy(t, SET_SECTION[SET_PART[set.part].sec], sizeof t);
+        str_cpy(t + str_len(t), " ", 2);
+        str_cpy(t + str_len(t), SET_PART[set.part].name, sizeof t - str_len(t));
         set_title(t);
         n = SET_PART[set.part].n + 1u;           /* (BACK, then the rows) */
         sel = set.row;
@@ -233,7 +269,7 @@ static void setup_draw(void)
         else if (!i)
             set_line(r, "BACK", 0, i == sel, 0);
         else if (set.lvl == 1u)
-            set_line(r, SET_PART[i - 1u].name, 0, i == sel, 0);
+            set_line(r, SET_PART[set_part_at(set.sec, i - 1u)].name, 0, i == sel, 0);
         else {
             const set_row_t *w = &SET_PART[set.part].rows[i - 1u];
             set_text(w, set.edit && i == sel ? set.val : *set_ptr(w), v);

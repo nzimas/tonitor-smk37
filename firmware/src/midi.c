@@ -11,8 +11,12 @@ typedef struct {
     uint8_t out_ch[NLAYER];      /* each track's channel out, 0 off */
     uint8_t rcv_note, rcv_cc, send_note, send_cc;   /* 0 / 1 */
     uint8_t usb_in, trs_in;      /* the ports listened to */
+    uint8_t vel_curve;           /* (GLOBAL SETUP's VELOCITY, SET_FORMAT 2) the keys' velocity: VC_* .. */
+    uint8_t vel_lo, vel_hi;      /* .. brought into this range, 1 .. 127 .. */
+    uint8_t vel_fix;             /* .. or this one for every note (VC_FIXED) */
 } midi_cfg_t;
-#define MIDI_CFG0 {{1, 2, 3, 4, 5, 6}, 16, {1, 2, 3, 4, 5, 6}, 1, 1, 0, 0, 1, 1}
+enum { VC_LINEAR, VC_LIGHT, VC_HEAVY, VC_FIXED, VC_N };
+#define MIDI_CFG0 {{1, 2, 3, 4, 5, 6}, 16, {1, 2, 3, 4, 5, 6}, 1, 1, 0, 0, 1, 1, VC_LINEAR, 1, 127, 100}
 static midi_cfg_t mcfg = MIDI_CFG0;
 
 static uint16_t midi_held[NLAYER][8];            /* (each track's notes sent on, a bit each: one off each) */

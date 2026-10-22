@@ -46,12 +46,16 @@
 /* the panel: which SMK-37 control (smk_input.h ids) carries which of the FM-1's labels. The six tracks on the first
  * six pads of the top row (SMK_PADBTN0 + 0 .. 5); HOME SAVE ARP SEQ PLAY REC on the bottom row of buttons, PATCH PARA
  * FX SEQ SEQ-PLAY SEQ-REC, left to right; OCT- / OCT+ on OCTAVE- / OCTAVE+; SHIFT on KNOB BANK. The knobs: K1 is
- * MASTER (a virtual pot, smk_input.h), K2 .. K4 SELECT, ALGORITHM, PRESETS, K5 .. K8 KNOB 1 .. 4 */
+ * the track's level (the master: fader 4, smk_input.h); the knobs: PANEL_ENC */
 enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP, NB };
-enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
+enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, EN_DLY, NE };
 static const uint8_t PANEL_BTN[NB] = {SMK_PADBTN0, SMK_PADBTN0 + 1u, SMK_PADBTN0 + 2u, SMK_PADBTN0 + 3u, SMK_PADBTN0 + 4u,
                                       SMK_PADBTN0 + 5u, 12, 13, 14, 15, 16, 17, 4, 5};
-static const uint8_t PANEL_ENC[NE] = {1, 2, 3, 4, 5, 6, 7};
+/* the knobs, K1 .. K8 = 0 .. 7: the track's level (K1), pan (K2), filter (K3), grain (K4), crush (K5), delay send (K6),
+ * reverb send (K7); K8 free (EN_PRESET: only the host tests turn it, as the FM-1's PRESETS -- < and > do that). The
+ * pages' four values on K3 .. K6 (PAGE_K) */
+static const uint8_t PANEL_ENC[NE] = {0, 1, 7, 2, 3, 4, 6, 5};
+static const uint8_t PAGE_K[4] = {EN_K1, EN_K2, EN_K3, EN_DLY};
 static const uint8_t LAYER_BTN[NLAYER] = {B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO};
 #define NKEY 37u                 /* the keybed, C3 .. C6: every key plays */
 #define KEY_NONE 0xFFu
@@ -63,6 +67,23 @@ static void kset(uint32_t *m, uint32_t k, int on)
         m[k >> 5] |= 1u << (k & 31u);
     else
         m[k >> 5] &= ~(1u << (k & 31u));
+}
+/* a key's velocity (1 .. 127, as struck) as GLOBAL SETUP's VELOCITY has it: its curve -- LINEAR, LIGHT (soft playing
+ * louder: 1 - (1 - x)^2), HEAVY (a firmer touch wanted: x^2) -- into LOWEST .. HIGHEST; or FIXED, every note the same */
+static uint32_t vel_apply(uint32_t v)
+{
+    uint32_t x = v ? (v > 127u ? 127u : v) : 127u, lo = mcfg.vel_lo, hi = mcfg.vel_hi, y;   /* (0: not measured, full) */
+    if (mcfg.vel_curve == VC_FIXED)
+        return mcfg.vel_fix ? mcfg.vel_fix : 100u;
+    if (lo > hi) {
+        y = lo;
+        lo = hi;
+        hi = y;
+    }
+    x = (x - 1u) * 1024u / 126u;                 /* 0 .. 1024 */
+    y = mcfg.vel_curve == VC_LIGHT ? 1024u - (1024u - x) * (1024u - x) / 1024u
+        : mcfg.vel_curve == VC_HEAVY ? x * x / 1024u : x;
+    return lo + ((hi - lo) * y + 512u) / 1024u;
 }
 /* SHIFT: the KNOB BANK button, held */
 static int shift_held(void) { return (int)((fm1_in.buttons >> SMK_BTN_KNOB_BANK) & 1u); }
@@ -730,7 +751,7 @@ static void new_sound(int same) { new_sound_of(same ? cur_kind(ui.sel) : -1, sam
 static int32_t enc_take(uint32_t role) { return fm1_enc_take(PANEL_ENC[role]); }
 /* KNOB 1 .. 4 for their own functions: with SHIFT held, KNOB 3 and 4 are SHIFT's (distortion, delay send) -- a
  * click arriving between SHIFT's read and this one must not reach the crush or the reverb send */
-static int32_t knob_take(uint32_t role, int sh) { return sh && (role == EN_K3 || role == EN_K4) ? 0 : enc_take(role); }
+static int32_t knob_take(uint32_t role, int sh) { return sh && role == EN_K3 ? 0 : enc_take(role); }   /* (SHIFT + crush: the distortion) */
 static int btn_bit(uint32_t mask, uint32_t label) { return (int)((mask >> PANEL_BTN[label]) & 1u); }
 
 /* GLOBAL SETUP and the MIDI in (setup.c, after the sessions') */
@@ -883,13 +904,7 @@ static void ui_input(void)
         }
     }
     sh = shift_held();  /* (SHIFT read once: the knobs below all see the same) */
-    if (sh && (s = enc_take(EN_K4)) != 0) {   /* SHIFT + KNOB 4: the track's delay send */
-        ui.dsend[ui.sel] = (int8_t)clampi(ui.dsend[ui.sel] + 2 * s, 0, 100);
-        level_pan_apply(ui.sel);
-        ui.dial = DIAL_DSEND;
-        ui.dial_until = fm1_ms + 1000u;
-    }
-    if (sh && (s = enc_take(EN_K3)) != 0) {   /* SHIFT + KNOB 3: the track's distortion */
+    if (sh && (s = enc_take(EN_K3)) != 0) {   /* SHIFT + the crush knob (K5): the track's distortion */
         ui.dist[ui.sel] = (int8_t)clampi(ui.dist[ui.sel] + 2 * s, 0, 100);
         level_pan_apply(ui.sel);
         ui.dial = DIAL_DIST;
@@ -897,7 +912,7 @@ static void ui_input(void)
     }
     if (ui.env_page) {                           /* KNOB 1 .. 4: the track's own envelope, A D S R; the first turn
                                                   * takes it from the sound's own (as drawn) */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j, l = ui.sel, e = ui.engine[l];
         for (j = 0; j < 4u; j++) {
             s = knob_take(K[j], sh);
@@ -913,25 +928,25 @@ static void ui_input(void)
             }
         }
     } else if (ui.bl_page && bl.on[ui.sel]) {    /* BRICKLAYER's page: KNOB 1 .. 4 its */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j;
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 bl_knob(ui.sel, j, s);
     } else if (ui.bb_page && bb.on[ui.sel]) {    /* the chosen track's balls' page: KNOB 1 .. 4 theirs */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j;
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 bb_knob(ui.sel, j, s);
     } else if (ui.mod_page) {                    /* KNOB 1..4: the MOD entry's */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j;
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 mod_knob(ui.sel, ui.mod_ix, j, s);
     } else if (ui.rv_page) {                     /* KNOB 1..4: the reverb, or the delay */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j;
         int8_t *pv = ui.fx ? ui.dlp : ui.rvp;
         for (j = 0; j < 4u; j++) {
@@ -947,7 +962,7 @@ static void ui_input(void)
             }
         }
     } else if (ui.edit) {                        /* EDIT: KNOB 1 .. 4, the sound's macros; each its dial */
-        static const uint8_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+        const uint8_t *K = PAGE_K;
         uint32_t j;
         for (j = 0; j < NMAC; j++) {
             s = knob_take(K[j], sh);
@@ -981,7 +996,14 @@ static void ui_input(void)
             ui.dial = DIAL_CR;
             ui.dial_until = fm1_ms + 1000u;
         }
-        s = knob_take(EN_K4, sh);                /* KNOB 4: the layer's send */
+        s = enc_take(EN_DLY);                    /* K6: the layer's delay send */
+        if (s) {
+            ui.dsend[ui.sel] = (int8_t)clampi(ui.dsend[ui.sel] + 2 * s, 0, 100);
+            level_pan_apply(ui.sel);
+            ui.dial = DIAL_DSEND;
+            ui.dial_until = fm1_ms + 1000u;
+        }
+        s = enc_take(EN_K4);                     /* K7: the layer's reverb send */
         if (s) {
             ui.send[ui.sel] = (int8_t)clampi(ui.send[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
@@ -1390,6 +1412,7 @@ static void ui_input(void)
                 ui.key_layer[k] = ui.sel;
                 ui.key_note[k] = (uint8_t)note;
                 ui.key_form[k] = (uint8_t)f1;
+                vel = vel_apply(vel);            /* (GLOBAL SETUP's VELOCITY) */
                 press_vel = (uint8_t)(vel && vel < 127u ? vel : 0u);   /* the key's velocity (0: full) */
                 chord_press(ui.sel, note, f1, 1);
                 press_vel = (uint8_t)pv;
@@ -1410,9 +1433,8 @@ static uint32_t key_lit[2], fn_lit, fn_glow;
 static void fn_led(uint32_t f, int on) { fn_lit = on ? fn_lit | 1u << f : fn_lit & ~(1u << f); }
 static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_glow & ~(1u << f); }
 /* the top row of pads: the six tracks, each in its colour -- the chosen one full, the others dim (on the clipboard:
- * blinking); then the AMBIENT and EXPERIMENTAL paths (blue, red); the bottom row dark */
-#define C_PATH_AMB RGB(80, 140, 255)
-#define C_PATH_EXP RGB(255, 60, 40)
+ * blinking); then the AMBIENT and EXPERIMENTAL paths (white); the bottom row dark */
+#define C_PATH RGB(255, 255, 255)        /* (both paths white: unlike any track's colour) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1427,7 +1449,7 @@ static void pads_show(void)
             int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
         } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
-            pad_rgb(p, p == PAD_AMB ? C_PATH_AMB : C_PATH_EXP,
+            pad_rgb(p, C_PATH,
                     ui.path[ui.sel] == (p == PAD_AMB ? PATH_AMBIENT : PATH_EXP) ? 256u : PAD_DIM);
         else
             padled_set(p, 0, 0, 0);

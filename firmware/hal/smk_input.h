@@ -586,21 +586,16 @@ static void fm1_led_key(uint32_t id, int on)
         fm1_led[id] = (uint8_t)(on != 0);
 }
 
-/* fm1_adc.h stand-ins for main.c: the battery comes from mux C; the FM-1's MASTER pot is knob K1 here, as a
- * virtual pot (0..1023, 24 a detent; starts at 724: master_q12 2048, the level the firmware starts with) */
+/* fm1_adc.h stand-ins for main.c: the battery comes from mux C; the FM-1's MASTER pot is fader 4 here (TONITOR: the
+ * rightmost; 0..127 -> 0..1023) */
 enum { FM1_ADC_BATT = 3, FM1_ADC_MASTER = 4 };
-#define SMK_ENC_MASTER 0u          /* K1, where the FM-1 has its MASTER pot (top left) */
-static int32_t smk_master = 724;
+#define SMK_FADER_MASTER 3u
 static void fm1_adc_init(void) {}
-static int32_t fm1_enc_take(uint32_t e);
 static int32_t fm1_adc_read(uint32_t ch)
 {
     if (ch == FM1_ADC_BATT)
         return fm1_in.batt ? (int32_t)fm1_in.batt : -1;
-    if (ch == FM1_ADC_MASTER) {
-        smk_master += fm1_enc_take(SMK_ENC_MASTER) * 24;
-        smk_master = smk_master < 0 ? 0 : smk_master > 1023 ? 1023 : smk_master;
-        return smk_master;
-    }
+    if (ch == FM1_ADC_MASTER)
+        return fm1_in.frames < 200u ? -1 : (int32_t)fm1_in.fader[SMK_FADER_MASTER] * 1023 / 127;   /* (settled first) */
     return -1;
 }
