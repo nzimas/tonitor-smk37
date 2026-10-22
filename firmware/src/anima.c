@@ -1023,15 +1023,59 @@ static int64_t (*volatile an_samples_at)(an_voice_t *, const an_design_t *, int3
 #if TELEMETRY
 static uint32_t an_t_ctl, an_t_smp, an_t_n;    /* (a diagnostic build: the control's and the samples' ticks, summed) */
 #endif
-static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n)
+static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n, int32_t pq);
+static uint32_t an_bend_inc(uint32_t inc, uint32_t k)
+{
+    uint64_t x = ((uint64_t)inc * k) >> 16;
+    return x > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)x;
+}
+/* the wheels' pitch on a block: the note's increments x 2^(pq / 12), the comb shorter, the filter's keyboard
+ * tracking with it; the voice's own kept in sv (9), an_unbend puts them back */
+static void an_bend(an_voice_t *v, const an_design_t *d, int32_t pq, uint32_t *sv)
+{
+    int32_t oct = pq / 12;                           /* Q16 octaves */
+    uint32_t k = exp2_q16(oct), j;
+    for (j = 0; j < 4u; j++) {
+        sv[j] = v->incStack[j];
+        v->incStack[j] = an_bend_inc(v->incStack[j], k);
+    }
+    sv[4] = v->inc;
+    sv[5] = v->incB;
+    sv[6] = v->incM;
+    sv[7] = (uint32_t)v->resDelay;
+    sv[8] = (uint32_t)v->ktmul;
+    v->inc = an_bend_inc(v->inc, k);
+    v->incB = an_bend_inc(v->incB, k);
+    v->incM = an_bend_inc(v->incM, k);
+    v->resDelay = clampi((int32_t)(((int64_t)v->resDelay * exp2_q16(-oct)) >> 16), 2 << 16, (int32_t)(AN_RES_N - 4u) << 16);
+    if (d->kt)
+        v->ktmul = (int32_t)(((int64_t)v->ktmul * exp2_q16((int32_t)(((int64_t)oct * d->kt) >> 8))) >> 16);
+}
+static void an_unbend(an_voice_t *v, const uint32_t *sv)
+{
+    uint32_t j;
+    for (j = 0; j < 4u; j++)
+        v->incStack[j] = sv[j];
+    v->inc = sv[4];
+    v->incB = sv[5];
+    v->incM = sv[6];
+    v->resDelay = (int32_t)sv[7];
+    v->ktmul = (int32_t)sv[8];
+}
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' an_render_p; everyone else an_render, none) */
+static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n) { return an_render_p(v, d, out, n, 0); }
+static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     int32_t e0, e1, de, a0, da;
     int64_t ms;
+    uint32_t sv[9];
 #if TELEMETRY
     uint32_t t0 = an_cache_now ? fm1_ticks() : 0u, t1 = 0;
 #endif
     if (!v->live)
         return 0;
+    if (pq)
+        an_bend(v, d, pq, sv);
     an_control(v, d);
 #if TELEMETRY
     if (an_cache_now)
@@ -1040,6 +1084,8 @@ static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t
     e0 = v->ev;
     e1 = an_env_tick(v, d);
     if (v->est == EN_IDLE && e0 == 0) {
+        if (pq)
+            an_unbend(v, sv);
         v->live = 0;
         return 0;
     }
@@ -1109,6 +1155,8 @@ static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t
     da = (v->amp - v->ampPrev) / (int32_t)n;
     ms = an_samples_at(v, d, out, n, e0, de, a0, da);
 #endif
+    if (pq)
+        an_unbend(v, sv);
 #if TELEMETRY
     if (an_cache_now) {
         uint32_t t2 = fm1_ticks();

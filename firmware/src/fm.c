@@ -256,7 +256,10 @@ static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t vel, int3
 }
 
 /* one block (CTL samples), Q15 into out; 0 when the voice is silent for good. mac: EDIT's macros (0: none) */
-static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac)
+static int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' fm_render_p; everyone else fm_render, none) */
+static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac) { return fm_render_p(v, pt, out, mac, 0); }
+static int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac, int32_t pq)
 {
     const uint8_t *p = pt->p;
     int32_t bus[FM6_N], lv, ld, lf, dt[6] = {0, 0, 0, 0, 0, 0}, lvl[6] = {0, 0, 0, 0, 0, 0}, fb = p[FP_FB] & 7u;
@@ -295,6 +298,11 @@ static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const in
         lv = fm6_lfo_sample(&v->lfo);
     ld = fm6_lfo_delay(&v->lfo);
     lf = fm6_note_logfreq(v->note * 16, 0);
+    if (pq) {                                        /* the wheels: every operator, fixed ones too (Q16 semitones -> Q24 log2) */
+        int32_t d = pq * 64 / 3;
+        for (i = 0; i < 6u; i++)
+            dt[i] += d;
+    }
     if (!fm6_note_compute(&v->n, p, bus, lv, ld, lf, p[FP_ALG] & 31u, fb, dt, lvl, lfoq8, rq)) {
         for (i = 0; i < FM6_N; i++)
             out[i] = 0;

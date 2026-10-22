@@ -338,7 +338,10 @@ static int32_t cal_hyper(cal_t *c, const cal_design_t *d)
 }
 
 /* one block (CTL samples), Q15 into out; 0 when it has gone quiet for good */
-static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
+static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' cal_render_p; everyone else cal_render, none) */
+static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out) { return cal_render_p(c, d, out, 0); }
+static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t pq)
 {
     uint32_t i, k;
     int32_t h, gate, dmod_lfo, sharp_drv[4], depth[4], gp, total_fb = d->total_fb, drive = d->drive;
@@ -418,6 +421,13 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
         } else
             for (j = 0; j < 8u; j++)
                 c->inc[j] = pitch_inc(c->base + d->tune[j] + v16);
+        if (pq) {                                         /* the wheels' pitch: every oscillator x 2^(pq / 12) */
+            uint32_t kb = exp2_q16(pq / 12);
+            for (j = 0; j < 8u; j++) {
+                uint64_t x = ((uint64_t)c->inc[j] * kb) >> 16;
+                c->inc[j] = x > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)x;
+            }
+        }
     }
     /* the envelopes: towards 1 (a sensor, a burst, a side's hold) or 0, slow or fast */
     for (k = 0; k < 8u; k++) {

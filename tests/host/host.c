@@ -5742,7 +5742,7 @@ static uint32_t bl_count(uint32_t ms, uint32_t *distinct)   /* loop-free notes s
 }
 static int cmd_bricks(const char *dir)
 {
-    uint32_t fail = 0, i, hits = 0, d, ons, ons2;
+    uint32_t fail = 0, i, k, hits = 0, d, ons, ons2;
     char path[512];
     grain_reset();
     memset(host_flash, 0xFF, sizeof host_flash);
@@ -5912,16 +5912,21 @@ static int cmd_bricks(const char *dir)
     ui_input();
     if (bl.n[0] || !bl.rec[0])
         printf("FAIL bricks: REC held does not empty it (or turns entry off)\n"), fail++;
-    press_phys(KEY_BRICKS, 1);                        /* the button held: the page down, the knobs the track's */
-    for (i = 0; i < 60u; i++) {
-        run_blocks(20, 0);
-        ui_input();
+    for (k = 0; k < 2u; k++) {                       /* the button held: its options on the pads; held again, off them */
+        press_phys(KEY_BRICKS, 1);
+        for (i = 0; i < 60u; i++) {
+            run_blocks(20, 0);
+            ui_input();
+        }
+        press_phys(KEY_BRICKS, 0);
+        if (ui.pad_page != (k ? PP_NONE : PP_BRICKS) || !bl.on[0])
+            printf("FAIL bricks: holding the button does not %s its pads (%u)\n", k ? "free" : "show", ui.pad_page), fail++;
     }
-    press_phys(KEY_BRICKS, 0);
+    ui.bl_page = 0;                                   /* (another view: the knobs the track's) */
     host_enc[PANEL_ENC[EN_K1]] = 2;
     ui_input();
-    if (ui.bl_page || ui.env_page || !bl.on[0] || ui.flt[0] != 4)
-        printf("FAIL bricks: holding the key does not put the page down\n"), fail++;
+    if (ui.env_page || !bl.on[0] || ui.flt[0] != 4)
+        printf("FAIL bricks: off its page, K3 is not the filter\n"), fail++;
     lm_key(KEY_ENV);                                  /* a short press: the ENVELOPE page */
     if (!ui.env_page)
         printf("FAIL bricks: a short press is not the ENVELOPE page\n"), fail++;
@@ -5931,12 +5936,15 @@ static int cmd_bricks(const char *dir)
         printf("FAIL bricks: BALLSY starts beside it\n"), fail++;
     if (ui.bl_page || ui.bb_page)                     /* PLAY: the sequencer's on its page (blinking), else the looper's */
         printf("FAIL bricks: its page is up\n"), fail++;
-    press_btn(B_PLAY);
+    press_btn(B_PLAY);                                /* off its page, playing: PLAY stops it (not the looper) */
     fm1_in.buttons &= ~(1u << PANEL_BTN[B_PLAY]);
     ui_input();
-    if (!bl.run[0])
-        printf("FAIL bricks: PLAY off its page stops it\n"), fail++;
+    if (bl.run[0] || loop[0].play)
+        printf("FAIL bricks: PLAY off its page does not stop it while it plays\n"), fail++;
     ui.bl_page = 1;
+    press_btn(B_PLAY);                                /* on its page: started again */
+    if (!bl.run[0])
+        printf("FAIL bricks: PLAY on its page does not start it\n"), fail++;
     {
         int a1, a2;
         ui_leds();
@@ -5964,7 +5972,7 @@ static int cmd_bricks(const char *dir)
     press_phys(KEY_SHIFT, 0);
     if (!bl.run[0] || strcmp(ui.msg, "ALL PLAYING"))
         printf("FAIL bricks: SHIFT + PLAY does not start it\n"), fail++;
-    {   /* the looper beside it, its page down: a loop recorded, playing; PLAY lit steadily */
+    {   /* the looper beside it, its page down: a loop recorded, playing; PLAY blinks (BRICKLAYER plays) */
         int a1, a2;
         bl_add(0, 2, 0);                              /* (two notes for it to play meanwhile) */
         bl_add(0, 4, 0);
@@ -5992,8 +6000,8 @@ static int cmd_bricks(const char *dir)
         fm1_ms += 250;
         ui_leds();
         a2 = host_led[PANEL_BTN[B_PLAY]];
-        if (!a1 || !a2)
-            printf("FAIL bricks: PLAY is not lit steadily for the loops off its page\n"), fail++;
+        if (a1 == a2)                                 /* (a sequencer playing: PLAY blinks for it, anywhere) */
+            printf("FAIL bricks: PLAY does not blink for BRICKLAYER, loops playing beside it\n"), fail++;
         ev_post(EV_LOOP_CLEAR, 0, 0, 0);
         run_blocks(4, 0);
     }
@@ -6210,6 +6218,55 @@ static int cmd_looppads(void)
     if (ui.pad_page != PP_NONE || loop[0].dmode != LD_FWD)
         printf("FAIL looppads: LOOP again does not free the pads (%u, %u)\n", ui.pad_page, loop[0].dmode), fail++;
     printf("looppads: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
+/* a sequencer playing: PLAY stops it from anywhere (blinking there); BRICKLAYER held: its direction and speed on the
+ * bottom row of pads (pads 9 .. 11, 15, 16), its own colour */
+static int cmd_seqplay(void)
+{
+    uint32_t fail = 0, i;
+    int lit;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    lm_key(KEY_BRICKS);                              /* on: its page up */
+    press_btn(B_PLAY);
+    if (!bl.run[0])
+        printf("FAIL seqplay: PLAY on its page does not start BRICKLAYER\n"), fail++;
+    ui.bl_page = 0;                                  /* (another view) */
+    ui_leds();
+    lit = host_led[PANEL_BTN[B_PLAY]];
+    fm1_ms += 250u;
+    ui_leds();
+    lit += host_led[PANEL_BTN[B_PLAY]];
+    if (lit != 1)
+        printf("FAIL seqplay: PLAY does not blink off its page while it plays (%d)\n", lit), fail++;
+    press_btn(B_PLAY);
+    if (bl.run[0] || loop[0].play)
+        printf("FAIL seqplay: PLAY off its page does not stop it (or plays the loops)\n"), fail++;
+    press_phys(KEY_BRICKS, 1);                       /* held: its pads */
+    for (i = 0; i < 40u; i++) {
+        fm1_ms += 25u;
+        ui_input();
+    }
+    press_phys(KEY_BRICKS, 0);
+    if (ui.pad_page != PP_BRICKS || !bl.on[0])
+        printf("FAIL seqplay: BRICKLAYER held does not put its options on the pads (%u)\n", ui.pad_page), fail++;
+    ch_pad(0);
+    ch_pad(7);
+    if (bl.dir[0] != LD_REV || bl.spd[0] != LS_DOUBLE || loop[0].dmode != LD_FWD || loop[0].rate != LS_NORMAL)
+        printf("FAIL seqplay: pads 9 and 16 do not set BRICKLAYER's direction and speed (only) (%u %u)\n", bl.dir[0], bl.spd[0]), fail++;
+    ch_pad(0);
+    ch_pad(7);
+    if (bl.dir[0] != LD_FWD || bl.spd[0] != LS_NORMAL)
+        printf("FAIL seqplay: the lit pads again do not go back (%u %u)\n", bl.dir[0], bl.spd[0]), fail++;
+    lm_key(KEY_BRICKS);                              /* off: its pads go too */
+    if (bl.on[0] || ui.pad_page != PP_NONE)
+        printf("FAIL seqplay: BRICKLAYER off does not take its pads off (%u)\n", ui.pad_page), fail++;
+    printf("seqplay: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
 
@@ -6776,6 +6833,8 @@ int main(int argc, char **argv)
         return cmd_bricks(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "bkserve"))
         return cmd_bkserve();
+    if (argc >= 2 && !strcmp(argv[1], "seqplay"))
+        return cmd_seqplay();
     if (argc >= 2 && !strcmp(argv[1], "looppads"))
         return cmd_looppads();
     if (argc >= 2 && !strcmp(argv[1], "loopvel"))

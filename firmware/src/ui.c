@@ -101,7 +101,9 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define BTN_BRICKS 10u
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
-enum { PP_NONE, PP_CHORD, PP_LOOP };     /* the bottom row of pads: free, the chords, the loops' direction and speed */
+enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS };   /* the bottom row of pads: free, the chords, the loops' direction and
+                                                 * speed, BRICKLAYER's (BRICKLAYER held: pads 9 .. 11 and 15, 16 as the
+                                                 * loops', its own colour) */
 /* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 12 .. 14 STUTTER,
  * CLIMB DOWN, CLIMB UP, each on or off (the climbs exclusive; layers.c lfx); 15, 16 (14, 15) the speed, HALF DOUBLE (none lit: normal); the lit one
  * pressed again: back to forward / normal */
@@ -1115,7 +1117,8 @@ static void ui_input(void)
                 }
             }
             say(playing ? "ALL STOPPED" : kept ? "ALL PLAYING" : "NOTHING", 1200);
-        } else if (seq_page()) {                 /* PLAY on a sequencer's page: it starts or stops */
+        } else if (seq_page() || bl.run[ui.sel] || bb.run[ui.sel]) {   /* PLAY on a sequencer's page: it starts or
+                                                  * stops; anywhere while it plays: it stops */
             int run = !(bl.run[ui.sel] || bb.run[ui.sel]);
             bl_set_run(ui.sel, run);
             bb_set_run(ui.sel, run);
@@ -1274,6 +1277,17 @@ static void ui_input(void)
                     ui.chord_form[ui.sel] = (uint8_t)j;
                     say(CH_NAME[j], 900);
                     ui.force = 1;                /* (its name under CHO) */
+                } else if (ui.pad_page == PP_BRICKS && (j < 3u || j >= 6u)) {   /* BRICKLAYER's direction, speed */
+                    uint32_t l = ui.sel;
+                    if (j < 3u) {
+                        uint32_t want = j == 0u ? LD_REV : j == 1u ? LD_PEND : LD_RAND;
+                        bl.dir[l] = (uint8_t)(bl.dir[l] == want ? LD_FWD : want);
+                        say(bl.dir[l] == LD_REV ? "REVERSE" : bl.dir[l] == LD_PEND ? "PENDULUM" : bl.dir[l] == LD_RAND ? "RANDOM" : "FORWARD", 1200);
+                    } else {
+                        uint32_t want = j == 6u ? LS_HALF : LS_DOUBLE;
+                        bl.spd[l] = (uint8_t)(bl.spd[l] == want ? LS_NORMAL : want);
+                        say(bl.spd[l] == LS_HALF ? "HALF SPEED" : bl.spd[l] == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
+                    }
                 } else if (ui.pad_page == PP_LOOP && LOOP_PAD_FN[j] != 0xFFu) {
                     fch |= 1u << LOOP_PAD_FN[j];  /* (pressed now) */
                     fk |= 1u << LOOP_PAD_FN[j];
@@ -1384,8 +1398,9 @@ static void ui_input(void)
         say(ui.edit ? "EDIT" : "EDIT OFF", 900);
     }
     for (k = 0; k < 2u; k++) {                   /* BALLSY (k 0) and BRICKLAYER (1), the chosen track's: pressed, on (its
-                                                  * page up) or off (stopped, its page down); held while on, its page up
-                                                  * or down. PLAY starts and stops it, its page up */
+                                                  * page up) or off (stopped, its page down); BALLSY held while on, its page
+                                                  * up or down; BRICKLAYER held, its direction and speed on the pads. PLAY
+                                                  * starts and stops it on its page, and stops it anywhere while it plays */
         uint32_t id = k ? BTN_BRICKS : BTN_BALLS, held = (fm1_in.buttons >> id) & 1u;
         uint8_t *on = k ? bl.on : bb.on, *pg = k ? &ui.bl_page : &ui.bb_page;
         if ((press >> id) & 1u) {
@@ -1393,11 +1408,25 @@ static void ui_input(void)
             ui.sq_done[k] = 0;
             ui.sq_t0[k] = fm1_ms;
         }
-        if (ui.sq_down[k] && held && !ui.sq_done[k] && on[ui.sel] && (uint32_t)(fm1_ms - ui.sq_t0[k]) >= 600u) {
+        if (ui.sq_down[k] && held && !ui.sq_done[k] && (k || on[ui.sel]) && (uint32_t)(fm1_ms - ui.sq_t0[k]) >= 600u) {
             ui.sq_done[k] = 1;
-            *pg = (uint8_t)!*pg;
-            if (*pg)
-                seq_page_only(k);
+            if (k) {                             /* BRICKLAYER held: its direction and speed on the pads (on with them) */
+                if (!bl.on[ui.sel] && bb.on[ui.sel])
+                    say("NOT ALLOWED", 1200);
+                else {
+                    if (!bl.on[ui.sel]) {
+                        bl_toggle(ui.sel);
+                        ui.bl_page = 1;
+                        seq_page_only(1);
+                    }
+                    ui.pad_page = (uint8_t)(ui.pad_page == PP_BRICKS ? PP_NONE : PP_BRICKS);
+                    say(ui.pad_page == PP_BRICKS ? "BRICKS PADS" : "PADS FREE", 900);
+                }
+            } else {                             /* BALLSY held, on: its page up or down */
+                *pg = (uint8_t)!*pg;
+                if (*pg)
+                    seq_page_only(k);
+            }
             ui.force = 1;
         }
         if (ui.sq_down[k] && !held) {
@@ -1416,6 +1445,8 @@ static void ui_input(void)
             if (*pg)
                 seq_page_only(k);
             say(on[ui.sel] ? (k ? "BRICKLAYER" : "BALLSY") : (k ? "BRICKLAYER OFF" : "BALLSY OFF"), 900);
+            if (k && !on[ui.sel] && ui.pad_page == PP_BRICKS)
+                ui.pad_page = PP_NONE;           /* (off: its pads go with it) */
             ui.force = 1;
         }
     }
@@ -1507,6 +1538,8 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_LOOP_DIR RGB(255, 20, 20)      /* (the loops' direction: red; their speed, a warmer red) */
 #define C_LOOP_SPD RGB(255, 90, 40)
 #define C_LOOP_FX RGB(255, 0, 120)       /* (STUTTER, CLIMB DOWN, CLIMB UP: a magenta red) */
+#define C_BL_DIR RGB(120, 0, 255)        /* (BRICKLAYER's direction: violet; its speed, a pinker violet) */
+#define C_BL_SPD RGB(190, 0, 200)
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
@@ -1522,7 +1555,11 @@ static void pads_show(void)
             pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
             pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
-        else if (p >= 8u && ui.pad_page == PP_LOOP && LOOP_PAD_FN[p - 8u] != 0xFFu) {   /* the loops': as set, lit */
+        else if (p >= 8u && ui.pad_page == PP_BRICKS && (p - 8u < 3u || p - 8u >= 6u)) {   /* BRICKLAYER's: violet */
+            uint32_t j = p - 8u, dm = bl.dir[ui.sel], rt = bl.spd[ui.sel];
+            int on = j == 0u ? dm == LD_REV : j == 1u ? dm == LD_PEND : j == 2u ? dm == LD_RAND : j == 6u ? rt == LS_HALF : rt == LS_DOUBLE;
+            pad_rgb(p, j >= 6u ? C_BL_SPD : C_BL_DIR, on ? 256u : PAD_DIM);
+        } else if (p >= 8u && ui.pad_page == PP_LOOP && LOOP_PAD_FN[p - 8u] != 0xFFu) {   /* the loops': as set, lit */
             uint32_t f = LOOP_PAD_FN[p - 8u];
             int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own) */
             uint32_t dm = blp ? bl.dir[ui.sel] : loop[ui.sel].dmode, rt = blp ? bl.spd[ui.sel] : loop[ui.sel].rate;
@@ -1550,7 +1587,8 @@ static void ui_leds(void)
             fm1_led_key(PANEL_BTN[B_REC], bl.rec[ui.sel]);
         else
             fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
-        fm1_led_key(PANEL_BTN[B_PLAY], seq_page() ? (bl.run[ui.sel] || bb.run[ui.sel]) && (fm1_ms / 250u) & 1u   /* (blinking */
+        fm1_led_key(PANEL_BTN[B_PLAY], seq_page() || bl.run[ui.sel] || bb.run[ui.sel]   /* (a sequencer playing: blinking, anywhere */
+                                                  ? (bl.run[ui.sel] || bb.run[ui.sel]) && (fm1_ms / 250u) & 1u
                                                   : p->play && p->ntrk);                               /* as its key) */
     }
     fm1_led_key(PANEL_BTN[B_HOME], btn_bit(fm1_in.buttons, B_HOME));   /* (a momentary button: lit while held) */

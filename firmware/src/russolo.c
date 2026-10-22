@@ -376,7 +376,10 @@ static int32_t rus_step(rus_t *c, const rus_design_t *d, int32_t p1, int32_t p2,
 static int32_t rus_ms(int32_t ms, int32_t m) { return m ? mulq16(ms, (int32_t)exp2_q16(m * (R16(3.0) / MAC_MAX))) : ms; }
 
 /* one block (CTL samples), Q15 into out; 0 when it has gone quiet for good */
-static int rus_render(rus_t *c, const rus_design_t *d, int32_t *out)
+static int rus_render_p(rus_t *c, const rus_design_t *d, int32_t *out, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' rus_render_p; everyone else rus_render, none) */
+static int rus_render(rus_t *c, const rus_design_t *d, int32_t *out) { return rus_render_p(c, d, out, 0); }
+static int rus_render_p(rus_t *c, const rus_design_t *d, int32_t *out, int32_t pq)
 {
     uint32_t i;
     int32_t p1 = clampi(d->p1 + c->mac[0] * (Q15 / MAC_MAX), 0, Q15), p2 = clampi(d->p2 + c->mac[1] * (Q15 / MAC_MAX), 0, Q15);
@@ -396,6 +399,10 @@ static int rus_render(rus_t *c, const rus_design_t *d, int32_t *out)
     if (!c->live)
         return 0;
     c->inc = pitch_inc(c->base) * RUS_SUB;
+    if (pq) {                                             /* the wheels' pitch: the key's frequency x 2^(pq / 12) */
+        uint64_t x = ((uint64_t)c->inc * exp2_q16(pq / 12)) >> 16;
+        c->inc = x > 0xF0000000u ? 0xF0000000u : (uint32_t)x;
+    }
     k = e_t > c->env ? cal_ex(att) : cal_ex(rel);
     e1 = e_t + mulq16(c->env - e_t, k);
     if (absi(e1 - e_t) < 32 << 8)

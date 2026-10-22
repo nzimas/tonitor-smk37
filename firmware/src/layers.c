@@ -1667,7 +1667,14 @@ static void voice_take(uint32_t k)
  * the fades, the filter, the grains, the crush, the level, the sends). The effects run a block behind, on the
  * sends of the block before (their returns 32 samples, 0.73 ms, later); on one core in the same order, so the
  * sound is the same with one core or two. Only CPU0 writes the voices' state outside their own memory */
-static int8_t blk_mac[NLAYER][NMAC], blk_felt[NLAYER][NMAC];   /* each layer's macros for the block (as turned, felt) */
+static int8_t blk_mac[NLAYER][NMAC], blk_felt[NLAYER][NMAC];
+/* the wheels (main.c smk_wheels), on the chosen track: lay_bend its pitch bend (semitones Q16), lay_mw the mod wheel
+ * (0 .. 127): vibrato (5.5 Hz, up to 0.4 semitone) and macro 1 pushed up (up to MAC_MAX); blk_pitch each layer's pitch
+ * for the block (CPU0 writes it; the voices read it, either core) */
+static volatile int32_t lay_bend[NLAYER];
+static volatile uint8_t lay_mw[NLAYER];
+static int32_t blk_pitch[NLAYER];
+static uint32_t vib_ph;   /* each layer's macros for the block (as turned, felt) */
 static int32_t vr_buf[NVOICE][CTL] POOL __attribute__((aligned(32)));   /* each voice's sound, this block */
 static int32_t or_buf[NLAYER][CTL] POOL __attribute__((aligned(32)));   /* each layer's organism's */
 static int32_t fx_dl[CTL], fx_rv[CTL], fx_l[CTL], fx_r[CTL];   /* the effects: the last block's sends, their returns */
@@ -1682,19 +1689,19 @@ static void voice_render(uint32_t k)
     int32_t *vb = vr_buf[k];
     int alive;
     if (e == ENG_FM)
-        alive = fm_render(&v->fm, &fm_buf[l][fm_use[l]], vb, blk_mac[l]);
+        alive = fm_render_p(&v->fm, &fm_buf[l][fm_use[l]], vb, blk_mac[l], blk_pitch[l]);
     else if (e == ENG_DRUID) {
         memcpy(vmem[k].dr.mac, blk_felt[l], NMAC);
-        alive = dr_render(&vmem[k].dr, &dr_buf[l][dr_use[l]], vb, CTL);
+        alive = dr_render_p(&vmem[k].dr, &dr_buf[l][dr_use[l]], vb, CTL, blk_pitch[l]);
     } else if (e == ENG_BAY) {
         memcpy(vmem[k].ba.mac, blk_felt[l], NMAC);
-        alive = ba_render(&vmem[k].ba, &ba_buf[l][ba_use[l]], vb, CTL);
+        alive = ba_render_p(&vmem[k].ba, &ba_buf[l][ba_use[l]], vb, CTL, blk_pitch[l]);
     } else if (e == ENG_HIVE) {
         memcpy(vmem[k].hv.mac, blk_felt[l], NMAC);
-        alive = hv_render(&vmem[k].hv, &hv_buf[l][hv_use[l]], vb, CTL);
+        alive = hv_render_p(&vmem[k].hv, &hv_buf[l][hv_use[l]], vb, CTL, blk_pitch[l]);
     } else {
         memcpy(vmem[k].an.mac, blk_mac[l], NMAC);
-        alive = an_render(&vmem[k].an, &an_buf[l][an_use[l]], vb, CTL);
+        alive = an_render_p(&vmem[k].an, &an_buf[l][an_use[l]], vb, CTL, blk_pitch[l]);
     }
     COST_ADD(e);
     vr_ticks[k] = COST_NOW() - c0;
@@ -1708,10 +1715,10 @@ static void org_render(uint32_t l)               /* the layer's organism */
     memset(b, 0, CTL * sizeof b[0]);
     if (lay[l].engine == ENG_CAL) {
         memcpy(cal_rt[l].mac, blk_felt[l], NMAC);
-        or_live[l] = (uint8_t)cal_render(&cal_rt[l], &cal_buf[l][cal_use[l]], b);
+        or_live[l] = (uint8_t)cal_render_p(&cal_rt[l], &cal_buf[l][cal_use[l]], b, blk_pitch[l]);
     } else {
         memcpy(rus_rt[l].mac, blk_felt[l], NMAC);
-        or_live[l] = (uint8_t)rus_render(&rus_rt[l], &rus_buf[l][rus_use[l]], b);
+        or_live[l] = (uint8_t)rus_render_p(&rus_rt[l], &rus_buf[l][rus_use[l]], b, blk_pitch[l]);
     }
     if (or_live[l])
         COST_ADD(lay[l].engine);                 /* (the host's model: a silent organism costs nothing) */
@@ -1745,6 +1752,7 @@ static void blk_render(void)
     uint32_t cst[NVOICE + NLAYER + 1u], s0 = 0, s1, l, k, j, n = 0, i;
     uint8_t ord[NVOICE + NLAYER + 1u];           /* (0 .. NVOICE-1 a voice, then the organisms, then the effects) */
     int any1 = 0;
+    vib_ph += 17134000u;                         /* (5.5 Hz at a block a step) */
     for (l = 0; l < NLAYER; l++) {
         layer_t *y = &lay[l];
         mod_block(l);                            /* (the modulation: its LFOs a step on, its offsets) */
@@ -1754,8 +1762,13 @@ static void blk_render(void)
             else
                 change_apply(l);
         }
+        blk_pitch[l] = lay_bend[l] + (lay_mw[l] ? (int32_t)lay_mw[l] * 206 * (sin_ph(vib_ph) >> 7) >> 8 : 0);
         for (i = 0; i < NMAC; i++) {
-            int32_t m = mod_val(l, MD_MAC(i), lay_mac[l][i], -MAC_MAX, MAC_MAX), a = m < 0 ? -m : m, q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));
+            int32_t m = mod_val(l, MD_MAC(i), lay_mac[l][i], -MAC_MAX, MAC_MAX), a, q;
+            if (!i && lay_mw[l])                 /* (the mod wheel: macro 1 up) */
+                m = clampi(m + (int32_t)lay_mw[l] * MAC_MAX / 127, -MAC_MAX, MAC_MAX);
+            a = m < 0 ? -m : m;
+            q = (int32_t)isqrt32((uint32_t)(a * MAC_MAX));
             blk_mac[l][i] = (int8_t)m;
             blk_felt[l][i] = (int8_t)(m < 0 ? -q : q);   /* (the organisms' macros felt early: the square root of the
                                                           * turn; FM and ANIMA take theirs as turned) */

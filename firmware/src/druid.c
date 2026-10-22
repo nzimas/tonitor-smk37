@@ -485,16 +485,28 @@ static void dr_modes(dr_voice_t *v, int32_t st, int32_t bright, int32_t damp, in
 }
 
 /* ------------------------------------------------------------ a block --- */
-static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t n)
+static int dr_render_p(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t n, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' dr_render_p; everyone else dr_render, none) */
+static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t n) { return dr_render_p(v, d, out, n, 0); }
+/* a phase step bent by m (Q16) */
+static uint32_t dr_bend(uint32_t inc, uint32_t m)
+{
+    uint64_t x = ((uint64_t)inc * m) >> 16;
+    return x > 0x7FFFFFFFu ? 0x7FFFFFFFu : (uint32_t)x;
+}
+static int dr_render_p(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     int32_t ex[CTL], o[CTL], a[CTL], sy[CTL];
     int32_t st = dr_knob(d->structure, v->mac[0]), br = dr_knob(d->brightness, v->mac[1]);
     int32_t dm = dr_knob(d->damping, v->mac[2]), ps = dr_knob(d->position, v->mac[3]);
     uint32_t i, k;
     int32_t pk = 0;
+    uint32_t inc0 = v->inc, bend = pq ? exp2_q16(pq / 12) : Q16;
     if (!v->live)
         return 0;
     n = n > CTL ? CTL : n;
+    if (pq)                                                   /* the wheels: the note's step bent for the block */
+        v->inc = dr_bend(inc0, bend);
     if (!v->gate)                                             /* let go: the damping down by the design's share */
         dm = mulq15(dm, Q15 - dr_knob(d->mute, v->mac[7]));   /* (MUTE) */
     if (d->exc == DX_BOW || d->exc == DX_DUST) {              /* the bow swells in, dies away when let go */
@@ -510,6 +522,8 @@ static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t
     if (d->model == DM_MODAL) {
         int32_t key = (int32_t)((uint32_t)(st >> 9) | (uint32_t)(br >> 9) << 6 | (uint32_t)(dm >> 9) << 12 |
                                 (uint32_t)(ps >> 9) << 18 | (uint32_t)(v->note & 63) << 24);
+        if (pq)                                                /* (bent: the bend hashed in, bit 30 set) */
+            key ^= (int32_t)(((uint32_t)pq * 2654435761u) | 0x40000000u);
         dr_excite(v, d, ex, n, br, ps, 1);
         for (i = 0; i < n; i++)
             ex[i] *= 4;                                        /* (a body takes more to ring than a string) */
@@ -569,6 +583,8 @@ static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t
             const int32_t *src = ex;
             while (inc < 0xFFFFFFFFu / (uint32_t)(s->ln.len - 6u) && inc < 0x40000000u)
                 inc <<= 1;                                     /* (an octave up where it would not fit) */
+            if (pq)                                            /* (bent after: no octave jumps as it bends) */
+                inc = dr_bend(inc, bend);
             per = dr_period(inc);
             if (k) {
                 int32_t amt = mulq15(Q15 / 2 - absi(Q15 / 2 - ps), 29491), lv;
@@ -598,6 +614,7 @@ static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t
     v->quiet = pk < 6 ? v->quiet + 1 : 0;
     if (v->quiet > 64 && !(v->gate && (d->exc == DX_BOW || d->exc == DX_DUST)))
         v->live = 0;                                           /* (silent ~50 ms, nothing driving it: done) */
+    v->inc = inc0;
     return 1;
 }
 

@@ -376,6 +376,59 @@ static void bench_blocks(void)
 }
 #endif
 
+/* the wheels (after Felucca's smk37 branch, main.c smk_wheels): mux C 4 the pitch wheel, 5 the mod wheel, each
+ * self-calibrating -- the pitch wheel's rest its centre (taken at power-on, followed slowly while it rests), each
+ * wheel's range what it has reached (the travel is short: raw ~445..640 pitch, ~474..629 mod on a unit). Pitch: +-2
+ * semitones with a dead band round the centre; mod: 0 .. 127, up (lower raw) more. On the chosen track (layers.c
+ * lay_bend, lay_mw); a track left lets go of them */
+#define BEND_SEMIS 2
+static void smk_wheels(void)
+{
+    enum { DEAD = 12, SPAN0 = 80, MOD_LO = 485, MOD_HI = 615 };
+    static int32_t pc, plo, phi, mlo, mhi, rest;
+    static uint32_t at;
+    static uint8_t was = 0xFF;
+    int32_t p = fm1_in.wheel[0], m = fm1_in.wheel[1], d, b, mw;
+    if (fm1_in.frames < 300u)                     /* (the readings settle) */
+        return;
+    if (!pc) {
+        pc = p;
+        plo = p - SPAN0;
+        phi = p + SPAN0;
+        mlo = m < MOD_LO ? m : MOD_LO;
+        mhi = m > MOD_HI ? m : MOD_HI;
+    }
+    plo = p < plo ? p : plo;
+    phi = p > phi ? p : phi;
+    mlo = m < mlo ? m : mlo;
+    mhi = m > mhi ? m : mhi;
+    d = p - pc;
+    if (d > -DEAD && d < DEAD) {
+        b = 0;
+        if ((uint32_t)(fm1_ms - at) >= 200u) {    /* resting: the centre follows a slow drift */
+            at = fm1_ms;
+            pc += d > 0 ? 1 : d < 0 ? -1 : 0;
+        }
+        rest = 1;
+    } else {
+        rest = 0;
+        b = d > 0 ? (d - DEAD) * 8191 / (phi - pc - DEAD > 1 ? phi - pc - DEAD : 1)
+                  : (d + DEAD) * 8192 / (pc - plo - DEAD > 1 ? pc - plo - DEAD : 1);
+        b = clampi(b, -8192, 8191);
+    }
+    (void)rest;
+    mw = mhi - m <= DEAD ? 0 : (mhi - m - DEAD) * 127 / (mhi - mlo - DEAD > 1 ? mhi - mlo - DEAD : 1);
+    if (was != ui.sel) {                          /* (another track chosen: the one left lets go) */
+        if (was < NLAYER) {
+            lay_bend[was] = 0;
+            lay_mw[was] = 0;
+        }
+        was = ui.sel;
+    }
+    lay_bend[ui.sel] = b * BEND_SEMIS * 8;        /* (14 bits to semitones Q16: x 65536 / 8192) */
+    lay_mw[ui.sel] = (uint8_t)clampi(mw, 0, 127);
+}
+
 /* the unit's key and pad velocity curves (USRTRIM 0xC1000, read only; the defaults unless its marker and curves
  * check out: smk_input.h smk_trim_load). On the stack: read once, at boot */
 static void smk_trim_read(void)
@@ -474,6 +527,7 @@ static void fm1_main(void)
         ui_input();
         setup_poll();                                /* (GLOBAL SETUP left: its changes written) */
         midi_poll();                                 /* (the tracks' CCs sent as they change) */
+        smk_wheels();
         ui_leds();
         padled_flush();                              /* the pads' colours, between LCD transfers */
         ui_draw();

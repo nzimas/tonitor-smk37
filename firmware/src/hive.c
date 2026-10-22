@@ -161,7 +161,10 @@ static int32_t hv_fac(int32_t m) { return clampi(Q15 + m * (Q15 / MAC_MAX), 0, 2
 static int32_t hv_knob(int32_t base, int32_t m) { return clampi(base + m * (Q15 / (2 * MAC_MAX)), 0, Q15); }
 #define HV_TOP (118 << 16)       /* (above this an oscillator is silent: no aliasing from its harmonics) */
 
-static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n)
+static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' hv_render_p; everyone else hv_render, none) */
+static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n) { return hv_render_p(v, d, out, n, 0); }
+static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     uint32_t inc[7], i, k, wa[7];
     hv_dt_t dts[7];
@@ -181,6 +184,7 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
         lfo[k] = sin_ph(v->lph[k]);
     }
     key16 = (60 << 16) + (v->note - 60) * d->ktrk * 2;    /* (the key followed by ktrk) */
+    key16 += pq;                                          /* (the wheels: fully) */
     {
         int32_t span = mulq15(mulq15(d->dspan, fdet), fdet) / 2;   /* (finer near none; up to 2 x 1.5 x 2 semitones,
                                                                    x 1000 still in 32 bits) */
@@ -244,7 +248,7 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
     } else
         v->flv = (int32_t)(((int64_t)v->flv * cal_ex(20 + mulq15(d->fdec, 2000))) >> 16);
     {   /* the cutoff: 40 Hz x 2^(9 x cut), half the key's own move from C3, the envelope's octaves and the LFO's */
-        int32_t oct = cut * 9 * 2 + ((v->note - 48) * Q16 / 24) +
+        int32_t oct = cut * 9 * 2 + ((v->note - 48) * Q16 / 24) + pq / 24 +
                       (int32_t)(((int64_t)mulq15(famt, 4 * Q15) * 2 * (v->flv >> 9)) >> 15) +
                       mulq15(mulq15(mulq15(d->flfo, fmov), lfo[0]), 3 * Q16);
         int32_t hz = (int32_t)((40u * exp2_q16(clampi(oct, 0, 9 * Q16))) >> 16);

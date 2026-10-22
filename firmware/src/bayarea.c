@@ -328,17 +328,23 @@ static void ba_control(ba_voice_t *v, const ba_design_t *d)
 }
 
 /* n samples (a block) into out, Q15 */
-static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n)
+static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n, int32_t pq);
+/* (the wheels' pitch, pq: semitones Q16 -- the live voices' ba_render_p; everyone else ba_render, none) */
+static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n) { return ba_render_p(v, d, out, n, 0); }
+static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     static const int32_t BW[5] = {179736481, 359472962, 179736481, 87442742, 94632269};   /* 12 kHz, Q29 */
     uint32_t i;
     int32_t g0, g1, pk = 0, dt;
     uint32_t inv;
+    int32_t f0 = v->f;
     int32_t drive = v->mac[7] ? mulq16(d->drive, (int32_t)exp2_q16(v->mac[7] * (Q16 * 2 / MAC_MAX))) : d->drive;   /* (DRIVE: x 1/4 .. 4) */
     drive = (int32_t)(((int64_t)drive * 6144) >> 12);   /* x 1.5 (no pressure), Q12 */
     if (!v->live)
         return 0;
     n = n > CTL ? CTL : n;
+    if (pq)                                        /* the wheels: the note bent for the block (carrier, modulators) */
+        v->f = (int32_t)(((int64_t)f0 * exp2_q16(pq / 12)) >> 16);
     {
         int32_t was_c = v->cl0, was_a = v->al0, was_g = v->gl0;
         ba_control(v, d);
@@ -431,6 +437,7 @@ static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t
         v->quiet = pk < 8 ? v->quiet + 1 : 0;
     if (v->quiet > 64)
         v->live = 0;                                                 /* (its envelope over, the bank rung out) */
+    v->f = f0;
     return 1;
 }
 
