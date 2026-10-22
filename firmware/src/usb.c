@@ -173,6 +173,9 @@ static uint32_t midi_in_q[MQ], midi_out_q[MQ];
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
+#ifndef FELUCCA_LOADER
+    smo_put(pkt);                                   /* SMK-37: the TRS jack too, with or without a computer */
+#endif
     if (usb.config && mo_w - mo_r < MQ) {
         midi_out_q[mo_w % MQ] = pkt;
         RING_PUBLISH();
@@ -196,9 +199,9 @@ static const uint8_t CFG_DESC[] = {
     8, 0x0B, 0, 2 + FELUCCA_UAC, 1, 1, 0, 0,            /* IAD: audio + MIDI (IF 0-1, 0-2) */
 #else
 #ifndef FELUCCA_USB_PID
-#define FELUCCA_USB_PID 0x0003   /* (TONITOR: its own, so a computer that has seen Felucca's 0x0001 reads "FM-1
-                                  * Tonitor" afresh rather than keep the name it stored then; the update loader is
-                                  * 0x0002) */
+#define FELUCCA_USB_PID 0x0006   /* (TONITOR on the SMK-37: its own, so a computer that has seen the FM-1's (0x0003)
+                                  * reads "SMK-37 Tonitor" afresh rather than keep the name it stored then; Felucca
+                                  * 0x0001, the update loader 0x0002, BIGORNA 0x0005) */
 #endif
 static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
                                      FELUCCA_USB_PID >> 8, 0x00 + 0x10 * (FELUCCA_UAC + FELUCCA_UAC_48K), 0x03,

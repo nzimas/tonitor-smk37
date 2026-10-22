@@ -10,7 +10,8 @@ typedef struct {
     uint8_t auto_ch;             /* the chosen track's, 0 off */
     uint8_t out_ch[NLAYER];      /* each track's channel out, 0 off */
     uint8_t rcv_note, rcv_cc, send_note, send_cc;   /* 0 / 1 */
-    uint8_t usb_in, trs_in;      /* the ports listened to */
+    uint8_t usb_in;              /* listened to: USB (the SMK-37 has no MIDI IN jack) */
+    uint8_t trs_out;             /* the TRS jack sends (MIDI OUT: smk_midi_out.h); (the FM-1's TRS IN byte) */
     uint8_t vel_curve;           /* (GLOBAL SETUP's VELOCITY, SET_FORMAT 2) the keys' velocity: VC_* .. */
     uint8_t vel_lo, vel_hi;      /* .. brought into this range, 1 .. 127 .. */
     uint8_t vel_fix;             /* .. or this one for every note (VC_FIXED) */

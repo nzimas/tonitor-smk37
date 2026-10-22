@@ -131,6 +131,7 @@ void fm1_timer5_irq(void)
     uint32_t t0 = fm1_ticks();
     fm1_timer5_ack();
     fm1_input_tick();
+    smo_tick();                                  /* TRS MIDI OUT: a byte when the last has gone (also nested) */
     acc += t0 - last;
     last = t0;
     while (acc >= 1000u * FM1_TICKS_PER_US) {
@@ -472,6 +473,7 @@ static void fm1_main(void)
     if (!audio_worker_online)                        /* (CPU1 held: until power-off after a fault, or a failed boot --
                                                       * half the room for voices. Said, not silent) */
         say("1 CORE", 4000);
+    smk_uart1_tx_init();                             /* the TRS jack: MIDI OUT (before TIMER5: PORTC) */
     audio_init();
     usb_start();
     fm1_timer5_start(isr_timer5, 4);

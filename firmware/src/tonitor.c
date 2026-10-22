@@ -9,10 +9,10 @@
  * Apache-2.0) in Felucca's integer port. ANIMA is a fixed-point port of Vascular's anima. */
 #include <stdint.h>
 #ifndef TONITOR_ID
-#define TONITOR_ID "SMK-37 Pro_717"    /* the package identity (tools/build.py sets it) */
+#define TONITOR_ID "SMK-37 Pro_718"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 17"
+#define TONITOR_VERSION "BUILD 18"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY
@@ -58,6 +58,8 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "druid.c"
 #include "bayarea.c"
 #include "hive.c"
+#include "smk_uart_tx.h"         /* the TRS jack: MIDI OUT (UART1 TX, PC7) */
+#include "smk_midi_out.h"         /* .. the same stream as USB MIDI out (usb.c midi_out_event) */
 #include "usb.c"
 #include "reverb.c"
 #include "layers.c"

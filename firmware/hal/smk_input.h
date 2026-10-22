@@ -131,7 +131,10 @@ static volatile struct {
 } fm1_in;
 
 static uint8_t fm1_led[SMK_NLED];     /* 1 = lit (button LED i = button i) */
+static uint8_t fm1_led_dim[SMK_NLED]; /* 1 = dim, when not lit (TONITOR: lit for SMK_DIM_TICKS of a frame's 16 ticks) */
 static volatile uint32_t smk_ledw[2]; /* per LED group: 0xFFFF0000 | low half (LED lines active low) */
+static volatile uint32_t smk_ledd[2]; /* .. the dim ones, on top, for the frame's first SMK_DIM_TICKS ticks */
+#define SMK_DIM_TICKS 2u              /* (1/8: dim but plain; at ~310 Hz a group, no flicker) */
 static volatile uint32_t smk_muxw = 0xFFFFFFC7u;  /* AND masks over the whole 32-bit word: only the low half */
 static uint8_t smk_col, smk_grp, smk_slot, smk_adc_slot = 0xFF;
 
@@ -181,7 +184,7 @@ FM1_INLINE uint32_t smk__rows(void)             /* 1 = closed */
 FM1_INLINE void smk__shift(uint32_t col)        /* start the DMA of column col's word (needs a static buffer) */
 {
     static uint32_t w;
-    w = SMK_COLW(col) & smk_ledw[smk_grp] & smk_muxw;
+    w = SMK_COLW(col) & smk_ledw[smk_grp] & (col < SMK_DIM_TICKS ? smk_ledd[smk_grp] : 0xFFFFFFFFu) & smk_muxw;
     SMK_SPI2_CON |= 0x4000u;
     SMK_SPI2_ADR = (uint32_t)(uintptr_t)&w;
     SMK_SPI2_CNT = 4u;
@@ -376,12 +379,16 @@ static void smk__encoders(void)                    /* stock decoder: 3-state win
 
 static void smk__leds(void)                        /* the next frame shows the other group */
 {
-    uint32_t g, i, w[2] = {0xFFFFu, 0xFFFFu};
+    uint32_t g, i, w[2] = {0xFFFFu, 0xFFFFu}, d[2] = {0xFFFFu, 0xFFFFu};
     for (i = 0; i < SMK_NLED; i++)
         if (fm1_led[i])
             w[SMK_LEDC[i] >> 4] &= ~(1u << (SMK_LEDC[i] & 15u));
+        else if (fm1_led_dim[i])
+            d[SMK_LEDC[i] >> 4] &= ~(1u << (SMK_LEDC[i] & 15u));
     smk_ledw[0] = 0xFFFF0000u | w[0] | 0x38u;       /* (bits 3..5: the mux address, ANDed in) */
     smk_ledw[1] = 0xFFFF0000u | w[1] | 0x38u;
+    smk_ledd[0] = 0xFFFF0000u | d[0] | 0x38u;
+    smk_ledd[1] = 0xFFFF0000u | d[1] | 0x38u;
     g = smk_grp ^ 1u;
     smk_grp = (uint8_t)g;
 }

@@ -10,8 +10,8 @@
  *          OUT CHAN   TRACK 1 .. 6                              OFF, 1 .. 16
  *          RECEIVE    NOTES, CC                                 ON / OFF
  *          SEND       NOTES, CC                                 ON / OFF
- *          PORTS      USB IN                                    ON / OFF
- *          (the SMK-37 has no MIDI IN jack: trs_in stays in the record, unused)
+ *          PORTS      USB IN, TRS OUT (the 3.5 mm jack: MIDI OUT)  ON / OFF
+ *          (the SMK-37 has no MIDI IN jack: MIDI in over USB only; what is sent goes out over USB and the jack)
  *   VELOCITY  KEYS    CURVE                                     EVEN, SOFT (light touch), HARD (firm), FIXED
  *                     LOWEST, HIGHEST (the range it maps into)  1 .. 127
  *                     FIXED (every note, the curve FIXED)       1 .. 127
@@ -36,7 +36,7 @@ static const set_row_t SET_OUT[] = {SR("TRACK 1", out_ch[0], SK_CHAN), SR("TRACK
                                     SR("TRACK 5", out_ch[4], SK_CHAN), SR("TRACK 6", out_ch[5], SK_CHAN)};
 static const set_row_t SET_RCV[] = {SR("NOTES", rcv_note, SK_ONOFF), SR("CC", rcv_cc, SK_ONOFF)};
 static const set_row_t SET_SND[] = {SR("NOTES", send_note, SK_ONOFF), SR("CC", send_cc, SK_ONOFF)};
-static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF)};
+static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF), SR("TRS OUT", trs_out, SK_ONOFF)};
 static const set_row_t SET_VEL[] = {SR("CURVE", vel_curve, SK_VCURVE), SR("LOWEST", vel_lo, SK_VEL),
                                     SR("HIGHEST", vel_hi, SK_VEL), SR("FIXED", vel_fix, SK_VEL)};
 #define SET_NPART 6u
@@ -119,6 +119,7 @@ static void setup_load(void)                     /* (the start, a restore: the s
                 *v = *((const uint8_t *)&D + w->off);
         }
     mcfg = c;
+    smo_on(mcfg.trs_out);
 }
 
 /* ------------------------------------------------------------ page --- */
@@ -180,6 +181,8 @@ static void setup_press(int sh)
                 ev_post(EV_MIDI_OFF, 0, 0, 0);   /* (the notes sent on: off, before nothing is sent) */
             *p = (uint8_t)set.val;
             set.dirty = 1;
+            if (p == &mcfg.trs_out)
+                smo_on(mcfg.trs_out);            /* (ON: the jack tried again) */
         }
     }
 }
@@ -334,7 +337,7 @@ static void midi_take(void)
         uint32_t ch = ((pkt >> 8) & 15u) + 1u, d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu, m = 0, t;
         RING_PUBLISH();
         mi_r++;
-        if (trs ? !mcfg.trs_in : !mcfg.usb_in)
+        if (trs || !mcfg.usb_in)                 /* (USB only: the SMK-37 has no MIDI IN jack) */
             continue;
         if (mcfg.auto_ch == ch)
             m |= 1u << ui.sel;

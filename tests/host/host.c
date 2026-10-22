@@ -160,6 +160,8 @@ static int32_t fm1_enc_take(uint32_t e)
     return s;
 }
 static uint8_t host_led[64];
+static uint8_t fm1_led_dim[32];               /* (ui.c: the right-hand buttons dim) */
+static void smo_on(uint32_t on) { (void)on; }  /* (the TRS jack: smk_midi_out.h) */
 static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uint8_t)!!on; }
 #include "ui.c"
 /* the FM-1's black-key functions and SHIFT, as the tests press them: KEY_SHIFT is KNOB BANK; KEY_x the function FN_x
@@ -5555,15 +5557,13 @@ static int cmd_setup(void)
         printf("FAIL setup: CC 7 does not set track 1's level (%d)\n", ui.level[0]), fail++;
     host_midi(0x08u | 0x82u << 8 | 60u << 16);
     host_midi(0x08u | 0x8Fu << 8 | 64u << 16);
-    mcfg.trs_in = 0;
-    host_midi(0x19u | 0x92u << 8 | 67u << 16 | 100u << 24);   /* (cable 1: the jack) */
+    host_midi(0x19u | 0x92u << 8 | 67u << 16 | 100u << 24);   /* (cable 1: a jack -- the SMK-37 has none in) */
     ui_input();
     run_blocks(10, 0);
     for (k = 0, found = 0; k < NVOICE; k++)
         found |= vox[k].gate && (vox[k].note == 60u || vox[k].note == 64u || vox[k].note == 67u);
     if (found)
-        printf("FAIL setup: a note-off is lost, or the jack is heard with TRS IN off\n"), fail++;
-    mcfg.trs_in = 1;
+        printf("FAIL setup: a note-off is lost, or a jack's note is heard\n"), fail++;
     /* the notes out (SEND NOTES on): a key on track 1, its note on and off on channel 1 */
     press_btn(LAYER_BTN[0]);
     host_mout_n = 0;

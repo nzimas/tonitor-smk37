@@ -1570,14 +1570,15 @@ static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 *
     uint32_t r = (uint32_t)(c >> 11) << 3, g = (uint32_t)((c >> 5) & 0x3Fu) << 2, b = (uint32_t)(c & 0x1Fu) << 3;
     padled_set(pad, (uint8_t)(r * lv >> 8), (uint8_t)(g * lv >> 8), (uint8_t)(b * lv >> 8));
 }
-#define PAD_DIM 16u                      /* the tracks not chosen: 1/16 */
+#define PAD_DIM 16u                      /* the tracks not chosen: 1/16 .. */
+#define PAD_SOUND 72u                    /* .. sounding: between that and the chosen one's full */
 static void pads_show(void)
 {
     uint32_t p;
     for (p = 0; p < 16u; p++) {
-        if (p < NLAYER) {
+        if (p < NLAYER) {                        /* (another track sounding: half way, PAD_SOUND) */
             int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
-            pad_rgb(p, LAYER_COL[p], on ? 256u : PAD_DIM);
+            pad_rgb(p, LAYER_COL[p], on ? 256u : layer_sounding(p) ? PAD_SOUND : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
             pad_rgb(p, C_CHORD, ui.chord_form[ui.sel] == p - 8u ? 256u : PAD_DIM);
         else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
@@ -1631,6 +1632,8 @@ static void ui_leds(void)
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct[ui.sel] < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct[ui.sel] > 0);
     pads_show();
+    for (l = 6; l < 18u; l++)                    /* the two rows of six on the right: dim while idle, to be found */
+        fm1_led_dim[l] = 1;
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
