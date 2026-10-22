@@ -132,10 +132,18 @@ static void fm6_env_init(fm6_env_t *e, const uint8_t *op, int32_t outlevel, int3
     fm6_env_advance(e, op, 0);
 }
 
-static int32_t fm6_env_get(fm6_env_t *e, const uint8_t *op)
+/* (TONITOR) rq: the attack's and the release's pace, Q16 (65536: as drawn; 2x: twice as quick) -- [0] for the
+ * first stage, [1] for the fourth once the key is up; 0: as drawn */
+static int32_t fm6_env_get_r(fm6_env_t *e, const uint8_t *op, const uint32_t *rq)
 {
+    uint32_t f = !rq || e->hold ? 65536u : e->ix == 0u ? rq[0] : e->ix == 3u && !e->down ? rq[1] : 65536u;
+    int32_t inc = e->inc;
+    if (f != 65536u) {                          /* (no quicker than the quickest rate: 7 << 22) */
+        int64_t s = ((int64_t)inc * f) >> 16;
+        inc = s > (7 << 22) ? 7 << 22 : s < 1 ? 1 : (int32_t)s;
+    }
     if (e->statc) {
-        e->statc -= FM6_N;
+        e->statc -= f == 65536u ? FM6_N : maxi((int32_t)((FM6_N * f) >> 16), 1);
         if (e->statc <= 0) {
             e->statc = 0;
             fm6_env_advance(e, op, e->ix + 1u);
@@ -147,13 +155,13 @@ static int32_t fm6_env_get(fm6_env_t *e, const uint8_t *op)
         } else if (e->rising) {
             if (e->level < (1716 << 16))
                 e->level = 1716 << 16;
-            e->level += (((17 << 24) - e->level) >> 24) * e->inc;
+            e->level += (((17 << 24) - e->level) >> 24) * inc;
             if (e->level >= e->target) {
                 e->level = e->target;
                 fm6_env_advance(e, op, e->ix + 1u);
             }
         } else {
-            e->level -= e->inc;
+            e->level -= inc;
             if (e->level <= e->target) {
                 e->level = e->target;
                 fm6_env_advance(e, op, e->ix + 1u);
@@ -162,6 +170,7 @@ static int32_t fm6_env_get(fm6_env_t *e, const uint8_t *op)
     }
     return e->level;
 }
+static int32_t fm6_env_get(fm6_env_t *e, const uint8_t *op) { return fm6_env_get_r(e, op, 0); }
 
 static void fm6_env_key(fm6_env_t *e, const uint8_t *op, int down)
 {
@@ -512,10 +521,11 @@ static int32_t fm6_note_logfreq(int32_t pitch16, int32_t fine)
 
 /* one block (msfa note compute): the LFO's value and delay (Q24), the note's log2 frequency, the patch's
  * algorithm and feedback (already through the macros), dt[k]: a pitch offset per operator (Q24, fixed ones too),
- * lvl[k]: a level offset per operator (Q24 log2), lfoq8: the LFO's depths scaled (Q8). Writes out (Q24); 0 = silent
- * (out untouched) */
+ * lvl[k]: a level offset per operator (Q24 log2), lfoq8: the LFO's depths scaled (Q8), rq: the envelopes'
+ * attack and release paces (fm6_env_get_r; 0: as drawn). Writes out (Q24); 0 = silent (out untouched) */
 static int fm6_note_compute(fm6_note_t *n, const uint8_t *p, int32_t *out, int32_t lfo_val, int32_t lfo_delay,
-                             int32_t logfreq, uint32_t alg, int32_t fb, const int32_t *dt, const int32_t *lvl, uint32_t lfoq8)
+                             int32_t logfreq, uint32_t alg, int32_t fb, const int32_t *dt, const int32_t *lvl, uint32_t lfoq8,
+                             const uint32_t *rq)
 {
     uint32_t pmd = ((uint32_t)((p[FP_LPMD] % 100u) * 165u >> 6) * lfoq8 >> 8) * (uint32_t)lfo_delay;   /* Q32 */
     int32_t senslfo = FM6_PMS[p[FP_LPMS] & 7u] * (lfo_val - (1 << 23));
@@ -527,7 +537,7 @@ static int fm6_note_compute(fm6_note_t *n, const uint8_t *p, int32_t *out, int32
     amod = (uint32_t)(((int64_t)amod * ((1 << 24) - lfo_val)) >> 24);
     for (k = 0; k < 6u; k++) {
         const uint8_t *op = p + k * FP_OP;
-        int32_t level = fm6_env_get(&n->env[k], op);
+        int32_t level = fm6_env_get_r(&n->env[k], op, rq);
         uint32_t ams = FM6_AMSENS[op[FP_AMS] & 3u];
         n->op[k].freq = fm6_freq((n->fixed >> k) & 1u ? n->base[k] + dt[k] : logfreq + n->base[k] + pitch_mod + dt[k]);
         if (ams) {                                 /* msfa: pt = exp(sensamp / 262144 * 0.07 + 12.2) */

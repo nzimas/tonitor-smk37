@@ -157,6 +157,11 @@ static int32_t ba_quad(const int32_t *p, int32_t u)   /* the quadratic B-spline 
 }
 
 /* ------------------------------------------------------------ the voice --- */
+/* the attack, ms, x 1/8 .. 8 by ATTACK */
+static int32_t ba_att(const ba_design_t *d, int32_t m)
+{
+    return m ? clampi((int32_t)(((int64_t)d->attack * exp2_q16(m * (Q16 * 3 / MAC_MAX))) >> 16), 3, 8000) : d->attack;
+}
 static void ba_init(ba_voice_t *v, uint32_t seed)
 {
     memset(v, 0, sizeof *v);
@@ -166,8 +171,11 @@ static void ba_note_on(ba_voice_t *v, const ba_design_t *d, int32_t note, int32_
 {
     if (fresh || !v->live) {
         rnd_t r = v->r;
+        int8_t mac[NMAC];
+        memcpy(mac, v->mac, NMAC);
         memset(v, 0, sizeof *v);
         v->r = r;
+        memcpy(v->mac, mac, NMAC);                 /* (kept: ATTACK reads them below) */
         v->n1[0] = rnd_bi(&v->r), v->n1[1] = rnd_bi(&v->r), v->n1[2] = rnd_bi(&v->r);
         v->n2[0] = rnd_bi(&v->r), v->n2[1] = rnd_bi(&v->r), v->n2[2] = rnd_bi(&v->r);
         v->lfo_rand = rnd_bi(&v->r);
@@ -178,7 +186,7 @@ static void ba_note_on(ba_voice_t *v, const ba_design_t *d, int32_t note, int32_
     v->quiet = 0;
     if (d->asr) {                                  /* the sustain, opened (from where it is) */
         if (v->stage_g != 1 && v->stage_g != 2) {
-            ba_seg(&v->gte, v->gl0, Q15, v->attack_ms ? v->attack_ms : d->attack, -4);
+            ba_seg(&v->gte, v->gl0, Q15, v->attack_ms ? v->attack_ms : ba_att(d, v->mac[4]), -4);
             v->stage_g = 1;
         }
     } else {                                       /* the gate, struck (from where it is) */
@@ -234,14 +242,19 @@ static void ba_control(ba_voice_t *v, const ba_design_t *d)
     a2 = clampi(a2 + mulq15(L, d->to[3]) / 2, 0, Q15);
     want[0] = d->fm1r;
     want[1] = d->fm2r;
+    if (v->mac[5]) {                               /* FM RATIO: both x 1/4 .. 4 */
+        int32_t x = (int32_t)exp2_q16(v->mac[5] * (Q16 * 2 / MAC_MAX));
+        want[0] = clampi(mulq16(d->fm1r, x), Q16 / 16, 16 * Q16);
+        want[1] = clampi(mulq16(d->fm2r, x), Q16 / 16, 16 * Q16);
+    }
     want[2] = mulq15(a1, a1);
     want[3] = mulq15(a2, a2);
     want[4] = clampi(sh + mulq15(L, d->to[0]), 0, Q15);
     want[5] = clampi(fo + mulq15(L, d->to[1]) * 2 / 3, 0, Q15);   /* (folds + L x amount x 2, of 3) */
-    at = clampi(d->attack + mulq15(L, d->to[4]) * 2200 / Q15, 3, 8000);
+    at = clampi(ba_att(d, v->mac[4]) + mulq15(L, d->to[4]) * 2200 / Q15, 3, 8000);
     pk = clampi((int32_t)(((int64_t)d->peak * exp2_q16(mulq15(L, d->to[5]) * 4)) >> 16), 100, 10000);   /* x 2^(2 L) */
     dc = clampi(dc + mulq15(L, d->to[6]) * 2200 / Q15, 10, 8000);
-    sp = clampi(d->spring + mulq15(L, d->to[7]), 0, Q15);
+    sp = clampi(ba_knob(d->spring, v->mac[6], Q15) + mulq15(L, d->to[7]), 0, Q15);   /* (SPRING) */
     want[6] = at;
     want[7] = pk;
     want[8] = dc;
@@ -321,7 +334,8 @@ static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t
     uint32_t i;
     int32_t g0, g1, pk = 0, dt;
     uint32_t inv;
-    int32_t drive = (int32_t)(((int64_t)d->drive * 6144) >> 12);   /* x 1.5 (no pressure), Q12 */
+    int32_t drive = v->mac[7] ? mulq16(d->drive, (int32_t)exp2_q16(v->mac[7] * (Q16 * 2 / MAC_MAX))) : d->drive;   /* (DRIVE: x 1/4 .. 4) */
+    drive = (int32_t)(((int64_t)drive * 6144) >> 12);   /* x 1.5 (no pressure), Q12 */
     if (!v->live)
         return 0;
     n = n > CTL ? CTL : n;
@@ -474,9 +488,9 @@ static void ba_design(ba_design_t *d, int32_t kind, uint32_t seed, uint32_t path
 }
 static const char *ba_mac_name(const ba_design_t *d, uint32_t j)
 {
-    static const char *const N[NMAC] = {"SHAPE", "FOLDS", "FM", "DECAY"};
+    static const char *const N[NMAC] = {"SHAPE", "FOLDS", "FM", "DECAY", "ATTACK", "FM RATIO", "SPRING", "DRIVE"};
     (void)d;
-    return N[j & 3u];
+    return N[j & 7u];
 }
 /* the design's own envelope as A D S R, ms (the ENVELOPE page, as drawn) */
 static void ba_env_adsr(const ba_design_t *d, int32_t *a)

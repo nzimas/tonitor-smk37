@@ -181,8 +181,9 @@ static int32_t cal_pick(cal_t *c, const cal_design_t *d)
 }
 /* EDIT's macros on CALIGULA: EDGE (the oscillators from triangles to squares), DEPTH (how deep the pairs modulate
  * each other), CHAOS (the total feedback and the drive) or, for the gentler species, ECHO (the delay's mix and
- * feedback), and HAND (how busy the hand is: its touches and the bursts) or, for the gated ones, PULSE (the hyper
- * LFO's speed) */
+ * feedback), HAND (how busy the hand is: its touches and the bursts) or, for the gated ones, PULSE (the hyper
+ * LFO's speed), ATTACK and RELEASE (the pairs' envelope times, x 1/8 .. x 8), SPREAD (each oscillator's detuning
+ * off its semitone, x 0 .. x 2) and DELAY TIME (the two lines', x 1/4 .. x 4) */
 static int cal_echoes(uint32_t kind)
 {
     return kind == CS_SPORE || kind == CS_VEIL || kind == CS_LITANY || kind == CS_MOTH;
@@ -190,8 +191,9 @@ static int cal_echoes(uint32_t kind)
 static int cal_pulses(uint32_t kind) { return kind == CS_HIVE || kind == CS_MOTH || kind == CS_WIRE; }
 static const char *cal_mac_name(const cal_design_t *d, uint32_t j)
 {
+    static const char *const REST[4] = {"ATTACK", "RELEASE", "SPREAD", "DELAY TIME"};
     return j == 0u ? "WAVEFORM" : j == 1u ? "MOD DEPTH" : j == 2u ? (cal_echoes(d->kind) ? "DELAY" : "FEEDBACK")
-                                                                  : (cal_pulses(d->kind) ? "GATE RATE" : "TOUCHES");
+                                : j == 3u ? (cal_pulses(d->kind) ? "GATE RATE" : "TOUCHES") : REST[(j - 4u) & 3u];
 }
 /* 2^(m / MAC_MAX x oct), Q16 */
 static int32_t cal_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
@@ -341,10 +343,16 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
     uint32_t i, k;
     int32_t h, gate, dmod_lfo, sharp_drv[4], depth[4], gp, total_fb = d->total_fb, drive = d->drive;
     int32_t del_fb = d->del_fb, del_mix = d->del_mix;
-    int32_t env_t[8], env_k[8], denv[8], env_e[8], del_tq[2];
+    int32_t env_t[8], env_k[8], denv[8], env_e[8], del_tq[2], del_t[2] = {d->del_t[0], d->del_t[1]};
+    int32_t ka = c->mac[4] ? cal_mac_exp(c->mac[4], R16(3.0)) : Q16, kr = c->mac[5] ? cal_mac_exp(c->mac[5], R16(3.0)) : Q16;
     int any = 0;
     if (!c->live)
         return 0;
+    if (c->mac[7]) {                                      /* DELAY TIME: both lines shorter or longer */
+        int32_t kd = cal_mac_exp(c->mac[7], R16(2.0));
+        for (k = 0; k < 2u; k++)
+            del_t[k] = clampi(mulq16(d->del_t[k], kd), 4, (int32_t)CAL_DLN - 3);
+    }
     if (c->mac[2]) {                                      /* ECHO: the delay wetter and longer; CHAOS: feedback, drive */
         if (cal_echoes(d->kind)) {
             del_mix = clampi(del_mix + c->mac[2] * (LV(0.45) / MAC_MAX), 0, LV(0.9));
@@ -400,8 +408,16 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
     {
         uint32_t j;
         int32_t v16 = (mulq15(sin_ph(c->vph), d->vib) * 16) >> 15;
-        for (j = 0; j < 8u; j++)
-            c->inc[j] = pitch_inc(c->base + d->tune[j] + v16);
+        if (c->mac[6]) {                                  /* SPREAD: each one's detuning off its semitone, x 0 .. x 2 */
+            int32_t ks = (MAC_MAX + c->mac[6]) * (Q16 / MAC_MAX);
+            for (j = 0; j < 8u; j++) {
+                int32_t t = d->tune[j], st = ((t + 8) >> 4) << 4;   /* (the nearest semitone) */
+                uint32_t k2 = exp2_q16(mulq16((t - st) * 341, ks));   /* (1/16 semitone: 341 / 2^16 octave) */
+                c->inc[j] = (uint32_t)(((uint64_t)pitch_inc(c->base + st + v16) * k2) >> 16);
+            }
+        } else
+            for (j = 0; j < 8u; j++)
+                c->inc[j] = pitch_inc(c->base + d->tune[j] + v16);
     }
     /* the envelopes: towards 1 (a sensor, a burst, a side's hold) or 0, slow or fast */
     for (k = 0; k < 8u; k++) {
@@ -418,7 +434,8 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
         }
         env_t[k] = (on ? Q15 : floor_) << 8;
         env_k[k] = c->burst[k] || (c->gate[k] && c->ftap[k]) ? cal_ex(8)
-                   : env_t[k] > c->env[k] ? cal_ex(d->att[p]) : cal_ex(c->hush ? 30 : d->rel[p]);
+                   : env_t[k] > c->env[k] ? cal_ex(ka == Q16 ? d->att[p] : mulq16(d->att[p], ka))
+                   : cal_ex(c->hush ? 30 : kr == Q16 ? d->rel[p] : mulq16(d->rel[p], kr));   /* (ATTACK, RELEASE) */
         {
             int32_t e1 = env_t[k] + mulq16(c->env[k] - env_t[k], env_k[k]);
             if (absi(e1 - env_t[k]) < 32 << 8)           /* (-60 dB: there) */
@@ -439,7 +456,7 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
     {   /* the delay's sweep by the hyper LFO: once a block (warped by the voices, it is worked out a sample) */
         int32_t m = mulq15(dmod_lfo, d->del_mod);
         for (k = 0; k < 2u; k++)
-            del_tq[k] = (d->del_t[k] << 8) + mulq15(m, d->del_t[k] << 7);
+            del_tq[k] = (del_t[k] << 8) + mulq15(m, del_t[k] << 7);
     }
     for (i = 0; i < CTL; i++) {
         int32_t y = 0, s, mod_in[4], dy;
@@ -485,7 +502,7 @@ static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out)
         {
             int32_t mod = d->del_src ? mulq15((c->pair[2] + c->pair[3]) >> 1, d->del_mod) : 0;
             for (k = 0; k < 2u; k++) {
-                int32_t tq = d->del_src ? (d->del_t[k] << 8) + mulq15(mod, d->del_t[k] << 7) : del_tq[k];   /* Q8 */
+                int32_t tq = d->del_src ? (del_t[k] << 8) + mulq15(mod, del_t[k] << 7) : del_tq[k];   /* Q8 */
                 int32_t ti = tq >> 8, fr = tq & 255, r0, r1, a0, a1;
                 ti = clampi(ti, 2, (int32_t)CAL_DLN - 3);
                 r0 = (int32_t)c->dw - ti;

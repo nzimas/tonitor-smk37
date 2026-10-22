@@ -534,8 +534,10 @@ static void voice_on(uint32_t l, uint32_t k, int fresh)
             an_init(&vmem[k].an, 0xA11u + k * 131u + lay_age);
     }
     v->eng = lay[l].engine;
-    if (lay[l].engine == ENG_FM)
+    if (lay[l].engine == ENG_FM) {
         fm_note_on(&v->fm, &fm_buf[l][fm_use[l]], v->note, fresh || !v->sounding);
+        fm_note_vel(&v->fm, v->vel ? v->vel : 127);   /* (the VELOCITY macro's: none at 0) */
+    }
     else if (lay[l].engine == ENG_DRUID)
         dr_note_on(&vmem[k].dr, &dr_buf[l][dr_use[l]], (int32_t)v->note, fresh || !v->sounding);
     else if (lay[l].engine == ENG_BAY) {

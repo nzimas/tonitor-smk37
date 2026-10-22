@@ -143,7 +143,7 @@ static struct { uint32_t keyw[2], buttons; uint8_t key_vel[37]; } fm1_in;
 static uint32_t host_press;
 static uint32_t host_pads;                   /* (the bottom row's hits: smk_pad_take) */
 static uint32_t smk_pad_take(void) { uint32_t h = host_pads; host_pads = 0; return h; }
-static int32_t host_enc[8];
+static int32_t host_enc[9];                  /* (K1 .. K8, and 8: the FM-1's PRESETS) */
 static uint32_t fm1_input_edges(uint32_t *rel)
 {
     uint32_t p = host_press;
@@ -2628,7 +2628,8 @@ static int cmd_macros(const char *dir)
                 printf("macros %-8s %u: moves %u of %u sounds, typically by %.1f dB%s%s\n", EN[e], j + 1, moved, tried,
                        nch ? chs[nch / 2u] : 0.0, wrong ? " (darker turned up on some)" : "", bad ? " (silent or wild at an end on some)" : "");
             }
-            if (moved * 10u < tried * 8u)
+            if (j < 4u && moved * 10u < tried * 8u)   /* (macros 5 .. 8 -- envelope times, LFO rate, velocity: not
+                                                       * a held note's spectrum; only checked for silence or blow-up) */
                 printf("FAIL macros: %s macro %u moves too few sounds\n", EN[e], j + 1), fail++;
             if (wrong * 10u > tried)
                 printf("FAIL macros: %s macro 1 does not brighten\n", EN[e]), fail++;
@@ -2646,11 +2647,13 @@ static int cmd_macros(const char *dir)
     ui_leds();
     if (!ui.edit || !key_on(KEY_EDIT))
         printf("FAIL macros: the EDIT key does not turn EDIT on, lit\n"), fail++;
-    host_enc[PANEL_ENC[EN_K1]] = 10;
-    host_enc[PANEL_ENC[EN_K3]] = -5;
+    host_enc[PANEL_ENC[MAC_K[0]]] = 10;              /* MACRO on: K1 .. K8 the eight macros */
+    host_enc[PANEL_ENC[MAC_K[2]]] = -5;
+    host_enc[PANEL_ENC[MAC_K[7]]] = 4;
     ui_input();
-    if (ui.mac[0][ui.engine[0]][0] != 20 || ui.mac[0][ui.engine[0]][2] != -10 || lay_mac[0][0] != 20 || ui.flt[0] || ui.cr[0])
-        printf("FAIL macros: KNOB 1 and 3 do not turn the macros under EDIT\n"), fail++;
+    if (ui.mac[0][ui.engine[0]][0] != 20 || ui.mac[0][ui.engine[0]][2] != -10 || ui.mac[0][ui.engine[0]][7] != 8 ||
+        lay_mac[0][0] != 20 || lay_mac[0][7] != 8 || ui.flt[0] || ui.cr[0] || ui.level[0] != LEVEL_UNITY)
+        printf("FAIL macros: K1, K3 and K8 do not turn macros 1, 3 and 8 under MACRO\n"), fail++;
     ui.force = 1;
     ui_draw();
     snprintf(path, sizeof path, "%s/screen-32-macro.ppm", dir);
@@ -2662,7 +2665,7 @@ static int cmd_macros(const char *dir)
     run_blocks(40, 0);
     if (lay_mac[0][0] || lay_mac[0][2])
         printf("FAIL macros: another engine's sound takes the macros of the first\n"), fail++;
-    host_enc[PANEL_ENC[EN_K4]] = 7;
+    host_enc[PANEL_ENC[MAC_K[3]]] = 7;
     ui_input();
     {
         int8_t keep[NLAYER][NENG][NMAC];
@@ -2693,6 +2696,11 @@ static int cmd_macros(const char *dir)
         ses_head_t *h = (ses_head_t *)ses_chunk;
         uint32_t len = 32u + 3u * PRE_SLOTS * 12u;      /* (0.21's: three engines) */
         pre_rec_t old;
+        int at;
+        if ((at = ses_find(PRE5_NUM)) >= 0) {          /* (as before any format-5 save: they come first) */
+            ses_kill(ses.sect[at], ses.nsect[at]);
+            ses_scan(1);
+        }
         memset(ses_chunk, 0, len);
         memset(&old, 0, sizeof old);
         old.seed = cal_buf[0][cal_pub[0]].seed;

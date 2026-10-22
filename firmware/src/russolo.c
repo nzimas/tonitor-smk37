@@ -360,10 +360,10 @@ static int32_t rus_step(rus_t *c, const rus_design_t *d, int32_t p1, int32_t p2,
     }
     default: {                                            /* RK_CHORD: triangles on the key, beating, swelling */
         static const int8_t CH[4][3] = {{0, 3, 7}, {0, 4, 7}, {0, 7, 12}, {0, 5, 7}};
-        uint32_t k;
+        uint32_t k, ch = (uint32_t)(d->chord + c->mac[6] * 4 / (MAC_MAX + 1)) & 3u;   /* (CHORD: up to 3 types away) */
         int32_t s = 0;
         for (k = 0; k < 3u; k++) {
-            c->ph[k] += (uint32_t)(((uint64_t)inc * exp2_q16(CH[d->chord & 3u][k] * (R16(1.0) / 12) + (int32_t)k * 40)) >> 16);
+            c->ph[k] += (uint32_t)(((uint64_t)inc * exp2_q16(CH[ch][k] * (R16(1.0) / 12) + (int32_t)k * 40)) >> 16);
             s += rus_tri(c->ph[k]);
         }
         c->clk[0] += rus_hz(rus_lerp(26, 6 * 256, p2));
@@ -372,13 +372,18 @@ static int32_t rus_step(rus_t *c, const rus_design_t *d, int32_t p1, int32_t p2,
     }
 }
 
+/* an envelope time (ms) x 1/8 .. 8 by a macro */
+static int32_t rus_ms(int32_t ms, int32_t m) { return m ? mulq16(ms, (int32_t)exp2_q16(m * (R16(3.0) / MAC_MAX))) : ms; }
+
 /* one block (CTL samples), Q15 into out; 0 when it has gone quiet for good */
 static int rus_render(rus_t *c, const rus_design_t *d, int32_t *out)
 {
     uint32_t i;
     int32_t p1 = clampi(d->p1 + c->mac[0] * (Q15 / MAC_MAX), 0, Q15), p2 = clampi(d->p2 + c->mac[1] * (Q15 / MAC_MAX), 0, Q15);
     int32_t chaos = clampi(d->chaos + c->mac[3] * (Q15 / MAC_MAX), LV(0.1), 2 * Q15);   /* (never none: it thins, not stops) */
-    int32_t bits = clampi(d->bits - c->mac[2] * 6 / MAC_MAX, 4, 10), hold = clampi(d->hold + c->mac[2] * 6 / MAC_MAX, 1, 12);
+    int32_t bits = clampi(d->bits - c->mac[2] * 6 / MAC_MAX, 4, 10);
+    int32_t hold = clampi(d->hold + c->mac[2] * 6 / MAC_MAX + c->mac[7] * 7 / MAC_MAX, 1, 12);   /* (CRUSH, then HOLD) */
+    int32_t att = rus_ms(d->att, c->mac[4]), rel = rus_ms(d->rel, c->mac[5]);
     if ((d->kind == RK_CHUNKS || d->kind == RK_JUMP || d->kind == RK_BEND || d->kind == RK_QUAD) && c->built &&
         (c->rebuild || absi(p1 - c->built_p1) > LV(0.06))) {   /* DENSITY turned: the buffer rebuilt, a part a block */
         int32_t dens = d->kind == RK_JUMP ? Q15 - p1 : p1;
@@ -391,7 +396,7 @@ static int rus_render(rus_t *c, const rus_design_t *d, int32_t *out)
     if (!c->live)
         return 0;
     c->inc = pitch_inc(c->base) * RUS_SUB;
-    k = e_t > c->env ? cal_ex(d->att) : cal_ex(d->rel);
+    k = e_t > c->env ? cal_ex(att) : cal_ex(rel);
     e1 = e_t + mulq16(c->env - e_t, k);
     if (absi(e1 - e_t) < 32 << 8)
         e1 = e_t;
@@ -468,7 +473,8 @@ static void rus_design(rus_design_t *d, int32_t kind, uint32_t seed, uint32_t pa
 
 static const char *rus_mac_name(const rus_design_t *d, uint32_t j)
 {
-    return j < 2u ? RK_P[d->kind % RK_N][j] : j == 2u ? "CRUSH" : "RANDOMNESS";
+    static const char *const N[6] = {"CRUSH", "RANDOMNESS", "ATTACK", "RELEASE", "CHORD", "HOLD"};
+    return j < 2u ? RK_P[d->kind % RK_N][j] : N[(j - 2u) % 6u];
 }
 
 /* the design's level from how loud it usually is: C3 held 1.5 s, the 75th percentile of 12 ms windows brought to

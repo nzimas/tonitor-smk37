@@ -89,6 +89,7 @@ typedef struct {
     int32_t lp;                  /* SATURATION below the middle: its low-pass */
     uint32_t tph;                /* MOTION above the middle: its tremolo's phase */
     uint8_t live;
+    uint8_t vel;                 /* its note's velocity, 1 .. 127 (fm_note_on: FM_VEL; fm_note_vel after it) */
 } fm_voice_t;
 
 #define FM_VEL 100
@@ -128,7 +129,10 @@ static void fm_note_on(fm_voice_t *v, const fm_patch_t *pt, int32_t note, int fr
     fm6_note_init(&v->n, p, v->note, FM_VEL, fresh);
     fm6_lfo_key(&v->lfo);
     v->live = 1;
+    v->vel = FM_VEL;
 }
+/* the note's velocity, after fm_note_on: heard only through VELOCITY (the envelopes keep FM_VEL: 0 is as drawn) */
+static void fm_note_vel(fm_voice_t *v, int32_t vel) { v->vel = (uint8_t)clampi(vel, 1, 127); }
 /* the carriers to full and held there: the track's own envelope (layers.c) shapes the voice instead */
 static void fm_hold(fm_voice_t *v, const fm_patch_t *pt)
 {
@@ -187,7 +191,10 @@ static uint32_t fm_carriers_of(const uint8_t *p);
  * carrier beats and roughens) or INHARMONIC for the metallic and noisy families (every operator but the lowest
  * carrier off its ratio: clangour), SATURATION (the feedback, and above the middle a saturation; below it, a
  * low-pass: smoother), MOTION (the LFO's depths, and above the middle a tremolo of its own, quicker and deeper as it
- * turns). Each felt early: the square root of the knob's turn (a quarter of the way: half the change). 0
+ * turns), ATTACK and RELEASE (every operator's first stage, and its last once the key is up, x 1/8 .. x 8 as
+ * long), LFO RATE (x 1/4 .. x 4), VELOCITY (the note's velocity on the modulators' level: soft darker, hard
+ * brighter, up to about 27 dB between the ends at full; below the middle, none -- as drawn: FM_VEL for every
+ * note). Each felt early: the square root of the knob's turn (a quarter of the way: half the change). 0
  * everywhere: the patch as drawn, bit for bit */
 static int fm_skews(uint32_t f)
 {
@@ -196,8 +203,9 @@ static int fm_skews(uint32_t f)
 }
 static const char *fm_mac_name(const fm_patch_t *pt, uint32_t j)
 {
-    static const char *const N[4] = {"BRIGHTNESS", "DETUNE", "SATURATION", "MOTION"};
-    return j == 1u && fm_skews(pt->family) ? "INHARMONIC" : N[j & 3u];
+    static const char *const N[8] = {"BRIGHTNESS", "DETUNE", "SATURATION", "MOTION",
+                                     "ATTACK", "RELEASE", "LFO RATE", "VELOCITY"};
+    return j == 1u && fm_skews(pt->family) ? "INHARMONIC" : N[j & 7u];
 }
 /* an operator's frequency against the note's, x 100 (fixed ones: against middle C) */
 static int32_t fm_op_ratio100(const uint8_t *op)
@@ -208,7 +216,8 @@ static int32_t fm_op_ratio100(const uint8_t *op)
                      100u / 262u);                       /* 10^x = 2^(3.3219 x), Q16 */
 }
 /* the macros as the core takes them: a pitch and a level offset an operator, the feedback, the LFO's depths */
-static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t *dt, int32_t *lvl, int32_t *fb, uint32_t *lfoq8)
+static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t vel, int32_t *dt, int32_t *lvl, int32_t *fb,
+                      uint32_t *lfoq8, uint32_t *rq)
 {
     const uint8_t *p = pt->p;
     uint32_t car = fm_carriers_of(p), k, lo = 6, ci = 0, mi = 0;
@@ -236,9 +245,14 @@ static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t *dt, int3
             dt[k] = mac[1] * 8738 * ((ci++ & 1u) ? -1 : 1);
         else if (!carrier)                               /* .. the modulators +-25 cents: the partials off their places */
             dt[k] = mac[1] * 5461 * ((mi++ & 1u) ? -1 : 1);
+        /* VELOCITY: the modulators +-18 output-level steps at full, about the middle velocity (64) */
+        if (!carrier && mac[7] > 0)
+            lvl[k] += mac[7] * (vel - 64) * 9216;
     }
     *fb = clampi(*fb + (mac[2] * 8 + (mac[2] < 0 ? -32 : 32)) / 64 + (mac[0] > 0 ? mac[0] / 32 : 0), 0, 7);   /* (and with BRIGHTNESS up) */
     *lfoq8 = (uint32_t)clampi(256 + mac[3] * 4, 0, 512);
+    rq[0] = exp2_q16(-mac[4] * 3072);                    /* ATTACK, RELEASE: the pace x 8 .. x 1/8 (the time x 1/8 .. x 8) */
+    rq[1] = exp2_q16(-mac[5] * 3072);
 }
 
 /* one block (CTL samples), Q15 into out; 0 when the voice is silent for good. mac: EDIT's macros (0: none) */
@@ -247,16 +261,13 @@ static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const in
     const uint8_t *p = pt->p;
     int32_t bus[FM6_N], lv, ld, lf, dt[6] = {0, 0, 0, 0, 0, 0}, lvl[6] = {0, 0, 0, 0, 0, 0}, fb = p[FP_FB] & 7u;
     int32_t trem = Q15, grit = 0;
-    uint32_t i, lfoq8 = 256;
+    uint32_t i, lfoq8 = 256, rqb[2], *rq = 0;
     if (!v->live)
         return 0;
     if (!v->n.down && fm6_note_done(&v->n, p, p[FP_ALG] & 31u)) {
         v->live = 0;
         return 0;
     }
-    lv = fm6_lfo_sample(&v->lfo);
-    ld = fm6_lfo_delay(&v->lfo);
-    lf = fm6_note_logfreq(v->note * 16, 0);
     if (mac && (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5] | mac[6] | mac[7])) {
         int8_t felt[NMAC];
         for (i = 0; i < NMAC; i++) {                     /* (the knob's turn, felt early: its square root) */
@@ -264,14 +275,27 @@ static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const in
             felt[i] = (int8_t)(m < 0 ? -q : q);
         }
         mac = felt;
-        fm_macros(pt, mac, dt, lvl, &fb, &lfoq8);
+        fm_macros(pt, mac, v->vel, dt, lvl, &fb, &lfoq8, rqb);
+        if (mac[4] | mac[5])
+            rq = rqb;
+        if (mac[6]) {                                    /* LFO RATE: this block's step x 1/4 .. x 4 */
+            uint32_t d0 = v->lfo.delta;
+            uint64_t d = ((uint64_t)d0 * exp2_q16(mac[6] * 2048)) >> 16;
+            v->lfo.delta = d > 0x7FFFFFFFu ? 0x7FFFFFFFu : d < 1u ? 1u : (uint32_t)d;
+            lv = fm6_lfo_sample(&v->lfo);
+            v->lfo.delta = d0;
+        } else
+            lv = fm6_lfo_sample(&v->lfo);
         if (mac[3] > 0) {                                /* a tremolo of its own, 1.5 .. 6 Hz, deeper as it turns */
             v->tph += 4380000u + (uint32_t)mac[3] * 205000u;   /* (a block's step: Hz x 2^32 x 32 / FS) */
             trem = Q15 - mulq15(mac[3] * (Q15 * 7 / 10 / MAC_MAX), (sin_ph(v->tph) + Q15) >> 1);
         }
         grit = mac[2];
-    }
-    if (!fm6_note_compute(&v->n, p, bus, lv, ld, lf, p[FP_ALG] & 31u, fb, dt, lvl, lfoq8)) {
+    } else
+        lv = fm6_lfo_sample(&v->lfo);
+    ld = fm6_lfo_delay(&v->lfo);
+    lf = fm6_note_logfreq(v->note * 16, 0);
+    if (!fm6_note_compute(&v->n, p, bus, lv, ld, lf, p[FP_ALG] & 31u, fb, dt, lvl, lfoq8, rq)) {
         for (i = 0; i < FM6_N; i++)
             out[i] = 0;
         return 1;                                   /* below the threshold now, but not done */

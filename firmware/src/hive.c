@@ -157,6 +157,8 @@ static void hv_note_off(hv_voice_t *v)
 }
 /* a macro as a factor around the sound's own, Q15: 0 .. 2 (turned fully down, none) */
 static int32_t hv_fac(int32_t m) { return clampi(Q15 + m * (Q15 / MAC_MAX), 0, 2 * Q15); }
+/* a Q15 value of the design moved by a macro, half the range either way */
+static int32_t hv_knob(int32_t base, int32_t m) { return clampi(base + m * (Q15 / (2 * MAC_MAX)), 0, Q15); }
 #define HV_TOP (118 << 16)       /* (above this an oscillator is silent: no aliasing from its harmonics) */
 
 static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n)
@@ -164,6 +166,8 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
     uint32_t inc[7], i, k, wa[7];
     hv_dt_t dts[7];
     int32_t wf[7], g[7], fdet, fmov, fmix, cut, key16, l0, l1, dl, lfo[3];
+    int32_t res = hv_knob(d->res, v->mac[4]), famt = hv_knob(d->famt, v->mac[5]);   /* RESONANCE, FILTER ENV */
+    int32_t ring = hv_knob(d->ring, v->mac[6]);                                      /* RING */
     svf_c fc;
     if (!v->live)
         return 0;
@@ -180,7 +184,7 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
     {
         int32_t span = mulq15(mulq15(d->dspan, fdet), fdet) / 2;   /* (finer near none; up to 2 x 1.5 x 2 semitones,
                                                                    x 1000 still in 32 bits) */
-        int32_t asp = mulq15(d->aspan, fmov), shim = clampi(mulq15(d->shim, fmov), 0, Q15);
+        int32_t asp = mulq15(d->aspan, fmov), shim = clampi(mulq15(hv_knob(d->shim, v->mac[7]), fmov), 0, Q15);   /* (SHIMMER) */
         int32_t gs = d->kind == HK_GROUND || d->kind == HK_AIR ? 7000 : mulq15(clampi(mulq15(d->mix, fmix), 0, Q15), 7000);
         int32_t gm = d->kind == HK_GROUND || d->kind == HK_AIR ? Q15 / 2 : Q15 - clampi(mulq15(d->mix, fmix), 0, Q15) / 2;
         for (k = 0; k < 7u; k++) {
@@ -241,10 +245,10 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
         v->flv = (int32_t)(((int64_t)v->flv * cal_ex(20 + mulq15(d->fdec, 2000))) >> 16);
     {   /* the cutoff: 40 Hz x 2^(9 x cut), half the key's own move from C3, the envelope's octaves and the LFO's */
         int32_t oct = cut * 9 * 2 + ((v->note - 48) * Q16 / 24) +
-                      (int32_t)(((int64_t)mulq15(d->famt, 4 * Q15) * 2 * (v->flv >> 9)) >> 15) +
+                      (int32_t)(((int64_t)mulq15(famt, 4 * Q15) * 2 * (v->flv >> 9)) >> 15) +
                       mulq15(mulq15(mulq15(d->flfo, fmov), lfo[0]), 3 * Q16);
         int32_t hz = (int32_t)((40u * exp2_q16(clampi(oct, 0, 9 * Q16))) >> 16);
-        svf_coef(&fc, clampi(hz, 30, TANG_FMAX), 2896 + mulq15(d->res, 14000));
+        svf_coef(&fc, clampi(hz, 30, TANG_FMAX), 2896 + mulq15(res, 14000));
     }
     dl = (l1 - l0) / (int32_t)n;
     {
@@ -259,8 +263,8 @@ static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t
                     o0 = o;
                 x += mulq15(o, g[k]);
             }
-            if (d->ring)
-                x += mulq15(mulq15(o0, o), d->ring);
+            if (ring)
+                x += mulq15(mulq15(o0, o), ring);
             if (nz)
                 x += mulq15(rnd_bi(&v->rn), nz) / 2;
             x = svf_run(&v->f1, &fc, x, type);
@@ -521,8 +525,8 @@ static void hv_design(hv_design_t *d, int32_t kind, uint32_t seed, uint32_t path
 }
 static const char *hv_mac_name(const hv_design_t *d, uint32_t j)
 {
-    static const char *const N[NMAC] = {"DETUNE", "MOVEMENT", "MIX", "CUTOFF"};
-    return (j & 3u) == 2u && (d->kind == HK_GROUND || d->kind == HK_AIR) ? "NOISE" : N[j & 3u];
+    static const char *const N[NMAC] = {"DETUNE", "MOVEMENT", "MIX", "CUTOFF", "RESONANCE", "FILTER ENV", "RING", "SHIMMER"};
+    return (j & 7u) == 2u && (d->kind == HK_GROUND || d->kind == HK_AIR) ? "NOISE" : N[j & 7u];
 }
 static void hv_env_adsr(const hv_design_t *d, int32_t *a)
 {

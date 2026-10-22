@@ -275,6 +275,7 @@ typedef struct {
     int32_t hprev;               /* (AN_HALF: the last half-rate sample, the line to the next starts there) */
     uint8_t env_hold;            /* the track's own envelope shapes it: its own held at full */
     uint8_t am_on;               /* the tremolo: the design's, or brought in by MOTION */
+    uint8_t ph_on;               /* the phaser: the design's, or brought in by PHASER */
 } an_voice_t;
 
 /* ------------------------------------------------------ the envelope --- */
@@ -284,13 +285,20 @@ static int32_t an_expneg(int32_t a)
 {
     return (int32_t)exp2_q16(-(int32_t)(((int64_t)a * 94548) >> 16));   /* log2(e) = 1.4427, Q16 */
 }
+/* the attack and the release, their times x ka and x kr (Q16; ATTACK and RELEASE) */
+static void an_env_ar(an_voice_t *v, const an_design_t *d, int32_t ka, int32_t kr)
+{
+    int32_t att = ka == Q16 ? d->att : mulq16(clampi(d->att, 1, 600000), ka);
+    int32_t rel = kr == Q16 ? d->rel : mulq16(clampi(d->rel, 1, 600000), kr);
+    v->attInc = (int32_t)(12173000u / (uint32_t)clampi(att, 1, 600000));
+    v->relK = an_expneg((int32_t)(218760u / (uint32_t)clampi(rel, 1, 600000)));
+}
 static void an_env_times(an_voice_t *v, const an_design_t *d)
 {
     /* a block is 32 / 44100 s = 0.7256 ms; AnimaCore.h: attack linear over att ms, decay and release
      * e^(-4.6 dt / time) a step */
-    v->attInc = (int32_t)(12173000u / (uint32_t)clampi(d->att, 1, 600000));
     v->decK = Q16 - an_expneg((int32_t)(218760u / (uint32_t)clampi(d->dec, 1, 600000)));
-    v->relK = an_expneg((int32_t)(218760u / (uint32_t)clampi(d->rel, 1, 600000)));
+    an_env_ar(v, d, Q16, Q16);
 }
 static int32_t an_env_tick(an_voice_t *v, const an_design_t *d)   /* once a block, Q24 */
 {
@@ -570,8 +578,10 @@ static void an_init(an_voice_t *v, uint32_t seed)
 /* ------------------------------------------------- the controllers --- */
 /* EDIT's macros on ANIMA: TONE (every filter up or down), then what the kind is about -- GRAINS (the cloud's
  * level and rate), AIR (the noise), FM (the index), VOWEL (the formant) or DRIVE (the shaper, brought in if the
- * design has none) -- SPACE (the comb's mix and ringing, brought in if the design has none) and MOTION (the
- * hand's pace, its LFOs and the tremolo's depth) */
+ * design has none) -- SPACE (the comb's mix and ringing, brought in if the design has none), MOTION (the
+ * hand's pace, its LFOs and the tremolo's depth), ATTACK and RELEASE (their times, x 1/8 .. x 8), GRAIN SIZE
+ * (the grains' length, x 1/4 .. x 4) and PHASER (its depth to none, or deeper and quicker, brought in if the
+ * design has none) */
 enum { AR_GRAINS, AR_AIR, AR_FM, AR_VOWEL, AR_DRIVE };
 static uint32_t an_mac_role(const an_design_t *d)
 {
@@ -596,7 +606,8 @@ static uint32_t an_mac_role(const an_design_t *d)
 static const char *an_mac_name(const an_design_t *d, uint32_t j)
 {
     static const char *const ROLE[5] = {"GRAINS", "NOISE", "FM", "FORMANT", "DRIVE"};
-    return j == 0u ? "TONE" : j == 1u ? ROLE[an_mac_role(d)] : j == 2u ? "RESONATOR" : "MOTION";
+    static const char *const REST[5] = {"MOTION", "ATTACK", "RELEASE", "GRAIN SIZE", "PHASER"};
+    return j == 0u ? "TONE" : j == 1u ? ROLE[an_mac_role(d)] : j == 2u ? "RESONATOR" : REST[(j - 3u) % 5u];
 }
 /* 2^(m / MAC_MAX x oct), Q16 (oct in Q16 / MAC_MAX steps: the caller's) */
 static int32_t an_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
@@ -689,6 +700,10 @@ static void an_control(an_voice_t *v, const an_design_t *d)
     v->index = clampi(an_at(&d->fmIndex, c), 0, IX(12.0));
     v->gRate8 = clampi(an_at(&d->granRate, c), H8(0.5), H8(200.0));
     v->gLen4 = clampi(an_at(&d->granLen, c), MS4(4.0), MS4(400.0));
+    if (mac[6])                                      /* GRAIN SIZE: shorter or longer grains */
+        v->gLen4 = clampi(mulq16(v->gLen4, an_mac_exp(mac[6], R16(2.0))), MS4(2.0), MS4(1000.0));
+    /* ATTACK, RELEASE: the envelope's times, each block (back to the design's when the knobs are) */
+    an_env_ar(v, d, mac[4] ? an_mac_exp(mac[4], R16(3.0)) : Q16, mac[5] ? an_mac_exp(mac[5], R16(3.0)) : Q16);
     v->amRate8 = clampi(an_at(&d->amRate, c), H8(0.1), H8(40.0));
     v->amDepth = clampi(an_at(&d->amDepth, c), 0, Q15);
     if (mac[0]) {                                    /* TONE: the FM's brightness with the filters */
@@ -769,14 +784,24 @@ static void an_control(an_voice_t *v, const an_design_t *d)
                               IX(1.0), IX(12.0));
         v->driveNorm = (int32_t)(((uint32_t)Q15 << 12) / (uint32_t)(v->drive * 6 / 10 > 4096 ? v->drive * 6 / 10 : 4096));
     }
-    if (d->phaser) {
-        int32_t hz, sweep;
-        v->phInc = (uint32_t)(((uint64_t)(uint32_t)clampi(an_at(&d->phaserRate, gc), 0, H16(5.0)) * 97392u) >> 16) * 32u;
-        v->phDepth = clampi(an_at(&d->phaserDepth, gc), 0, Q15);
-        v->phPlace = clampi(an_at(&d->phaserPlace, gc), 0, Q15);
+    v->ph_on = (uint8_t)((d->phaser && mac[7] > -MAC_MAX) || mac[7] > 0);   /* (PHASER all the way down: gone) */
+    if (v->ph_on) {
+        int32_t hz, sweep, rate = H16(0.12), depth = 0;
+        if (d->phaser) {
+            rate = clampi(an_at(&d->phaserRate, gc), 0, H16(5.0));
+            depth = clampi(an_at(&d->phaserDepth, gc), 0, Q15);
+        }
+        if (mac[7] > 0) {                            /* PHASER: deeper and a little quicker, or shallower */
+            depth = clampi(depth + mulq15(depth > LV(0.4) ? depth : LV(0.4), mac[7] * (Q15 / MAC_MAX)), 0, Q15);
+            rate = clampi(mulq16(rate, an_mac_exp(mac[7], R16(1.0))), 0, H16(5.0));
+        } else if (mac[7])
+            depth = mulq15(depth, (MAC_MAX + mac[7]) * (Q15 / MAC_MAX));
+        v->phInc = (uint32_t)(((uint64_t)(uint32_t)rate * 97392u) >> 16) * 32u;
+        v->phDepth = depth;
+        v->phPlace = d->phaser ? clampi(an_at(&d->phaserPlace, gc), 0, Q15) : Q15 / 2;
         v->phPhase += v->phInc;
         v->phPlaceSmooth += (v->phPlace - v->phPlaceSmooth) / 36;    /* ~50 ms */
-        sweep = d->phByHand ? v->phPlaceSmooth : Q15 / 2 + (sin_ph(v->phPhase) >> 1);
+        sweep = d->phaser && d->phByHand ? v->phPlaceSmooth : Q15 / 2 + (sin_ph(v->phPhase) >> 1);
         hz = (int32_t)((300u * exp2_q16(mulq15(mulq15(sweep, R16(3.5)), v->phDepth))) >> 16);
         hz = clampi(hz, 40, FS * 4 / 10);
         {
@@ -820,7 +845,7 @@ static AN_RENDER_PLACE int64_t an_samples(an_voice_t *v, const an_design_t *d, i
                    amInc = hz8_inc(v->amRate8) << AN_HALF;
     const int oscA = d->oscA, oscB = d->oscB, fm = d->fm, multi = d->multi, gran = d->gran && v->lGran > 0;
     const int noise = d->noise && v->lNoise > 0 ? d->noise : 0, filter = d->filter, ampMod = v->am_on, down = d->down;
-    const int shp = v->shp_on, curve = d->shaperCurve, phaser = d->phaser, gfilter = d->groupFilter, res = v->res_on;
+    const int shp = v->shp_on, curve = d->shaperCurve, phaser = v->ph_on, gfilter = d->groupFilter, res = v->res_on;
     const int32_t lA = v->lA, lB = v->lB, lFM = v->lFM, lMulti = v->lMulti, lGran = v->lGran, lNoise = v->lNoise;
     const int32_t index = v->index, amDepth = v->amDepth, drive = v->drive, driveNorm = v->driveNorm, phA = v->phA;
     const int32_t resDelay = v->resDelay, resFb = v->resFb, resMix = v->resMix, dout = d->out, level = v->level >> 13;

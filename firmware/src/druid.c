@@ -233,6 +233,9 @@ static void dr_excite(dr_voice_t *v, const dr_design_t *d, int32_t *x, uint32_t 
     uint32_t i;
     int32_t cut = mulq15(bright, 2 * Q15 - bright);          /* Rings: b (2 - b) */
     int32_t f_hz = (int32_t)(((uint64_t)v->inc * FS) >> 32), fc;
+    int32_t lvl = dr_knob(d->level, v->mac[4]);              /* EXCITATION: the bow's, the dust's level */
+    int32_t hit = v->mac[4] ? (int32_t)exp2_q16(v->mac[4] * (Q16 / MAC_MAX)) : 0;   /* ... a strike's, a pluck's x 1/2 .. 2 */
+    int32_t rate = clampi(d->rate + v->mac[6] * (30 * 256 / MAC_MAX), 256, 90 * 256);   /* DUST: +-30 a second */
     svf_c ec;
     if (!v->trig && !v->burst && !v->pulse && v->exq > 8u &&
         !(d->exc == DX_BOW && v->bow > 0) && !(d->exc == DX_DUST && v->gate)) {   /* (nothing left in it) */
@@ -261,12 +264,14 @@ static void dr_excite(dr_voice_t *v, const dr_design_t *d, int32_t *x, uint32_t 
         if (d->exc == DX_STRIKE && v->pulse) {
             uint32_t ph = (uint32_t)(v->plen - v->pulse) * (0x80000000u / (uint32_t)v->plen);
             e = sin_ph(ph) * 2;                              /* half a sine */
+            if (hit)
+                e = mulq16(e, hit);
             v->pulse--;
         } else if (d->exc == DX_BOW) {
-            e = mulq15(rnd_bi(&v->r), mulq15(v->bow, d->level));
+            e = mulq15(rnd_bi(&v->r), mulq15(v->bow, lvl));
         } else if (d->exc == DX_DUST && v->gate) {
-            if ((rnd_next(&v->r) >> 8) < (uint32_t)((d->rate * 380) >> 8))   /* (rate Hz Q8 / FS x 2^24) */
-                e = mulq15(rnd_bi(&v->r), d->level) * 3;
+            if ((rnd_next(&v->r) >> 8) < (uint32_t)((rate * 380) >> 8))   /* (rate Hz Q8 / FS x 2^24) */
+                e = mulq15(rnd_bi(&v->r), lvl) * 3;
         }
         x[i] = svf_run(&v->exf, &ec, e, 1);
     }
@@ -278,6 +283,8 @@ static void dr_excite(dr_voice_t *v, const dr_design_t *d, int32_t *x, uint32_t 
             int32_t in = 0, o;
             if (v->burst) {
                 in = rnd_bi(&v->r);
+                if (hit)
+                    in = mulq16(in, hit);
                 v->burst--;
             }
             o = in + mulq15(ln_lin(v, &v->comb, v->cper), g);
@@ -489,9 +496,10 @@ static int dr_render(dr_voice_t *v, const dr_design_t *d, int32_t *out, uint32_t
         return 0;
     n = n > CTL ? CTL : n;
     if (!v->gate)                                             /* let go: the damping down by the design's share */
-        dm = mulq15(dm, Q15 - d->mute);
+        dm = mulq15(dm, Q15 - dr_knob(d->mute, v->mac[7]));   /* (MUTE) */
     if (d->exc == DX_BOW || d->exc == DX_DUST) {              /* the bow swells in, dies away when let go */
-        int32_t att = clampi(d->bow_att, 2, 5000), step = (int32_t)(Q15 * 726 / (att * 1000));
+        int32_t att = clampi(d->bow_att + v->mac[5] * (750 / MAC_MAX), 2, 5000);   /* (BOW: +-750 ms) */
+        int32_t step = (int32_t)(Q15 * 726 / (att * 1000));
         if (v->gate)
             v->bow = v->bow + step + 1 > Q15 ? Q15 : v->bow + step + 1;
         else
@@ -646,9 +654,10 @@ static void dr_env_adsr(const dr_design_t *d, int32_t *a)
 }
 static const char *dr_mac_name(const dr_design_t *d, uint32_t j)
 {
-    static const char *const N[NMAC] = {"STRUCTURE", "BRIGHTNESS", "DAMPING", "POSITION"};
+    static const char *const N[NMAC] = {"STRUCTURE", "BRIGHTNESS", "DAMPING", "POSITION", "EXCITATION", "BOW", "DUST",
+                                        "MUTE"};
     (void)d;
-    return N[j & 3u];
+    return N[j & 7u];
 }
 
 /* the design's level: C3 held 1 s, then let go; the 75th percentile of 12 ms windows brought to 0.1 RMS, and no
