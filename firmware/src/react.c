@@ -88,12 +88,30 @@ typedef struct {
     uint32_t ci;                 /* the event it meets next, its way (RX_NONE: none) */
     uint32_t until, last, lo, hi;   /* (its way kept till; its last pass; PING's two ends) */
 } rx_sv_t;
-enum { RXM_REACT, RXM_SHADOW };
+enum { RXM_REACT, RXM_SHADOW, RXM_ARP, RXM_N };
+static const char *const RXM_NAME[RXM_N] = {"REACT", "SHADOW", "ARP"};
+static const char *const RXM_OFF[RXM_N] = {"REACT OFF", "SHADOW OFF", "ARP OFF"};
+/* an ARP track: its pattern over the chord's notes (spread over its octaves), its pace, its way */
+#define AR_SEQ 32
+#define AR_REST 0xFFu
+#define AR_ANY 0xFEu
+typedef struct {
+    uint8_t dir, n, len, pos, mut, rank;
+    uint8_t e[24];               /* the notes it plays: the chord, from its register up its octaves */
+    uint8_t seq[AR_SEQ];         /* its pattern: which of them, in turn (AR_REST: a rest; AR_ANY: any, drawn) */
+    uint16_t mult;               /* its pace against RATE's, Q8 */
+    int8_t oct;
+    uint32_t next_at;
+} rx_av_t;
 
 static struct {
     uint8_t on, mask, guide;
-    uint8_t mode;                /* RXM_REACT, RXM_SHADOW (on its page: < and >) */
+    uint8_t mode;                /* RXM_REACT, RXM_SHADOW, RXM_ARP (on its page: < and >) */
     int8_t sk[4];                /* SHADOW's page: DELAY DRIFT VARIATION TRANSPOSE, 0 .. 100 */
+    int8_t ak[6];                /* ARP's page: RATE RELATION MOTION MUTATE RANGE CHANCE, 0 .. 100 */
+    rx_av_t av[NLAYER];
+    uint8_t an[8], ann;          /* ARP: the chord, in the order its notes came */
+    uint32_t a_on;               /* (its last note's coming) */
     rx_sv_t sv[NLAYER];
     struct { uint8_t note; uint32_t t, it; } hd[RX_HD];
     uint8_t nhd;
@@ -575,6 +593,8 @@ static void rx_off(uint32_t note)
         }
     rx.last_ev = fm1_ms;
 }
+static void ar_hear(uint32_t note, int on);
+static void ar_form(void);
 static void rx_hear(uint32_t note, uint32_t vel, int on)
 {
     uint32_t now = fm1_ms, ioi, gap, l, i;
@@ -583,6 +603,8 @@ static void rx_hear(uint32_t note, uint32_t vel, int on)
         return;
     if (!on) {
         rx_off(note);
+        if (rx.mode == RXM_ARP)
+            ar_hear(note, 0);
         return;
     }
     vel = vel ? vel : 100u;
@@ -650,6 +672,8 @@ static void rx_hear(uint32_t note, uint32_t vel, int on)
         if (rx.q[i].on == 2u && (int32_t)(rx.q[i].at - now) > 300 && rx_fit(rx.q[i].note % 12u) < 30u && rx_odds(70))
             rx.q[i].at = now + rx_in(0, 60);
     rx.last_ev = now;
+    if (rx.mode == RXM_ARP)
+        ar_hear(note, 1);
 }
 
 static void rx_reset(void)                          /* nothing heard yet (on, or a new guide) */
@@ -672,15 +696,19 @@ static void rx_reset(void)                          /* nothing heard yet (on, or
         rx.a[l].sh = 0x7F;
         rx.sv[l].until = 0;
     }
+    rx.ann = 0;
     rx_form();
+    ar_form();
 }
 static void rx_defaults(void)                      /* (the pages' values, the first time) */
 {
-    static const int8_t KD[4] = {50, 40, 60, 40}, SD[4] = {30, 30, 40, 30};
+    static const int8_t KD[4] = {50, 40, 60, 40}, SD[4] = {30, 30, 40, 30}, AD[6] = {50, 40, 40, 20, 30, 10};
     if (!rx.k[0] && !rx.k[1] && !rx.k[2] && !rx.k[3]) {
         memcpy(rx.k, KD, sizeof rx.k);
         memcpy(rx.sk, SD, sizeof rx.sk);
     }
+    if (!rx.ak[0] && !rx.ak[1] && !rx.ak[2] && !rx.ak[3] && !rx.ak[4] && !rx.ak[5])
+        memcpy(rx.ak, AD, sizeof rx.ak);
 }
 static void rx_set(int on)
 {
@@ -870,10 +898,274 @@ static void sh_tick(void)
             }
     }
 }
-static void rx_mode_set(uint32_t m)                 /* REACT or SHADOW (< and > on the page): the notes let go */
+/* ---- ARP: the tracks taken in break the chord the guide plays into arpeggios -- each at its own pace, its own way,
+ * in its own octaves -- and follow it: a new chord, and every pattern starts again on its notes at once. What the
+ * guide holds is the chord (a finger lifted, a note less); let go, the last chord goes on until the guide has been
+ * silent a while; a single note is arpeggiated over its octaves. Whatever the guide sounds leads: its keys, its loops,
+ * BALLSY, BRICKLAYER. Its page:
+ *   RATE      the pace: a step every 2 s (0) .. every 62 ms (100), steady
+ *   RELATION  how the tracks' paces relate: all one at 0; higher, twice, half, three in two, two in three, four in
+ *             three, three times as fast -- each track its own, interlocking
+ *   MOTION    which way: all up at 0; higher, each its own -- down, up and down, down and up, the order played, from
+ *             the outside in, from the middle out, at random -- the second against the first; high, a track turns
+ *             another way now and then
+ *   MUTATE    how much a pattern changes as it repeats: fixed at 0; higher, steps swapped, a rest, a step struck
+ *             again, the pattern turned on
+ *   RANGE     how many octaves each spans, 1 .. 4, and how far apart the tracks sit
+ *   CHANCE    tight at 0; higher, steps left out and steps struck twice */
+#define AR_RATE rx.ak[0]
+#define AR_REL rx.ak[1]
+#define AR_MOT rx.ak[2]
+#define AR_MUT rx.ak[3]
+#define AR_RNG rx.ak[4]
+#define AR_CHN rx.ak[5]
+static const char *const AR_KNAME[6] = {"RATE", "RELATION", "MOTION", "MUTATE", "RANGE", "CHANCE"};
+enum { AD_UP, AD_DOWN, AD_UPDN, AD_DNUP, AD_PLAYED, AD_IN, AD_OUT, AD_RAND, AD_N };
+static uint32_t ar_base(void)                       /* RATE's step, ms: 2000 .. 62 */
+{
+    return (uint32_t)(((uint64_t)2000u * exp2_q16(-(int32_t)AR_RATE * 3277)) >> 16);
+}
+static uint32_t ar_step_ms(uint32_t l)
+{
+    const rx_av_t *v = &rx.av[l];
+    uint32_t s = ar_base() * 256u / (v->mult ? v->mult : 256u);
+    if (rx.a[l].chr == RC_TEX)
+        s *= 4u;                                    /* (a texture: slowly) */
+    return s < 40u ? 40u : s;
+}
+/* its notes: the chord (sorted, or as played), its lowest moved to the track's register, up RANGE's octaves */
+static void ar_notes(uint32_t l)
+{
+    rx_av_t *v = &rx.av[l];
+    uint8_t b[8];
+    uint32_t n = rx.ann, i, j, o, span = 1u + (uint32_t)AR_RNG * 3u / 100u, lo = 127;
+    int32_t start;
+    for (i = 0; i < n; i++) {
+        b[i] = rx.an[i];
+        lo = b[i] < lo ? b[i] : lo;
+    }
+    if (v->dir != AD_PLAYED)                        /* (low to high, but as played for PLAYED) */
+        for (i = 1; i < n; i++)
+            for (j = i; j > 0u && b[j - 1u] > b[j]; j--) {
+                uint8_t t = b[j];
+                b[j] = b[j - 1u];
+                b[j - 1u] = t;
+            }
+    start = (int32_t)lo + 12 * v->oct;
+    while (start + 12 * (int32_t)span > 104)
+        start -= 12;
+    while (start < 28)
+        start += 12;
+    v->n = 0;
+    for (o = 0; o < span; o++)
+        for (i = 0; i < n && v->n < 24u; i++) {
+            int32_t m = start + (int32_t)b[i] - (int32_t)lo + 12 * (int32_t)o;
+            for (j = 0; j < v->n && v->e[j] != m; j++)
+                ;
+            if (m >= 24 && m <= 108 && j == v->n)
+                v->e[v->n++] = (uint8_t)m;
+        }
+}
+static void ar_mutate(rx_av_t *v)                   /* the pattern changed a little, as MUTATE has it */
+{
+    uint32_t a = rx_in(0, v->len - 1u), b = rx_in(0, v->len - 1u), k, rests = 0;
+    for (k = 0; k < v->len; k++)
+        rests += v->seq[k] == AR_REST;
+    switch (rx_in(0, 3)) {
+    case 0: {                                       /* two steps swapped */
+        uint8_t t = v->seq[a];
+        v->seq[a] = v->seq[b];
+        v->seq[b] = t;
+        break;
+    }
+    case 1:                                         /* a rest, or a rest filled */
+        if (v->seq[a] == AR_REST)
+            v->seq[a] = (uint8_t)rx_in(0, v->n - 1u);
+        else if (rests * 3u < v->len && v->len > 2u)
+            v->seq[a] = AR_REST;
+        break;
+    case 2:                                         /* a step struck again */
+        if (v->len < AR_SEQ) {
+            for (k = v->len; k > a; k--)
+                v->seq[k] = v->seq[k - 1u];
+            v->len++;
+        }
+        break;
+    default: {                                      /* turned on by one */
+        uint8_t t = v->seq[0];
+        for (k = 0; k + 1u < v->len; k++)
+            v->seq[k] = v->seq[k + 1u];
+        v->seq[v->len - 1u] = t;
+        break;
+    }
+    }
+}
+static void ar_build(uint32_t l)                    /* its pattern, its way over its notes */
+{
+    rx_av_t *v = &rx.av[l];
+    uint32_t n, i, k = 0;
+    ar_notes(l);
+    n = v->n;
+    v->len = 0;
+    v->pos = 0;
+    if (!n)
+        return;
+    switch (v->dir) {
+    case AD_DOWN:
+        for (i = 0; i < n; i++)
+            v->seq[k++] = (uint8_t)(n - 1u - i);
+        break;
+    case AD_UPDN:
+    case AD_DNUP:
+        for (i = 0; i < n && k < AR_SEQ; i++)
+            v->seq[k++] = (uint8_t)(v->dir == AD_UPDN ? i : n - 1u - i);
+        for (i = n >= 2u ? n - 2u : 0u; i >= 1u && n > 2u && k < AR_SEQ; i--)
+            v->seq[k++] = (uint8_t)(v->dir == AD_UPDN ? i : n - 1u - i);
+        break;
+    case AD_IN:
+        for (i = 0; i < (n + 1u) / 2u; i++) {
+            v->seq[k++] = (uint8_t)i;
+            if (n - 1u - i != i)
+                v->seq[k++] = (uint8_t)(n - 1u - i);
+        }
+        break;
+    case AD_OUT:
+        for (i = 0; i < n; i++)                     /* the middle, then out: m, m-1, m+1, m-2 .. */
+            v->seq[k++] = (uint8_t)(n / 2u + (i & 1u ? -(int32_t)((i + 1u) / 2u) : (int32_t)(i / 2u)));
+        break;
+    case AD_RAND:
+        for (i = 0; i < n; i++)
+            v->seq[k++] = AR_ANY;
+        break;
+    default:                                        /* up, and as played (its notes kept in that order) */
+        for (i = 0; i < n; i++)
+            v->seq[k++] = (uint8_t)i;
+        break;
+    }
+    v->len = (uint8_t)(k < AR_SEQ ? k : AR_SEQ);
+    for (i = 0; i < v->mut && i < 6u; i++)          /* (what it has mutated, again) */
+        ar_mutate(v);
+}
+static void ar_restart(void)                        /* a new chord: every pattern from its start, at once */
 {
     uint32_t l;
-    if (m == rx.mode)
+    for (l = 0; l < NLAYER; l++)
+        if (rx_in_ens(l)) {
+            ar_build(l);
+            rx.av[l].next_at = fm1_ms + 25u;        /* (the chord's other notes, a moment to come) */
+        }
+}
+/* the tracks' paces, ways and registers, as RELATION, MOTION and RANGE have them: each unlike the others */
+static void ar_form(void)
+{
+    static const uint16_t MULT[8] = {256, 512, 128, 384, 171, 341, 768, 192};   /* x1 2 1/2 3/2 2/3 4/3 3 3/4 */
+    static const int8_t OCT[3][6] = {{0, 1, 0, 1, 0, 1}, {0, 1, -1, 1, -1, 0}, {0, 1, -1, 2, -2, 1}};
+    uint32_t k, rank = 0, um = 0, ud = 0, nm = 1u + (uint32_t)AR_REL * 7u / 100u, nd = 1u + (uint32_t)AR_MOT * 7u / 100u;
+    for (k = rx.guide + 1u; k < rx.guide + 1u + NLAYER; k++) {
+        uint32_t l = k % NLAYER, mi = 0, d = AD_UP, t;
+        rx_av_t *v = &rx.av[l];
+        if (!rx_in_ens(l))
+            continue;
+        rx_class(l);
+        if (rank && nm > 1u) {                      /* (the first at RATE's pace; the others drawn, unlike) */
+            mi = rx_in(1, nm - 1u);
+            for (t = 0; t < nm && ((um >> mi) & 1u); t++)
+                mi = 1u + mi % (nm - 1u);
+        }
+        um |= 1u << mi;
+        if (nd > 1u) {
+            d = rank == 1u ? AD_DOWN : rx_in(0, nd - 1u);   /* (the second against the first) */
+            for (t = 0; t < nd && ((ud >> d) & 1u); t++)
+                d = (d + 1u) % nd;
+            if (rank == 0u && rx_odds(50))
+                d = AD_UP;
+        }
+        ud |= 1u << d;
+        v->mult = MULT[mi];
+        v->dir = (uint8_t)d;
+        v->oct = OCT[AR_RNG < 25 ? 0 : AR_RNG < 60 ? 1 : 2][rank % 6u];
+        v->rank = (uint8_t)rank;
+        v->mut = 0;
+        rank++;
+    }
+    ar_restart();
+}
+static void ar_hear(uint32_t note, int on)          /* the guide's chord, as it comes and goes */
+{
+    uint32_t now = fm1_ms, k, ch = 0;
+    if (on) {
+        if (rx.nhd <= 1u && now - rx.a_on > 120u) { /* (the hand down again, alone: a new chord) */
+            rx.ann = 0;
+            ch = 1;
+        }
+        for (k = 0; k < rx.ann && rx.an[k] != note; k++)
+            ;
+        if (k == rx.ann && rx.ann < 8u) {
+            rx.an[rx.ann++] = (uint8_t)note;
+            ch = 1;
+        }
+        rx.a_on = now;
+    } else if (rx.nhd) {                            /* a finger lifted, the others held: a note less */
+        for (k = 0; k < rx.ann && rx.an[k] != note; k++)
+            ;
+        if (k < rx.ann) {
+            for (; k + 1u < rx.ann; k++)
+                rx.an[k] = rx.an[k + 1u];
+            rx.ann--;
+            ch = 1;
+        }
+    }
+    if (ch && rx.ann)
+        ar_restart();
+}
+static void ar_step(uint32_t l)                     /* a step: its note (or a rest, a skip, a note struck twice) */
+{
+    rx_av_t *v = &rx.av[l];
+    uint32_t sm = ar_step_ms(l), s, pct = rx.a[l].chr == RC_PLUCK ? 55u : rx.a[l].chr == RC_TEX ? 100u : 85u, vel;
+    if ((int32_t)(fm1_ms - v->next_at) > (int32_t)sm)
+        v->next_at = fm1_ms;                        /* (fallen behind: on from now) */
+    v->next_at += sm;
+    if (!v->len || !v->n)
+        return;
+    s = v->seq[v->pos];
+    if (s == AR_ANY)
+        s = rx_in(0, v->n - 1u);
+    vel = rx.vel * 3u / 4u + (v->pos ? 0u : 12u);
+    if (AR_CHN)
+        vel = (uint32_t)clampi((int32_t)vel + (int32_t)rx_in(0, (uint32_t)AR_CHN / 3u) - AR_CHN / 6, 10, 124);
+    if (s < v->n && !rx_odds(AR_CHN * 2 / 5)) {
+        if (sm > 120u && rx_odds(AR_CHN / 4)) {     /* struck twice */
+            rx_play(l, v->e[s], vel, sm * pct / 200u, 0);
+            rx_play(l, v->e[s], vel * 4u / 5u, sm * pct / 200u, sm / 2u);
+        } else
+            rx_play(l, v->e[s], vel, sm * pct / 100u, 0);
+    }
+    if (++v->pos >= v->len) {                       /* a round done: now and then changed, or turned another way */
+        v->pos = 0;
+        if (AR_MUT && rx_odds(AR_MUT)) {
+            ar_mutate(v);
+            v->mut = (uint8_t)(v->mut < 250u ? v->mut + 1u : v->mut);
+        }
+        if (AR_MOT > 50 && rx_odds((AR_MOT - 50) / 2)) {
+            v->dir = (uint8_t)rx_in(0, AD_N - 1u);
+            ar_build(l);
+        }
+    }
+}
+static void ar_tick(void)
+{
+    uint32_t now = fm1_ms, l, hold = ar_base() * 4u;
+    if (!rx.ann || (!rx.nhd && now - rx.last_ev > (hold > 1500u ? hold : 1500u)))
+        return;                                     /* (no chord, or the guide silent a while: quiet) */
+    for (l = 0; l < NLAYER; l++)
+        if (rx_in_ens(l) && (int32_t)(now - rx.av[l].next_at) >= 0)
+            ar_step(l);
+}
+
+static void rx_mode_set(uint32_t m)                 /* REACT, SHADOW or ARP (< and > on the page): the notes let go */
+{
+    uint32_t l;
+    if (m == rx.mode || m >= RXM_N)
         return;
     rx_cut(NLAYER);
     rx.mode = (uint8_t)m;
@@ -881,7 +1173,9 @@ static void rx_mode_set(uint32_t m)                 /* REACT or SHADOW (< and > 
         rx.sv[l].until = 0;
         rx.a[l].pos = rx.a[l].echoed = RX_NONE;
     }
+    rx.ann = 0;
     rx_form();
+    ar_form();
 }
 
 /* the main loop, every pass: the guide's loops heard; the musicians' steps as they fall due; its rests answered,
@@ -904,6 +1198,8 @@ static void rx_tick(void)
     }
     if (rx.on && rx.mode == RXM_SHADOW)
         sh_tick();
+    if (rx.on && rx.mode == RXM_ARP)
+        ar_tick();
     if (rx.on && rx.mode == RXM_REACT && rx.last_on && rx.hn >= 2u) {
         uint32_t gap = now - rx.last_ev, playing = rx.nhd || gap < rx_rest_ms() * 2u;
         if (!rx.nhd && !rx.ans_done && gap > rx_ans_ms()) {   /* a rest: the echoes finish the line, one answers */
@@ -981,12 +1277,15 @@ static void rx_tick(void)
     }
 }
 
-static int8_t *rx_kv(void) { return rx.mode == RXM_SHADOW ? rx.sk : rx.k; }   /* (the page's four, of the mode) */
-static const char *const *rx_kn(void) { return rx.mode == RXM_SHADOW ? SH_KNAME : RX_KNAME; }
-static void rx_knob(uint32_t j, int32_t s)        /* the page: K3 .. K6 */
+static int8_t *rx_kv(void) { return rx.mode == RXM_ARP ? rx.ak : rx.mode == RXM_SHADOW ? rx.sk : rx.k; }   /* (the page's, of the mode) */
+static const char *const *rx_kn(void) { return rx.mode == RXM_ARP ? AR_KNAME : rx.mode == RXM_SHADOW ? SH_KNAME : RX_KNAME; }
+static uint32_t rx_nk(void) { return rx.mode == RXM_ARP ? 6u : 4u; }   /* (ARP: K3 .. K8; the others K3 .. K6) */
+static void rx_knob(uint32_t j, int32_t s)        /* the page: K3 .. K6 (ARP: .. K8) */
 {
     rx_defaults();
     rx_kv()[j] = (int8_t)clampi(rx_kv()[j] + 2 * s, 0, 100);
+    if (rx.mode == RXM_ARP && (j == 1u || j == 2u || j == 4u))
+        ar_form();                                  /* (RELATION, MOTION, RANGE: the tracks dealt again) */
     if (rx.mode == RXM_REACT && (j == 3u || j == 2u))
         rx.form_t = fm1_ms - 5000u;                 /* (SPREAD, CONTINUITY: the ensemble regroups a second after) */
 }
@@ -1005,6 +1304,8 @@ static void rx_pad_hit(uint32_t j)
     rx_cut(j);
     rx.a[j].pos = rx.a[j].echoed = RX_NONE;
     rx.sv[j].until = 0;
+    if (rx.mode == RXM_ARP)
+        ar_form();
     rx_form();                                      /* (the ensemble regrouped with it, or without) */
     m[0] = (char)('1' + j);
     m[1] = ' ';

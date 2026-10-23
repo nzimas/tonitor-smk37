@@ -998,10 +998,10 @@ static void ui_input(void)
         for (j = 0; j < 4u; j++)
             if ((s = knob_take(K[j], sh)) != 0)
                 mod_knob(ui.sel, ui.mod_ix, j, s);
-    } else if (rx_page_up()) {                   /* REACT's (SHADOW's) page: K3 .. K6 its four */
-        const uint8_t *K = PAGE_K;
+    } else if (rx_page_up()) {                   /* REACT's, SHADOW's page: K3 .. K6 its four; ARP's: K3 .. K8 its six */
+        const uint8_t *K = rx_nk() == 6u ? &MAC_K[2] : PAGE_K;
         uint32_t j;
-        for (j = 0; j < 4u; j++)
+        for (j = 0; j < rx_nk(); j++)
             if ((s = knob_take(K[j], sh)) != 0) {
                 rx_knob(j, s);
                 rx_focus = (uint8_t)j;
@@ -1268,8 +1268,10 @@ static void ui_input(void)
     }
     s = arrow_steps(press);
     if (s && rx_page_up()) {                     /* < and > on REACT's page: REACT or SHADOW */
-        rx_mode_set(s > 0 ? RXM_SHADOW : RXM_REACT);
-        say(rx.mode ? "SHADOW" : "REACT", 900);
+        rx_mode_set((uint32_t)clampi((int32_t)rx.mode + (s > 0 ? 1 : -1), 0, RXM_N - 1));
+        if (rx_focus >= rx_nk())
+            rx_focus = 0;
+        say(RXM_NAME[rx.mode], 900);
         ui.force = 1;
         s = 0;
     } else if (s && ui.set_page) {               /* PRESETS: through GLOBAL SETUP */
@@ -1433,7 +1435,7 @@ static void ui_input(void)
         rx.rt0 = fm1_ms;
         if (rx.rdown == 2u) {
             rx_set(!rx.on);
-            say(rx.on ? (rx.mode ? "SHADOW" : "REACT") : rx.mode ? "SHADOW OFF" : "REACT OFF", 1200);
+            say(rx.on ? RXM_NAME[rx.mode] : RXM_OFF[rx.mode], 1200);
             ui.force = 1;
         }
     }
@@ -1638,6 +1640,8 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_BL_FX RGB(80, 40, 255)         /* (BRICKLAYER's STUTTER and climbs: a bluer violet) */
 #define C_REACT RGB(0, 255, 170)        /* (REACT's tracks: a sea green) */
 #define C_SHADOW RGB(150, 180, 255)     /* (SHADOW's: a pale blue) */
+#define C_ARP RGB(200, 255, 80)         /* (ARP's: a lime) */
+static const uint16_t RXM_COL[RXM_N] = {C_REACT, C_SHADOW, C_ARP};
 #define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
@@ -1661,7 +1665,7 @@ static void pads_show(void)
             if (j == ui.sel)
                 pad_rgb(p, RGB(255, 0, 0), (int32_t)(fm1_ms - rx.red_until) < 0 ? 256u : 0u);
             else if (j < NLAYER)
-                pad_rgb(p, rx.mode ? C_SHADOW : C_REACT, (rx.mask >> j) & 1u ? 256u : PAD_DIM);
+                pad_rgb(p, RXM_COL[rx.mode], (rx.mask >> j) & 1u ? 256u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
         } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
@@ -2020,9 +2024,9 @@ static void draw_rv_title(void)
 {
     cv_begin(240, 52, C_BLACK);
     if (ui.rx_page && !ui.rv_page) {             /* (REACT or SHADOW: in its colour while on, grey while off) */
-        const char *t = rx.mode ? "SHADOW" : "REACT";
+        const char *t = RXM_NAME[rx.mode];
         const font_t *f = text_w(&FONT_L, t) <= 236 ? &FONT_L : &FONT_M;
-        cv_text_c((52 - f->h) / 2, f, t, rx.on ? (rx.mode ? C_SHADOW : C_REACT) : C_GREY);
+        cv_text_c((52 - f->h) / 2, f, t, rx.on ? RXM_COL[rx.mode] : C_GREY);
     } else
         cv_text_c(3, &FONT_L, ui.fx ? "DELAY" : "REVERB", ui.fx ? C_DELAY : C_SEND);
     cv_blit(0, 0);
@@ -2075,7 +2079,7 @@ static void draw_rv_page(void)
 
 /* REACT's page: REACT; the name of the knob turned last (DENSITY at first), as large as fits whole; its value, large;
  * then the four (K3 .. K6) side by side, each its knob's name and a bar, the one turned last black on white */
-static int8_t rx_shown[7];
+static int8_t rx_shown[9];
 static void draw_rx_page(void)
 {
     char v[8];
@@ -2083,9 +2087,10 @@ static void draw_rx_page(void)
     const font_t *f;
     const int8_t *kv = rx_kv();
     const char *const *kn = rx_kn();
-    uint16_t col = rx.mode ? C_SHADOW : C_REACT;
-    if (!ui.force && ui.shown_page == 13 && rx_shown[4] == (int8_t)rx_focus && !memcmp(rx_shown, kv, 4) &&
-        rx_shown[5] == (int8_t)rx.mode && rx_shown[6] == (int8_t)rx.on)
+    uint16_t col = RXM_COL[rx.mode];
+    uint32_t nk = rx_nk();
+    if (!ui.force && ui.shown_page == 13 && rx_shown[6] == (int8_t)rx_focus && !memcmp(rx_shown, kv, nk) &&
+        rx_shown[7] == (int8_t)rx.mode && rx_shown[8] == (int8_t)rx.on)
         return;
     draw_rv_title();
     cv_begin(240, 48, C_BLACK);                   /* the name: medium if it fits whole, else a size smaller */
@@ -2097,7 +2102,23 @@ static void draw_rx_page(void)
     str_cpy(v + str_len(v), "%", 2);
     cv_text_c(5, &FONT_L, v, col);
     cv_blit(0, 100);
-    for (j = 0; j < 2u; j++) {                    /* the four: K3 .. K6, and a bar each */
+    for (j = 0; j < 2u && nk == 6u; j++) {       /* ARP's six: K3 .. K8, two rows of three, each its name and a bar */
+        uint32_t k;
+        cv_begin(240, 42, C_BLACK);
+        for (k = 0; k < 3u; k++) {
+            uint32_t i = j * 3u + k;
+            int on = i == rx_focus;
+            int32_t x = (int32_t)k * 80;
+            char kn[3] = {'K', (char)('3' + i), 0};
+            if (on)
+                cv_rect(x + 2, 1, 76, 40, C_WHITE);
+            cv_text(x + 8, (42 - FONT_S.h) / 2, &FONT_S, kn, on ? C_BLACK : C_WHITE);
+            cv_rect(x + 56, 6, 16, 30, on ? C_GREY : RGB(60, 60, 60));
+            cv_rect(x + 56, 6 + 30 - kv[i] * 30 / 100, 16, kv[i] * 30 / 100, on ? C_BLACK : col);
+        }
+        cv_blit(0, 156 + 42 * j);
+    }
+    for (j = 0; j < 2u && nk == 4u; j++) {        /* the four: K3 .. K6, and a bar each */
         uint32_t k;
         cv_begin(240, 42, C_BLACK);
         for (k = 0; k < 4u; k++) {
@@ -2115,10 +2136,10 @@ static void draw_rx_page(void)
         }
         cv_blit(0, 156 + 42 * j);
     }
-    memcpy(rx_shown, kv, 4);
-    rx_shown[4] = (int8_t)rx_focus;
-    rx_shown[5] = (int8_t)rx.mode;
-    rx_shown[6] = (int8_t)rx.on;
+    memcpy(rx_shown, kv, nk);
+    rx_shown[6] = (int8_t)rx_focus;
+    rx_shown[7] = (int8_t)rx.mode;
+    rx_shown[8] = (int8_t)rx.on;
     ui.shown_page = 13;
     ui.force = 0;
 }

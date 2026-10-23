@@ -6794,6 +6794,154 @@ static int cmd_warp5(void)
     printf("warp5: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
+/* ARP: the third mode (> twice on the page); the tracks taken in break the guide's chord into arpeggios, on RATE's
+ * step, up (MOTION 0), all at one pace (RELATION 0), only the chord's notes; a new chord, followed at once; let go,
+ * the last chord goes on a while, then quiet; RELATION and MOTION high, paces and ways apart; CHANCE high, steps left
+ * out; MUTATE high, patterns changed; one note held, over RANGE's octaves; a looped chord, arpeggiated */
+static uint32_t ar_pcs(const uint8_t *k3, uint32_t n)
+{
+    uint32_t j, m = 0;
+    for (j = 0; j < n; j++)
+        m |= 1u << (key_note_of(k3[j], 0) % 12u);
+    return m;
+}
+static int cmd_arp(void)
+{
+    static const uint8_t C1[3] = {0, 2, 4}, C2[3] = {3, 5, 7};
+    uint32_t fail = 0, l, j, t0, m1, m2, base;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    rx_shift_fb();
+    rx_hold_fb();
+    for (j = 0; j < 2u; j++) {
+        host_press |= 1u << SMK_BTN_RIGHT;
+        ui_input();
+    }
+    if (rx.mode != RXM_ARP || !rx.on)
+        printf("FAIL arp: > twice on the page does not reach ARP (mode %u)\n", rx.mode), fail++;
+    host_enc[PANEL_ENC[MAC_K[7]]] = 5;               /* K8: CHANCE, from 10 to 20 (ARP's six on K3 .. K8) */
+    ui_input();
+    if (rx.ak[5] != 20)
+        printf("FAIL arp: K8 does not set CHANCE (%d)\n", rx.ak[5]), fail++;
+    ui_draw();
+    ppm("build/screens/arp-page.ppm");
+    for (j = 1; j < 4u; j++)
+        ch_pad(j);
+    rx.ak[0] = 50;                                   /* RATE 50, all else 0: plain */
+    rx.ak[1] = rx.ak[2] = rx.ak[3] = rx.ak[4] = rx.ak[5] = 0;
+    ar_form();
+    base = ar_base();
+    m1 = ar_pcs(C1, 3);
+    m2 = ar_pcs(C2, 3);
+    memset(sh_n, 0, sizeof sh_n);
+    rx_bad = 0;
+    rx_chord_keys(C1, 1);
+    t0 = fm1_ms;
+    sh_run(3000);
+    for (l = 1; l < 4u; l++) {
+        uint32_t st = ar_step_ms(l), ok = sh_n[l] + 1u >= 3000u / st, k;   /* (a texture: four times slower) */
+        for (k = 0; k < sh_n[l]; k++)
+            ok &= ((m1 >> (sh_seq[l][k] % 12u)) & 1u) != 0u;
+        ok &= sh_n[l] >= 3u && sh_seq[l][0] < sh_seq[l][1] && sh_seq[l][1] < sh_seq[l][2];
+        for (k = 1; k < sh_n[l] && k < 6u; k++)
+            ok &= sh_t[l][k] - sh_t[l][k - 1u] + 12u >= st && sh_t[l][k] - sh_t[l][k - 1u] <= st + 12u;
+        printf("arp: plain, track %u: %u notes, first %u ms after the chord, step %u ms (RATE's %u%s)\n", l + 1u, sh_n[l],
+               sh_n[l] ? sh_t[l][0] - t0 : 0, sh_n[l] > 1u ? sh_t[l][1] - sh_t[l][0] : 0, base, st != base ? ", a texture's x4" : "");
+        if (!ok)
+            printf("FAIL arp: plain, track %u is not the chord's notes up on RATE's step\n", l + 1u), fail++;
+    }
+    memset(sh_n, 0, sizeof sh_n);                    /* the next chord: followed at once */
+    rx_chord_keys(C1, 0);
+    rx_chord_keys(C2, 1);
+    t0 = fm1_ms;
+    sh_run(2000);
+    for (l = 1; l < 4u; l++) {
+        uint32_t ok = sh_n[l] && sh_t[l][0] - t0 < 120u, k;
+        for (k = 0; k < sh_n[l]; k++)
+            ok &= ((m2 >> (sh_seq[l][k] % 12u)) & 1u) != 0u;
+        if (!ok)
+            printf("FAIL arp: track %u does not follow the new chord at once (%u ms)\n", l + 1u, sh_n[l] ? sh_t[l][0] - t0 : 0), fail++;
+    }
+    rx_chord_keys(C2, 0);                            /* let go: on a while, then quiet */
+    memset(sh_n, 0, sizeof sh_n);
+    sh_run(1000);
+    j = sh_n[1] + sh_n[2] + sh_n[3];
+    sh_run(2000);
+    memset(sh_n, 0, sizeof sh_n);
+    sh_run(3000);
+    if (!j || sh_n[1] + sh_n[2] + sh_n[3])
+        printf("FAIL arp: let go, it does not go on a while (%u) or does not fall quiet (%u)\n", j, sh_n[1] + sh_n[2] + sh_n[3]), fail++;
+    {   /* RELATION, MOTION, CHANCE, MUTATE high */
+        uint32_t steps[NLAYER], dirs = 0, mult = 0, muts = 0, played = 0, expect = 0;
+        rx.ak[1] = rx.ak[2] = rx.ak[3] = rx.ak[5] = 100;
+        ar_form();
+        memset(sh_n, 0, sizeof sh_n);
+        rx_chord_keys(C1, 1);
+        sh_run(6000);
+        for (l = 1; l < 4u; l++) {
+            steps[l] = ar_step_ms(l);
+            dirs |= 1u << rx.av[l].dir;
+            mult |= 1u << (rx.av[l].mult >> 6);
+            muts += rx.av[l].mut;
+            played += sh_n[l] > 63u ? 63u : sh_n[l];
+            expect += 6000u / steps[l] > 63u ? 63u : 6000u / steps[l];
+        }
+        rx_chord_keys(C1, 0);
+        printf("arp: high -- steps %u %u %u ms, ways %x, paces %x, mutated %u, %u notes of %u steps\n", steps[1], steps[2],
+               steps[3], dirs, mult, muts, played, expect);
+        if (steps[1] == steps[2] && steps[2] == steps[3])
+            printf("FAIL arp: RELATION high, every track at one pace\n"), fail++;
+        if (__builtin_popcount(dirs) < 2)
+            printf("FAIL arp: MOTION high, every track the same way\n"), fail++;
+        if (!muts)
+            printf("FAIL arp: MUTATE high, no pattern changed\n"), fail++;
+        if (played * 10u > expect * 9u)
+            printf("FAIL arp: CHANCE high, hardly a step left out\n"), fail++;
+        sh_run(6000);
+    }
+    {   /* one note, RANGE high: over its octaves */
+        uint32_t lo = 127, hi = 0, k;
+        rx.ak[1] = rx.ak[2] = rx.ak[3] = rx.ak[5] = 0;
+        rx.ak[4] = 100;
+        ar_form();
+        memset(sh_n, 0, sizeof sh_n);
+        press_key(0, 1);
+        sh_run(4000);
+        press_key(0, 0);
+        for (k = 0; k < sh_n[1]; k++) {
+            lo = sh_seq[1][k] < lo ? sh_seq[1][k] : lo;
+            hi = sh_seq[1][k] > hi ? sh_seq[1][k] : hi;
+            if (sh_seq[1][k] % 12u != key_note_of(0, 0) % 12u)
+                rx_bad++;
+        }
+        printf("arp: one note, RANGE 100: %u notes over %u semitones\n", sh_n[1], hi >= lo ? hi - lo : 0);
+        if (hi < lo + 24u)
+            printf("FAIL arp: one note, RANGE high, not over its octaves\n"), fail++;
+        sh_run(6000);
+    }
+    rx.ak[4] = 0;                                    /* a looped chord, the hands off: arpeggiated */
+    ar_form();
+    press_btn(B_REC);
+    rx_chord_keys(C2, 1);
+    sh_run(800);
+    rx_chord_keys(C2, 0);
+    sh_run(200);
+    press_btn(B_REC);
+    sh_run(3000);
+    memset(sh_n, 0, sizeof sh_n);
+    sh_run(4000);
+    if (sh_n[1] + sh_n[2] + sh_n[3] < 6u)
+        printf("FAIL arp: a looped chord is not arpeggiated (%u notes)\n", sh_n[1] + sh_n[2] + sh_n[3]), fail++;
+    press_btn(B_PLAY);
+    if (rx_bad)
+        printf("FAIL arp: %u notes on the guide, out of the scale or off the note\n", rx_bad), fail++;
+    rx_shift_fb();
+    printf("arp: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -7428,6 +7576,8 @@ int main(int argc, char **argv)
         return cmd_shadow();
     if (argc >= 2 && !strcmp(argv[1], "warp5"))
         return cmd_warp5();
+    if (argc >= 2 && !strcmp(argv[1], "arp"))
+        return cmd_arp();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))
