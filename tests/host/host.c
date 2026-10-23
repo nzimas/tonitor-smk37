@@ -7153,6 +7153,72 @@ static int cmd_keys(void)
     printf("keys: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
+static uint32_t vox_age_max(uint32_t l)            /* (the newest note's age on layer l) */
+{
+    uint32_t k, a = 0;
+    for (k = 0; k < NVOICE; k++)
+        if (vox[k].sounding && vox_owner(&vox[k]) == l && vox[k].age > a)
+            a = vox[k].age;
+    return a;
+}
+/* drone: the owner's case -- two notes latched on track 1 (FM), a loop on track 2 (ANIMA) and on track 3 (CALIGULA), a
+ * note on track 4 (HIVE): the latched notes go on; overload (the guard's held shed) never takes them; a latched key
+ * pressed alone strikes it again (never a dead key) */
+static int cmd_drone(void)
+{
+    uint32_t fail = 0, k, n0, n1;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    run_blocks(200, 0);
+    press_btn(B_FX);                                 /* track 1: two notes latched */
+    press_phys(KEY_SHIFT, 1);
+    press_phys(3, 1);
+    press_phys(5, 1);
+    press_phys(3, 0);
+    press_phys(5, 0);
+    press_phys(KEY_SHIFT, 0);
+    run_blocks(2000, 0);
+    press_btn(B_SEL);                                /* track 2: a loop of one note */
+    press_btn(B_REC);
+    press_key(7, 1);
+    run_blocks(700, 0);
+    press_key(7, 0);
+    run_blocks(200, 0);
+    press_btn(B_REC);
+    press_btn(B_ENV);                                /* track 3: the same */
+    press_btn(B_REC);
+    press_key(9, 1);
+    run_blocks(700, 0);
+    press_key(9, 0);
+    run_blocks(200, 0);
+    press_btn(B_REC);
+    run_blocks(3000, 0);
+    press_btn(B_LFO);                                /* track 4 (HIVE): a note */
+    press_key(4, 1);
+    run_blocks(400, 0);
+    shed(1);                                         /* (the audio late: the guard's hardest shed, twice) */
+    shed(1);
+    run_blocks(400, 0);
+    press_key(4, 0);
+    n0 = 0;
+    for (k = 0; k < NVOICE; k++)
+        n0 += vox[k].gate && vox_owner(&vox[k]) == 0u && vox[k].sounding && !vox[k].fade;
+    if (n0 != 2u)
+        printf("FAIL drone: track 1's two latched notes are not both sounding (%u)\n", n0), fail++;
+    press_btn(B_FX);                                 /* a latched key pressed alone: struck again, still latched */
+    n0 = vox_age_max(0);
+    press_phys(3, 1);
+    run_blocks(50, 0);
+    press_phys(3, 0);
+    run_blocks(200, 0);
+    n1 = vox_age_max(0);
+    if (n1 == n0 || !kb(ui.latch[0], 3))
+        printf("FAIL drone: a latched key pressed alone does not strike again (or lets go)\n"), fail++;
+    printf("drone: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -7795,6 +7861,8 @@ int main(int argc, char **argv)
         return cmd_tails2();
     if (argc >= 2 && !strcmp(argv[1], "keys"))
         return cmd_keys();
+    if (argc >= 2 && !strcmp(argv[1], "drone"))
+        return cmd_drone();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

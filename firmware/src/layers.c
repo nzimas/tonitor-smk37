@@ -88,6 +88,7 @@ typedef struct {
     uint8_t fade_n;              /* the fade's length, when not FADE (the budget's quick one) */
     uint16_t quiet, rt;          /* let go: blocks far below its loudest; blocks into this stretch of its tail */
     uint8_t nst;                 /* .. the stretches of its tail so far */
+    uint8_t latched;             /* its note latched (SHIFT): the overload guard never lets it go */
     uint32_t pk, wmax, rmax;     /* its loudest block (peak); this stretch's loudest; the stretch before's */
     fm_voice_t fm;
 } voice_t;
@@ -507,7 +508,8 @@ static void lim_block(int32_t *env, int32_t *g, int32_t *x, uint32_t n)
 }
 
 /* --------------------------------------------------------- events --- */
-enum { EV_ON, EV_OFF, EV_ENGINE, EV_STOP, EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOP_SET, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_MIDI_OFF };
+enum { EV_ON, EV_OFF, EV_ENGINE, EV_STOP, EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOP_SET, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_MIDI_OFF,
+       EV_LATCH };               /* (a key's note latched: its voice is never let go by the overload guard) */
 typedef struct { uint8_t type, layer, note, val; } ev_t;
 #define EV_UNHEARD 0x80u         /* (EV_ON, EV_OFF: in val, a sequencer's note -- the looper does not record it) */
 #define EVQ 64u
@@ -580,6 +582,7 @@ static void voice_on(uint32_t l, uint32_t k, int fresh)
     v->pk = v->wmax = v->rmax = 0;               /* (its tail watched afresh) */
     v->quiet = v->rt = 0;
     v->nst = 0;
+    v->latched = 0;
 }
 static void voice_off(uint32_t l, uint32_t k)
 {
@@ -624,11 +627,12 @@ static uint32_t voice_pick(uint32_t l, int own)
     for (k = 0; k < NVOICE; k++)
         if (!vox[k].sounding && !vox[k].gate && !vox[k].pend)
             return k;
-    for (pass = 0; pass < 3u && best == NVOICE; pass++)
+    for (pass = 0; pass < 4u && best == NVOICE; pass++)   /* (a released one; one of this layer's; any but a latched
+                                                           * one; any) */
         for (k = 0; k < NVOICE; k++) {
             const voice_t *v = &vox[k];
             uint32_t o = vox_owner(v);
-            if (v->pend || (own && o != l) || (pass == 0u ? v->gate : pass == 1u ? o != l : 0))
+            if (v->pend || (own && o != l) || (pass == 0u ? v->gate : pass == 1u ? o != l || v->latched : pass == 2u ? v->latched : 0))
                 continue;
             if (best == NVOICE || v->age < vox[best].age)
                 best = k;
@@ -1656,6 +1660,11 @@ static void events_take(void)        /* audio ISR, at a block start */
         case EV_LOOP_SET:
             loop_set(e.layer, e.val);
             break;
+        case EV_LATCH:                            /* (a key's note latched: its voices kept from the overload guard) */
+            for (k = 0; k < NVOICE; k++)
+                if (vox[k].gate && vox_owner(&vox[k]) == e.layer && vox[k].note == e.note && vox[k].src == SRC_KEY)
+                    vox[k].latched = 1;
+            break;
         case EV_MIDI_OFF:                         /* (SEND NOTES turned off: what was sent on, off) */
             for (k = 0; k < NLAYER; k++)
                 midi_layer_off(k);
@@ -2155,8 +2164,8 @@ static int shed_voice(int held)  /* the oldest released voice (held: the oldest 
     uint32_t k, ok = NVOICE;
     for (k = 0; k < NVOICE; k++) {
         const voice_t *v = &vox[k];
-        if (!v->sounding || v->fade || (held ? !v->gate || blk_clock - v->born < SHED_HELD_BLOCKS : v->gate))
-            continue;
+        if (!v->sounding || v->fade || (held ? !v->gate || v->latched || blk_clock - v->born < SHED_HELD_BLOCKS : v->gate))
+            continue;                             /* (a latched note is never let go: a drone held on purpose) */
         if (ok == NVOICE || v->age < vox[ok].age)
             ok = k;
     }

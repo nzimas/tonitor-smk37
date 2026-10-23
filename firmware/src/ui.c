@@ -408,6 +408,18 @@ static void chord_press(uint32_t l, uint32_t root, uint32_t f1, int on)
         else
             note_release(l, n[i]);
 }
+/* a note (or chord) latched on track l: told to the voices, so the overload guard never lets it go */
+static void latch_mark(uint32_t l, uint32_t root, uint32_t f1)
+{
+    uint32_t n[3], i;
+    if (!f1) {
+        ev_post(EV_LATCH, l, root, 1);
+        return;
+    }
+    chord_notes(root, f1 - 1u, n);
+    for (i = 0; i < 3u; i++)
+        ev_post(EV_LATCH, l, n[i], 1);
+}
 /* a note (or chord) of BALLSY's or BRICKLAYER's: played as a key's, but not for the looper (it records the keys) */
 static void seq_press(uint32_t l, uint32_t root, uint32_t f1, int on)
 {
@@ -431,6 +443,7 @@ static void latch_move(uint32_t l, int32_t d)
             chord_press(l, was, ui.latch_form[l][k], 0);
             press_vel = ui.latch_vel[l][k];      /* (at the velocity it was latched at) */
             chord_press(l, now, ui.latch_form[l][k], 1);
+            latch_mark(l, now, ui.latch_form[l][k]);
             press_vel = (uint8_t)pv;
             if (k2 < 0 || k2 >= (int32_t)NKEY || kb(latch, (uint32_t)k2))
                 k2 = (int32_t)k;
@@ -1557,6 +1570,7 @@ static void ui_input(void)
                 ui.latch_note[l][k] = ui.key_note[k];
                 ui.latch_form[l][k] = ui.key_form[k];
                 ui.latch_vel[l][k] = ui.key_vel[k];
+                latch_mark(l, ui.key_note[k], ui.key_form[k]);
                 ui.key_layer[k] = KEY_NONE;     /* (letting go of the key no longer ends it) */
             }
     }
@@ -1582,11 +1596,20 @@ static void ui_input(void)
                 ui.force = 1;
             }
             ui.key_layer[k] = KEY_NONE;
-            if (kb(ui.latch[ui.sel], k)) {       /* a latched key: SHIFT held lets go of it; alone, nothing */
+            if (kb(ui.latch[ui.sel], k)) {       /* a latched key: SHIFT held lets go of it; alone, struck again (still
+                                                  * latched -- a struck sound faded, a note cut off, sounds again) */
+                uint32_t ln = ui.latch_note[ui.sel][k], lf = ui.latch_form[ui.sel][k], pv = press_vel;
+                chord_press(ui.sel, ln, lf, 0);
                 if (shift_held()) {
                     kset(ui.latch[ui.sel], k, 0);
-                    chord_press(ui.sel, ui.latch_note[ui.sel][k], ui.latch_form[ui.sel][k], 0);
                     ui.latch_form[ui.sel][k] = 0;
+                } else {
+                    vel = vel_apply(vel);
+                    press_vel = (uint8_t)(vel && vel < 127u ? vel : 0u);
+                    ui.latch_vel[ui.sel][k] = press_vel;
+                    chord_press(ui.sel, ln, lf, 1);
+                    latch_mark(ui.sel, ln, lf);
+                    press_vel = (uint8_t)pv;
                 }
             } else {
                 uint32_t f1 = ui.chord_on[ui.sel] ? ui.chord_form[ui.sel] + 1u : 0u, j, pv = press_vel;
@@ -1610,6 +1633,7 @@ static void ui_input(void)
                     ui.latch_form[ui.sel][k] = (uint8_t)f1;
                     ui.latch_vel[ui.sel][k] = ui.key_vel[k];
                     ui.key_layer[k] = KEY_NONE;
+                    latch_mark(ui.sel, note, f1);
                 }
             }
         } else if (ui.key_layer[k] != KEY_NONE)
