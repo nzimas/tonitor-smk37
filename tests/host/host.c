@@ -6942,6 +6942,125 @@ static int cmd_arp(void)
     printf("arp: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
+/* tails: on each engine, sounds drawn as HOME draws them, a note played and let go; 12 s on, what still sounds (a
+ * long release, said); 45 s on, nothing may: a sound must end (a voice whose tail stopped falling, or fell far under
+ * its loudest, is let go: layers.c TAIL_*) */
+static int cmd_tails(void)
+{
+    uint32_t e, t, fail = 0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    for (e = 0; e < NENG; e++) {
+        uint32_t stuck = 0;
+        double worst = -200;
+        ui.engine[0] = (uint8_t)e;
+        ev_post(EV_ENGINE, 0, 0, e);
+        run_blocks(200, 0);
+        for (t = 0; t < 20u; t++) {
+            double ms = 0;
+            uint32_t i, n = 0;
+            ui.path[0] = (uint8_t)(t % 3u);
+            new_sound_of(-1, 0);
+            run_blocks(40, 0);
+            press_key(5, 1);
+            run_blocks(600, 0);
+            press_key(5, 0);
+            run_blocks(44100u * 12u / CTL, 0);
+            for (i = 0; i < 700u; i++, n += 2u * CTL) {   /* (the next half second's level) */
+                uint32_t j;
+                run_blocks(1, 0);
+                for (j = 0; j < 2u * CTL; j++)
+                    ms += (double)mix_out[j] * mix_out[j];
+            }
+            ms /= n;
+            if (layer_sounding(0)) {
+                run_blocks(44100u * 33u / CTL, 0);
+                if (!layer_sounding(0)) {
+                    printf("tails: %s %s (path %u): a long release, over by 45 s\n", ENG_NAME[e], sound_name(0, e), t % 3u);
+                    goto next;
+                }
+            }
+            if (layer_sounding(0)) {
+                char l4[40] = "";
+                if (e == ENG_FM) {
+                    const uint8_t *p = fm_buf[0][fm_pub[0]].p;
+                    uint32_t k, car = fm6_carriers(p[FP_ALG] & 31u), o = 0;
+                    for (k = 0; k < 6u; k++)
+                        if ((car >> k) & 1u)
+                            o += (uint32_t)snprintf(l4 + o, sizeof l4 - o, " %u", p[k * FP_OP + FP_L1 + 3]);
+                }
+                stuck++;
+                printf("tails: %s %s (path %u) still sounding 45 s after (%.1f dBFS at 12 s)%s%s\n", ENG_NAME[e], sound_name(0, e), t % 3u,
+                       ms > 0 ? 10.0 * __builtin_log10(ms / (32768.0 * 32768.0 * 256.0)) : -200.0, *l4 ? ", carriers' L4:" : "", l4);
+            }
+        next:
+            if (ms > 0 && 10.0 * __builtin_log10(ms / (32768.0 * 32768.0 * 256.0)) > worst)
+                worst = 10.0 * __builtin_log10(ms / (32768.0 * 32768.0 * 256.0));
+            ev_post(EV_STOP, 0, 0, 0);
+            run_blocks(200, 0);
+        }
+        printf("tails: %-8s %2u of 20 still sounding after 45 s; the loudest at 12 s %.1f dBFS\n", ENG_NAME[e], stuck, worst);
+        fail += stuck;
+    }
+    printf("tails: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+/* tails2: the ones still sounding, followed for a minute: do they fall, or stay? */
+static double tl_level(uint32_t blocks)
+{
+    double ms = 0;
+    uint32_t i, j;
+    for (i = 0; i < blocks; i++) {
+        run_blocks(1, 0);
+        for (j = 0; j < 2u * CTL; j++)
+            ms += (double)mix_out[j] * mix_out[j];
+    }
+    ms /= blocks * 2.0 * CTL;
+    return ms > 0 ? 10.0 * __builtin_log10(ms / (32768.0 * 32768.0 * 256.0)) : -200.0;
+}
+static int cmd_tails2(void)
+{
+    static const uint8_t EN[2] = {ENG_FM, ENG_DRUID};
+    uint32_t q, t;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    for (q = 0; q < 2u; q++) {
+        uint32_t e = EN[q], shown = 0;
+        ui.engine[0] = (uint8_t)e;
+        ev_post(EV_ENGINE, 0, 0, e);
+        run_blocks(200, 0);
+        for (t = 0; t < 60u && shown < 8u; t++) {
+            double a, b, c, d;
+            ui.path[0] = (uint8_t)(t % 3u);
+            new_sound_of(-1, 0);
+            run_blocks(40, 0);
+            press_key(5, 1);
+            run_blocks(600, 0);
+            a = tl_level(200);
+            press_key(5, 0);
+            run_blocks(44100u * 12u / CTL, 0);
+            b = tl_level(700);
+            if (layer_sounding(0)) {
+                run_blocks(44100u * 18u / CTL, 0);
+                c = tl_level(700);
+                run_blocks(44100u * 30u / CTL, 0);
+                d = tl_level(700);
+                printf("tails2: %s %s path %u: held %.1f, +12 s %.1f, +30 s %.1f, +60 s %.1f dBFS%s\n", ENG_NAME[e], sound_name(0, e),
+                       t % 3u, a, b, c, d, layer_sounding(0) ? " -- still sounding" : "");
+                shown++;
+            }
+            ev_post(EV_STOP, 0, 0, 0);
+            run_blocks(200, 0);
+        }
+    }
+    return 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -7578,6 +7697,10 @@ int main(int argc, char **argv)
         return cmd_warp5();
     if (argc >= 2 && !strcmp(argv[1], "arp"))
         return cmd_arp();
+    if (argc >= 2 && !strcmp(argv[1], "tails"))
+        return cmd_tails();
+    if (argc >= 2 && !strcmp(argv[1], "tails2"))
+        return cmd_tails2();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

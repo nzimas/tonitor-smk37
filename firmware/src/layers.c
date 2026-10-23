@@ -84,8 +84,17 @@ typedef struct {
     uint8_t est;                 /* the track's own envelope (AE_*): where this voice is in it, its level Q24 */
     int32_t elv;
     uint8_t fade_n;              /* the fade's length, when not FADE (the budget's quick one) */
+    uint16_t quiet, rt;          /* let go: blocks far below its loudest; blocks into this stretch of its tail */
+    uint8_t nst;                 /* .. the stretches of its tail so far */
+    uint32_t pk, wmax, rmax;     /* its loudest block (peak); this stretch's loudest; the stretch before's */
     fm_voice_t fm;
 } voice_t;
+#define TAIL_FLOOR 11u           /* let go, a voice 66 dB (2^11) under its loudest .. */
+#define TAIL_QUIET 276u          /* .. for 0.2 s ends; */
+#define TAIL_STRETCH 2756u       /* one that has not fallen 1.5 dB in 2 s (stuck ringing: a model's resonance, a
+                                  * level held after release) ends too -- each faded out over .. */
+#define TAIL_FADE 255u           /* .. 0.19 s; and none rings on more than .. */
+#define TAIL_MAX 15u             /* .. 15 stretches: 30 s after it was let go */
 
 /* the tracks' own envelope (the ENVELOPE page): A D S R, 0 .. 100 each, while on (lay_env_on) the track's sounds'
  * own amplitude envelope is held at full and this one shapes them -- attack a line, decay a curve to the sustain,
@@ -566,6 +575,9 @@ static void voice_on(uint32_t l, uint32_t k, int fresh)
         v->elv = 0;
     }
     v->sounding = 1;
+    v->pk = v->wmax = v->rmax = 0;               /* (its tail watched afresh) */
+    v->quiet = v->rt = 0;
+    v->nst = 0;
 }
 static void voice_off(uint32_t l, uint32_t k)
 {
@@ -1986,6 +1998,32 @@ static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin,
             int32_t vg = v->vel * 258;
             for (i = 0; i < CTL; i++)
                 vb[i] = mulq15(vb[i], vg);
+        }
+        if (!v->fade && !v->pend) {               /* a voice let go must end: far under its loudest, or no longer falling */
+            uint32_t bp = 0;
+            for (i = 0; i < CTL; i++) {
+                uint32_t a = (uint32_t)(vb[i] < 0 ? -vb[i] : vb[i]);
+                bp = a > bp ? a : bp;
+            }
+            if (bp > v->pk)
+                v->pk = bp;
+            if (!v->gate && v->pk) {
+                v->quiet = (uint16_t)(bp < v->pk >> TAIL_FLOOR ? v->quiet + 1u : 0u);
+                if (bp > v->wmax)
+                    v->wmax = bp;
+                if (++v->rt >= TAIL_STRETCH) {    /* (a stretch done: fallen at least 1.5 dB since the one before?) */
+                    int stuck = v->rmax && (uint64_t)v->wmax * 100u > (uint64_t)v->rmax * 84u;
+                    v->rmax = v->wmax;
+                    v->wmax = 0;
+                    v->rt = 0;
+                    if (stuck || ++v->nst >= TAIL_MAX)
+                        v->quiet = TAIL_QUIET;
+                }
+                if (v->quiet >= TAIL_QUIET) {
+                    v->fade = (uint8_t)TAIL_FADE;
+                    v->fade_n = (uint8_t)TAIL_FADE;
+                }
+            }
         }
         if (v->fade) {
             uint32_t fn = v->fade_n ? v->fade_n : FADE;
