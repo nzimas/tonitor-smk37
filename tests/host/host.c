@@ -6773,6 +6773,24 @@ static int cmd_warp5(void)
         if (glide < 40u || bounce < 30u)
             printf("FAIL warp5: the warps have little of GLISSE or RUBBER\n"), fail++;
     }
+    {   /* generation 6: the five learned from the DX7 collection drawn, GLISSE and RUBBER still not */
+        uint32_t f;
+        memset(cnt, 0, sizeof cnt);
+        for (path = 0; path < PATH_N; path++)
+            for (s = 0; s < 3000u; s++) {
+                fm_generate(&pt, -1, 9000u + s * 7u, path, 6u);
+                cnt[pt.family]++;
+            }
+        printf("warp5: generation 6 --");
+        for (f = FF_N5; f < FF_N; f++)
+            printf(" %s %u", FF_NAME[f], cnt[f]);
+        printf("\n");
+        for (f = FF_N5; f < FF_N; f++)
+            if (cnt[f] < 100u)
+                printf("FAIL warp5: generation 6 hardly draws %s (%u)\n", FF_NAME[f], cnt[f]), fail++;
+        if (cnt[FF_GLISSE] || cnt[FF_RUBBER])
+            printf("FAIL warp5: generation 6 draws GLISSE or RUBBER\n"), fail++;
+    }
     printf("warp5: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }

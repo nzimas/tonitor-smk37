@@ -57,7 +57,7 @@ static const char *const RX_TEXN[] = {"DRONE", "HAZE", "FOG", "WASH", "TIDE", "T
                                       "SWELL", "ABYSS", "FRICTION", "BRUIT", "WARP", "GRIT"};
 static const char *const RX_PLKN[] = {"PLUCK", "MALLET", "IMPACT", "BONGO", "STRUCK", "HARP", "SITAR", "CHIME", "BELL",
                                       "BELLS", "STAB", "GLASS", "SHARDS", "RATTLE", "PLATE", "RUBBER", "GLITCH", "BITS",
-                                      "ITERATIF", "METAL", "MACHINE"};
+                                      "ITERATIF", "METAL", "MACHINE", "CLANG"};
 static const char *const RX_BASSN[] = {"SUB", "GROUND", "ABYSS", "UNDERTOW"};
 
 typedef struct {

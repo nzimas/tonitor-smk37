@@ -52,7 +52,9 @@ enum { FF_METAL, FF_DRONE, FF_BRUIT, FF_IMPACT, FF_ITERATIF, FF_GLISSE, FF_SPECT
        FF_N0,                    /* (generation 0 draws these nine only) */
        FF_CHOIR = FF_N0, FF_BOWED, FF_HOLLOW, FF_BLOOM, FF_TIDE, FF_SHARDS, FF_STATIC, FF_WIND,
        FF_N1,                    /* (generations 1 and 2 draw these seventeen) */
-       FF_PLUCK = FF_N1, FF_MALLET, FF_WARP, FF_GLITCH, FF_RUBBER, FF_N };
+       FF_PLUCK = FF_N1, FF_MALLET, FF_WARP, FF_GLITCH, FF_RUBBER,
+       FF_N5,                    /* (generations 3 to 5 draw these twenty-two) */
+       FF_SHAPER = FF_N5, FF_LADDER, FF_REVERSE, FF_CREEP, FF_CLANG, FF_N };
 /* the families' weights on each path: generation 0 (the open path: rnd_below, all alike), generation 1 */
 static const uint8_t FF_W[3][FF_N0] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -74,10 +76,16 @@ static const uint8_t FF_W5[3][FF_N] = {             /* generation 5: GLISSE and 
     {3, 4, 0, 0, 1, 0, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 1, 0, 0},
     {2, 1, 4, 3, 3, 0, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 8, 5, 0},
 };
+static const uint8_t FF_W6[3][FF_N] = {             /* generation 6: the five learned from the DX7 collection (fm_dx7.c) */
+    {2, 2, 2, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 3, 5, 3, 0, 3, 3, 3, 3, 3},
+    {3, 4, 0, 0, 1, 0, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 1, 0, 0, 3, 4, 4, 4, 2},
+    {2, 1, 4, 3, 3, 0, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 8, 5, 0, 4, 2, 2, 2, 4},
+};
 static int fm_retired(int32_t f) { return f == FF_GLISSE || f == FF_RUBBER; }   /* (from generation 5: into WARP) */
 static const char *const FF_NAME[FF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "ITERATIF", "GLISSE", "SPECTRE",
                                           "ABYSS", "FRICTION", "CHOIR", "BOWED", "HOLLOW", "BLOOM", "TIDE",
-                                          "SHARDS", "STATIC", "WIND", "PLUCK", "MALLET", "WARP", "GLITCH", "RUBBER"};
+                                          "SHARDS", "STATIC", "WIND", "PLUCK", "MALLET", "WARP", "GLITCH", "RUBBER",
+                                          "SHAPER", "LADDER", "REVERSE", "CREEP", "CLANG"};
 
 typedef struct {
     uint8_t p[FP_SIZE + 1u];
@@ -205,7 +213,8 @@ static uint32_t fm_carriers_of(const uint8_t *p);
 static int fm_skews(uint32_t f)
 {
     return f == FF_METAL || f == FF_BRUIT || f == FF_IMPACT || f == FF_ITERATIF || f == FF_GLISSE || f == FF_FRICTION ||
-           f == FF_SHARDS || f == FF_STATIC || f == FF_WIND || f == FF_WARP || f == FF_GLITCH || f == FF_MALLET;
+           f == FF_SHARDS || f == FF_STATIC || f == FF_WIND || f == FF_WARP || f == FF_GLITCH || f == FF_MALLET ||
+           f == FF_CLANG;
 }
 static const char *fm_mac_name(const fm_patch_t *pt, uint32_t j)
 {
@@ -1209,7 +1218,7 @@ static void fm_ambient(uint8_t *p, int32_t f, rnd_t *r)
     for (n = 1; n <= 6; n++) {
         uint8_t *op = fm_op(p, n);
         if (fm_is_carrier(p, n)) {
-            if ((f != FF_METAL && f != FF_PLUCK && f != FF_MALLET) || rnd_chance(r, 50))
+            if ((f != FF_METAL && f != FF_PLUCK && f != FF_MALLET && f != FF_CLANG) || rnd_chance(r, 50))
                                                               /* swells (a bell, a pluck may keep its strike) */
                 op[FP_R1] = (uint8_t)clampi(op[FP_R1], 0, rnd_in(r, 18, 55));
             op[FP_R1 + 3] = (uint8_t)clampi(op[FP_R1 + 3], 0, rnd_in(r, 8, 28));   /* long tails */
@@ -1235,6 +1244,8 @@ static void fm_experimental(uint8_t *p, rnd_t *r)
         if (!fm_is_carrier(p, n))
             fm_op(p, n)[FP_OL] = (uint8_t)clampi(fm_op(p, n)[FP_OL] + rnd_in(r, 0, 10), 0, 99);
 }
+
+#include "fm_dx7.c"        /* generation 6's families */
 
 /* a patch of family f (FF_N: any), from seed, on a path; then fm_measure */
 /* generation 4: IMPACT as struck things of many kinds -- a falling pitch (the old one's every sound) now one kind in
@@ -1359,10 +1370,12 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
         f = path == PATH_OPEN ? rnd_below(r, FF_N0) : (int32_t)rnd_weighted(r, FF_W[path], FF_N0);
     else if (gen <= 2u && (f < 0 || f >= FF_N1))
         f = (int32_t)rnd_weighted(r, FF_W1[path], FF_N1);
-    else if (gen <= 4u && (f < 0 || f >= FF_N))
-        f = (int32_t)rnd_weighted(r, FF_W3[path], FF_N);
+    else if (gen <= 4u && (f < 0 || f >= FF_N5))
+        f = (int32_t)rnd_weighted(r, FF_W3[path], FF_N5);
+    else if (gen <= 5u && (f < 0 || f >= FF_N5))
+        f = (int32_t)rnd_weighted(r, FF_W5[path], FF_N5);
     else if (f < 0 || f >= FF_N)
-        f = (int32_t)rnd_weighted(r, FF_W5[path], FF_N);
+        f = (int32_t)rnd_weighted(r, FF_W6[path], FF_N);
     if (gen >= 5u && fm_retired(f))
         f = FF_WARP;                                     /* (a GLISSE or a RUBBER asked for: a WARP, which has them) */
     fm_voice_defaults(p);
@@ -1388,6 +1401,11 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
     case FF_WARP: gen >= 5u ? fm_gen_warp5(p, r) : fm_gen_warp(p, r); break;
     case FF_GLITCH: gen >= 4u ? fm_gen_glitch4(p, r) : fm_gen_glitch(p, r); break;
     case FF_RUBBER: fm_gen_rubber(p, r); break;
+    case FF_SHAPER: fm_gen_shaper(p, r); break;
+    case FF_LADDER: fm_gen_ladder(p, r); break;
+    case FF_REVERSE: fm_gen_reverse(p, r); break;
+    case FF_CREEP: fm_gen_creep(p, r); break;
+    case FF_CLANG: fm_gen_clang(p, r); break;
     default: fm_gen_wind(p, r); break;
     }
     if (gen >= 1u) {                                     /* generation 1: shaped, bent with care, then leaned */
