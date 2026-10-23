@@ -30,6 +30,8 @@
 #define NLAYER 6
 #define NVOICE 12                /* the voices of all the layers (FM and ANIMA) */
 enum { ENG_FM, ENG_ANIMA, ENG_CAL, ENG_RUS, ENG_DRUID, ENG_BAY, ENG_HIVE, NENG };
+/* the tracks' engines at the start (and in a fresh session): FM, ANIMA, CALIGULA, HIVE, DRUID, BAYAREA */
+static const uint8_t ENG_START[6] = {ENG_FM, ENG_ANIMA, ENG_CAL, ENG_HIVE, ENG_DRUID, ENG_BAY};
 static const char *const ENG_NAME[NENG] = {"FM", "ANIMA", "CALIGULA", "RUSSOLO", "DRUID", "BAYAREA", "HIVE"};
 #include "midi.c"                /* (the MIDI settings, the notes sent out) */
 
@@ -2286,7 +2288,7 @@ static void layers_init(void)
     }
     for (l = 0; l < NLAYER; l++) {
         lay[l].lim_g = Q15;
-        lay[l].engine = lay[l].want_engine = (uint8_t)(l & 1u ? ENG_ANIMA : ENG_FM);
+        lay[l].engine = lay[l].want_engine = ENG_START[l % 6u];
         cal_init(&cal_rt[l], 0xC0u + l * 131u);
         rus_init(&rus_rt[l], 0x7A5u + l * 131u);
     }

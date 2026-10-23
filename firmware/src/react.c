@@ -101,8 +101,11 @@ typedef struct {
     uint8_t seq[AR_SEQ];         /* its pattern: which of them, in turn (AR_REST: a rest; AR_ANY: any, drawn) */
     uint16_t mult;               /* its pace against RATE's, Q8 */
     int8_t oct;
+    uint16_t ver;                /* (the chord it plays: rx.a_ver when it took it) */
+    uint8_t fresh;               /* (started from silence: its first step takes the chord as it has come by then) */
     uint32_t next_at;
 } rx_av_t;
+#define AR_SETTLE 90u            /* a chord taken once it has stood this long (ms), at a track's next step */
 
 static struct {
     uint8_t on, mask, guide;
@@ -112,6 +115,9 @@ static struct {
     rx_av_t av[NLAYER];
     uint8_t an[8], ann;          /* ARP: the chord, in the order its notes came */
     uint32_t a_on;               /* (its last note's coming) */
+    uint16_t a_ver;              /* (the chord's changes, counted) .. */
+    uint32_t a_chg;              /* .. the last one's time */
+    uint8_t a_idle;              /* (the arpeggios quiet: the next chord starts them, on its own time) */
     rx_sv_t sv[NLAYER];
     struct { uint8_t note; uint32_t t, it; } hd[RX_HD];
     uint8_t nhd;
@@ -697,6 +703,7 @@ static void rx_reset(void)                          /* nothing heard yet (on, or
         rx.sv[l].until = 0;
     }
     rx.ann = 0;
+    rx.a_idle = 1;
     rx_form();
     ar_form();
 }
@@ -899,7 +906,9 @@ static void sh_tick(void)
     }
 }
 /* ---- ARP: the tracks taken in break the chord the guide plays into arpeggios -- each at its own pace, its own way,
- * in its own octaves -- and follow it: a new chord, and every pattern starts again on its notes at once. What the
+ * in its own octaves -- and follow it: a new chord, once it has stood AR_SETTLE ms, is taken by each track at its
+ * next step, from its pattern's start -- never between two of its notes, and their pulse unbroken (a hand a little
+ * early or late on the change does not jolt them; from silence, the first chord starts them at once). What the
  * guide holds is the chord (a finger lifted, a note less); let go, the last chord goes on until the guide has been
  * silent a while; a single note is arpeggiated over its octaves. Whatever the guide sounds leads: its keys, its loops,
  * BALLSY, BRICKLAYER. Its page:
@@ -1046,13 +1055,16 @@ static void ar_build(uint32_t l)                    /* its pattern, its way over
     for (i = 0; i < v->mut && i < 6u; i++)          /* (what it has mutated, again) */
         ar_mutate(v);
 }
-static void ar_restart(void)                        /* a new chord: every pattern from its start, at once */
+static void ar_restart(void)                        /* from silence (or the tracks dealt again): every pattern from its
+                                                     * start, a moment from now */
 {
     uint32_t l;
     for (l = 0; l < NLAYER; l++)
         if (rx_in_ens(l)) {
             ar_build(l);
-            rx.av[l].next_at = fm1_ms + 25u;        /* (the chord's other notes, a moment to come) */
+            rx.av[l].ver = rx.a_ver;
+            rx.av[l].fresh = 1;
+            rx.av[l].next_at = fm1_ms + 40u;        /* (the chord's other notes, a moment to come) */
         }
 }
 /* the tracks' paces, ways and registers, as RELATION, MOTION and RANGE have them: each unlike the others */
@@ -1115,8 +1127,14 @@ static void ar_hear(uint32_t note, int on)          /* the guide's chord, as it 
             ch = 1;
         }
     }
-    if (ch && rx.ann)
-        ar_restart();
+    if (ch && rx.ann) {
+        rx.a_ver++;
+        rx.a_chg = now;
+        if (rx.a_idle) {                            /* (from silence: at once, the pulse from this chord) */
+            rx.a_idle = 0;
+            ar_restart();
+        }
+    }
 }
 static void ar_step(uint32_t l)                     /* a step: its note (or a rest, a skip, a note struck twice) */
 {
@@ -1125,6 +1143,12 @@ static void ar_step(uint32_t l)                     /* a step: its note (or a re
     if ((int32_t)(fm1_ms - v->next_at) > (int32_t)sm)
         v->next_at = fm1_ms;                        /* (fallen behind: on from now) */
     v->next_at += sm;
+    if (v->ver != rx.a_ver && (v->fresh || fm1_ms - rx.a_chg >= AR_SETTLE)) {   /* a new chord, settled: taken now,
+                                                                                 * on this step */
+        ar_build(l);
+        v->ver = rx.a_ver;
+    }
+    v->fresh = 0;
     if (!v->len || !v->n)
         return;
     s = v->seq[v->pos];
@@ -1155,8 +1179,10 @@ static void ar_step(uint32_t l)                     /* a step: its note (or a re
 static void ar_tick(void)
 {
     uint32_t now = fm1_ms, l, hold = ar_base() * 4u;
-    if (!rx.ann || (!rx.nhd && now - rx.last_ev > (hold > 1500u ? hold : 1500u)))
-        return;                                     /* (no chord, or the guide silent a while: quiet) */
+    if (!rx.ann || (!rx.nhd && now - rx.last_ev > (hold > 1500u ? hold : 1500u))) {
+        rx.a_idle = 1;                              /* (no chord, or the guide silent a while: quiet) */
+        return;
+    }
     for (l = 0; l < NLAYER; l++)
         if (rx_in_ens(l) && (int32_t)(now - rx.av[l].next_at) >= 0)
             ar_step(l);
@@ -1174,6 +1200,7 @@ static void rx_mode_set(uint32_t m)                 /* REACT, SHADOW or ARP (< a
         rx.a[l].pos = rx.a[l].echoed = RX_NONE;
     }
     rx.ann = 0;
+    rx.a_idle = 1;
     rx_form();
     ar_form();
 }

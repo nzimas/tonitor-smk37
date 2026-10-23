@@ -617,9 +617,12 @@ static int cmd_flows(void)
     fm_measure(&fm_buf[3][fm_use[3] ^ 1u]);
     fm_pub[3] = fm_use[3] ^ 1u;
     press_btn(B_LFO);
-    if (ui.engine[3] != ENG_FM) {
-        host_enc[PANEL_ENC[EN_PRESET]] = -1;
-        ui_input();
+    {
+        uint32_t g = 0;
+        while (ui.engine[3] != ENG_FM && g++ < NENG) {   /* (back to FM, from whichever it starts on) */
+            host_enc[PANEL_ENC[EN_PRESET]] = -1;
+            ui_input();
+        }
     }
     run_blocks(100, 0);
     press_key(3, 1);
@@ -1119,7 +1122,7 @@ static int cmd_sessions(const char *dir)
         if (ses.current != 9u || ses_has(9))
             printf("FAIL sessions: the empty slot 9 was not chosen (current %u)\n", ses.current), fail++;
         for (l = 0; l < NLAYER; l++)
-            bad += loop[l].ntrk || loop[l].play || ui.latch[l][0] || ui.engine[l] != (l & 1u ? ENG_ANIMA : ENG_FM)
+            bad += loop[l].ntrk || loop[l].play || ui.latch[l][0] || ui.engine[l] != ENG_START[l % 6u]
                    || lay[l].engine != ui.engine[l] || ui.level[l] != LEVEL_UNITY || ui.pan[l] != PAN_DEF[l]
                    || ui.send[l] != SEND_DEF || ui.oct[l] || ui.flt[l] || ui.gr[l] || ui.cr[l] || ui.path[l] != PATH_OPEN
                    || layer_sounding(l);
@@ -6859,11 +6862,40 @@ static int cmd_arp(void)
     t0 = fm1_ms;
     sh_run(2000);
     for (l = 1; l < 4u; l++) {
-        uint32_t ok = sh_n[l] && sh_t[l][0] - t0 < 120u, k;
+        uint32_t st = ar_step_ms(l), k, first = 0xFFFFFFFFu, ok;   /* (at its next step after the chord settles) */
         for (k = 0; k < sh_n[l]; k++)
-            ok &= ((m2 >> (sh_seq[l][k] % 12u)) & 1u) != 0u;
+            if (((m2 >> (sh_seq[l][k] % 12u)) & 1u) && first == 0xFFFFFFFFu)
+                first = sh_t[l][k] - t0;
+            else if (first != 0xFFFFFFFFu && !((m2 >> (sh_seq[l][k] % 12u)) & 1u))
+                first = 0xFFFFFFFEu;                 /* (the old chord again, after the new: wrong) */
+        ok = first < st + AR_SETTLE + 30u;
         if (!ok)
-            printf("FAIL arp: track %u does not follow the new chord at once (%u ms)\n", l + 1u, sh_n[l] ? sh_t[l][0] - t0 : 0), fail++;
+            printf("FAIL arp: track %u does not take the new chord at its next step (%u ms; step %u)\n", l + 1u, first, st), fail++;
+    }
+    {   /* a clumsy change -- the new chord's notes 0, 40, 75 ms apart, the old let go 60 ms late: never a note between
+         * two steps; the pulse unbroken */
+        uint32_t k, bad = 0;
+        memset(sh_n, 0, sizeof sh_n);
+        sh_run(500);
+        press_key(C1[0], 1);
+        sh_run(40);
+        press_key(C1[1], 1);
+        sh_run(35);
+        press_key(C1[2], 1);
+        sh_run(60);
+        rx_chord_keys(C2, 0);
+        rx_chord_keys(C1, 1);
+        sh_run(2000);
+        for (l = 1; l < 4u; l++) {
+            uint32_t st = ar_step_ms(l);
+            for (k = 1; k < sh_n[l]; k++)
+                if (sh_t[l][k] - sh_t[l][k - 1u] + 12u < st && sh_t[l][k] - sh_t[l][k - 1u] > st / 2u + 12u)
+                    bad++;                           /* (a gap shorter than a step: the pulse broken) */
+        }
+        if (bad)
+            printf("FAIL arp: a clumsy chord change breaks the arpeggios' pulse (%u)\n", bad), fail++;
+        rx_chord_keys(C2, 1);
+        rx_chord_keys(C1, 0);
     }
     rx_chord_keys(C2, 0);                            /* let go: on a while, then quiet */
     memset(sh_n, 0, sizeof sh_n);
@@ -7060,6 +7092,66 @@ static int cmd_tails2(void)
         }
     }
     return 0;
+}
+/* keys: on each engine, sounds drawn as HOME draws them; every key of the keybed played alone on each: is any silent
+ * (or far quieter than the keys around it)? */
+static int cmd_keys(void)
+{
+    uint32_t e, t, k, fail = 0;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    for (e = 0; e < NENG; e++) {
+        uint32_t bad = 0;
+        ui.engine[0] = (uint8_t)e;
+        ev_post(EV_ENGINE, 0, 0, e);
+        run_blocks(200, 0);
+        for (t = 0; t < 24u; t++) {
+            double lv[NKEY], med;
+            double srt[NKEY];
+            uint32_t i, j;
+            ui.path[0] = (uint8_t)(t % 3u);
+            new_sound_of(-1, 0);
+            run_blocks(40, 0);
+            for (k = 0; k < NKEY; k++) {
+                double ms = 0;
+                press_phys(k, 1);
+                for (i = 0; i < 400u; i++) {        /* (0.3 s held: the loudest block) */
+                    double b = 0;
+                    run_blocks(1, 0);
+                    for (j = 0; j < 2u * CTL; j++)
+                        b += (double)mix_out[j] * mix_out[j];
+                    ms = b > ms ? b : ms;
+                }
+                press_phys(k, 0);
+                ev_post(EV_STOP, 0, 0, 0);
+                run_blocks(300, 0);
+                lv[k] = ms > 0 ? 10.0 * __builtin_log10(ms / (2.0 * CTL * 32768.0 * 32768.0 * 256.0)) : -200.0;
+                srt[k] = lv[k];
+            }
+            for (i = 1; i < NKEY; i++)              /* (the median key's level) */
+                for (j = i; j > 0u && srt[j - 1u] > srt[j]; j--) {
+                    double x = srt[j];
+                    srt[j] = srt[j - 1u];
+                    srt[j - 1u] = x;
+                }
+            med = srt[NKEY / 2u];
+            for (k = 0; k < NKEY; k++) {
+                double nb = k ? lv[k - 1u] : lv[k + 1u], nb2 = k + 1u < NKEY ? lv[k + 1u] : lv[k - 1u];
+                if (med > -90.0 && lv[k] < med - 30.0 && lv[k] < nb - 25.0 && lv[k] < nb2 - 25.0) {
+                    printf("keys: %s %s (path %u): key %u (note %u) silent -- %.1f dB against %.1f around it\n", ENG_NAME[e],
+                           sound_name(0, e), t % 3u, k, key_note_of(k, 0), lv[k], med);
+                    bad++;
+                }
+            }
+        }
+        printf("keys: %-8s %u silent keys in 24 sounds\n", ENG_NAME[e], bad);
+        fail += bad;
+    }
+    printf("keys: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
 }
 static int cmd_xpvel(void)
 {
@@ -7701,6 +7793,8 @@ int main(int argc, char **argv)
         return cmd_tails();
     if (argc >= 2 && !strcmp(argv[1], "tails2"))
         return cmd_tails2();
+    if (argc >= 2 && !strcmp(argv[1], "keys"))
+        return cmd_keys();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

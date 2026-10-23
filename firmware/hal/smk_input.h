@@ -56,6 +56,8 @@
 #define SMK_DEB_RELEASE 4u        /* frames open in a row: a button release (~6 ms) */
 #define SMK_DEB_PRESS 2u          /* frames closed in a row: a button press (~3 ms) */
 #define SMK_KEY_REL 3u            /* frames with contact 1 open: a key release (~5 ms) */
+#define SMK_VEL_MIN 16u           /* the softest a key plays (1 .. 127): below it, a note on a sound that answers velocity
+                                   * strongly could not be heard */
 #define SMK_ENC_DIV 4             /* decoder counts a step: a detent is a whole quadrature cycle (the stock's 2
                                    * gave two UI steps a click, as the FM-1 has one) */
 enum { FM1_BTN_OCT_DOWN = 4, FM1_BTN_OCT_UP = 5 };
@@ -316,9 +318,14 @@ static void smk__keys(uint32_t now)
         if (st == 0u)
             fm1_in.ks_t1[k] = now;                        /* contact 1 made (or both in one frame) */
         if (s == 3u && st != 3u) {                        /* contact 2 made: the note, timed from contact 1 */
-            uint32_t T = 10u + (now - fm1_in.ks_t1[k]) / (100u * FM1_TICKS_PER_US);   /* stock 0.1 ms frames */
-            uint32_t x = T <= 0x3FEu ? 0x3FFu - T : 1u;
-            smk__key_event(k, smk_vel7(smk_curve(smk_trim_key[k], x)));
+            uint32_t dt = (now - fm1_in.ks_t1[k]) / (100u * FM1_TICKS_PER_US), T, x, v;   /* stock 0.1 ms frames */
+            if (dt > 1500u)                               /* (over 150 ms: no strike is that slow -- contact 1 had been
+                                                           * resting closed, a key not quite back up: a soft strike) */
+                dt = 600u;
+            T = 10u + dt;
+            x = T <= 0x3FEu ? 0x3FFu - T : 1u;
+            v = smk_vel7(smk_curve(smk_trim_key[k], x));
+            smk__key_event(k, v < SMK_VEL_MIN ? SMK_VEL_MIN : v);   /* (never so soft a note is lost) */
         }
         if (s == 1u && st == 3u)                          /* 3 -> 1: still down */
             continue;
