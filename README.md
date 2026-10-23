@@ -15,6 +15,7 @@ sequencers and three modes in which the other tracks play along with the one you
 > [!NOTE]
 > **Work in progress.** Builds are numbered (BUILD N); the manual and the website for the SMK-37 are still to
 > come. The SMK-37's hardware notes and the flash backup procedure are in [docs/smk37](docs/smk37/).
+> What each engine costs, and how much you can stack: [docs/smk37/engine-costs.md](docs/smk37/engine-costs.md).
 
 > [!WARNING]
 > Installing Tonitor replaces the firmware M-VAVE ships with the SMK-37 Pro. It is unofficial, is not made,

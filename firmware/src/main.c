@@ -476,9 +476,10 @@ static void cb_notes(uint32_t n, int on)
 }
 static void cb_tick(void)
 {
-    /* the second run: idle with and without the delay and reverb; then the six tracks one engine (FM) against six
-     * engines, with the same notes; and six engines without the delay and reverb */
-    enum { W_START, IDLE, IDLE_NOFX, SETUP, PLAY, MEAS, DONE };
+    /* idle with and without the delay and reverb; each engine on track 1 alone, four sounds drawn, 1 note then 4;
+     * then the six tracks one engine (FM) against six engines, with the same notes; and six engines without the
+     * delay and reverb */
+    enum { W_START, IDLE, IDLE_NOFX, DSET, DPLAY, DMEAS, SETUP, PLAY, MEAS, DONE };
     static const struct { uint8_t mixed, notes, nofx; const char *what; } C[6] = {
         {0, 1, 0, "six tracks FM, 1 note each"}, {0, 2, 0, "six tracks FM, 2 notes each"},
         {1, 1, 0, "six tracks six engines, 1 note each"}, {1, 1, 1, "six engines, 1 note each, no delay/reverb"},
@@ -496,7 +497,7 @@ static void cb_tick(void)
     switch (cb.ph) {
     case W_START:
         if (now > 8000u && usb.config) {
-            cb_say("CHIPBENCH start (second run)");
+            cb_say("CHIPBENCH start");
             CB_NEXT(IDLE);
         }
         break;
@@ -513,8 +514,56 @@ static void cb_tick(void)
             cb_load(line, "idle, delay and reverb skipped:");
             cb_say(line);
             diag_nofx = 0;
+            cb.e = 0;
             cb.s = 0;
-            CB_NEXT(SETUP);
+            CB_NEXT(DSET);
+        }
+        break;
+    case DSET:                                       /* engine cb.e on track 1 alone: a sound drawn, 1 note then 4 */
+        ui.sel = 0;
+        ui.engine[0] = cb.e;
+        ev_post(EV_ENGINE, 0, 0, cb.e);
+        if (el > 400u) {
+            if (!(cb.s & 1u))
+                new_sound_of(-1, 0);
+            CB_NEXT(DPLAY);
+        }
+        break;
+    case DPLAY:
+        if (el > 500u) {
+            uint32_t j, nn = cb.s & 1u ? 4u : 1u;
+            for (j = 0; j < nn; j++)
+                chord_press(0, key_note_of(12u + 2u * j, 0), 0, 1);
+            CB_NEXT(DMEAS);
+        }
+        break;
+    case DMEAS:
+        if (el < 700u)
+            cb.sum = cb.n = cb.mx = 0;
+        else if (el > 2700u) {
+            char *b = line;
+            uint32_t j;
+            b = cb_put(b, ENG_NAME[cb.e]);
+            b = cb_put(b, " ");
+            b = cb_put(b, kind_name(cb.e, cur_kind(0)));
+            b = cb_put(b, cb.s & 1u ? ", 4 notes: voice " : ", 1 note: voice ");
+            b = cb_num(b, (int32_t)(eng_cost[cb.e] * 1000u / BLK_TICKS), 1);
+            b = cb_put(b, "% of a block;");
+            cb_load(b, "");
+            cb_say(line);
+            for (j = 0; j < 4u; j++)
+                chord_press(0, key_note_of(12u + 2u * j, 0), 0, 0);
+            ev_post(EV_STOP, 0, 0, 0);
+            if (++cb.s >= 8u) {
+                cb.s = 0;
+                if (++cb.e < NENG) {
+                    CB_NEXT(DSET);
+                    break;
+                }
+                CB_NEXT(SETUP);
+                break;
+            }
+            CB_NEXT(DSET);
         }
         break;
     case SETUP:
