@@ -206,3 +206,11 @@ main .project h2 { margin: 0; padding: 0; border: 0; font-size: 28px; }
   .features dd { margin-bottom: 10px; }
   main td:first-child { white-space: normal; }
 }
+
+/* the other Tonitor: a card on the home page */
+.sibling { display: flex; align-items: center; gap: 18px; margin: 30px 0 0; padding: 16px 20px; text-decoration: none;
+           color: var(--fg); background: var(--bg2); border: 2px solid var(--line); border-left: 6px solid #ff8c00; border-radius: 10px; }
+.sibling:hover, .sibling:focus-visible { border-color: #ff8c00; color: var(--fg); }
+.sibling img { flex: none; border-radius: 10px; }
+.sibling-kicker { display: block; color: #ff8c00; font-size: 14px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.sibling-title { display: block; font-size: 20px; font-weight: 700; line-height: 1.35; }
