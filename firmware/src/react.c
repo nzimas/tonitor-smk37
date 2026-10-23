@@ -798,7 +798,7 @@ static void sh_play(uint32_t l, uint32_t e)         /* the guide's event e, as t
     else if (rx.a[l].chr == RC_PLUCK)
         lo = it->nn - 1u;
     len = it->dur ? it->dur : rx_kept(e + 1u) ? rx_it(e + 1u)->ioi : rx.typ;
-    len = (uint32_t)clampi((int32_t)((uint64_t)len * 65536u / v->rate), 50, 10000);
+    len = (uint32_t)clampi((int32_t)(len * 65536u / v->rate), 50, 10000);   /* (len <= 65535: fits 32 bits) */
     if (V > 30u)                                    /* (late, a little: its rhythm loosened) */
         wait = rx_in(0, V * (rx.typ < 600u ? rx.typ : 600u) / 400u);
     for (k = lo; k < hi; k++) {
