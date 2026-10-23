@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// TONITOR: the installer page -- the firmware fetched and checked, the FM-1 found over Web MIDI, the update
-// run by fm1ota.js with its progress in words and a bar.
+// TONITOR: the installer page -- the firmware fetched and checked, the SMK-37 found over Web MIDI, the update
+// run by fm1ota.js with its progress in words and a bar. A firmware file chosen instead (M-VAVE's, to go back)
+// takes the published firmware's place, once checked.
 import { Updater, loadPackage, InstallError } from "./fm1ota.js";
 
 const $ = (id) => document.getElementById(id);
 const ui = {
   status: $("status"), detail: $("detail"), facts: $("facts"), fw: $("f-fw"), dev: $("f-dev"),
   bar: $("bar"), fill: $("bar").firstElementChild, agree: $("agree"), connect: $("connect"), install: $("install"),
+  file: $("file"), latest: $("latest"),
 };
-let pkg = null, updater = null, device = null, busy = false;
+let pkg = null, published = null, updater = null, device = null, busy = false;
 
 function say(status, detail = "", kind = "") {
   ui.status.textContent = status;
@@ -33,20 +35,41 @@ async function loadFirmware() {
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", raw));
     const hex = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
     if (hex !== meta.sha256) throw new InstallError("badpkg", "The firmware did not download intact. Reload the page.");
-    pkg = { ...loadPackage(raw), version: meta.version };
-    ui.fw.textContent = `Tonitor ${meta.version} (${pkg.product})`;
-    ui.facts.hidden = false;
+    pkg = published = { ...loadPackage(raw), name: `Tonitor ${meta.version}` };
+    show();
     if (!navigator.requestMIDIAccess) {
-      say("This browser cannot reach the FM-1",
+      say("This browser cannot reach the keyboard",
         "It has no Web MIDI. Open this page in a desktop Chrome, Edge or Opera.", "bad");
       pkg = null;
     } else if (!window.isSecureContext) {
       say("Open this page over https", "Web MIDI only works on a secure page.", "bad");
       pkg = null;
     } else
-      say("Ready", "Tick the box below, then find your FM-1.");
+      say("Ready", "Tick the box below, then find your SMK-37.");
   } catch (e) {
     say("The firmware could not be loaded", e.message, "bad");
+  }
+  refresh();
+}
+
+function show() {
+  ui.fw.textContent = pkg ? `${pkg.name} (${pkg.product})` : "none";
+  ui.facts.hidden = false;
+  ui.install.textContent = pkg && pkg.stock ? "Install this firmware" : "Install Tonitor";
+  ui.latest.hidden = !published || pkg === published;
+}
+
+async function chooseFile() {
+  const f = ui.file.files[0];
+  ui.file.value = "";
+  if (!f || busy) return;
+  try {
+    const p = loadPackage(new Uint8Array(await f.arrayBuffer()), true);
+    pkg = { ...p, name: p.stock ? "M-VAVE's firmware" : f.name };
+    show();
+    say("Firmware file checked", `${f.name}: ${pkg.product}, laid out for the SMK-37. Find your SMK-37, then install it.`);
+  } catch (e) {
+    say("This file cannot be installed", e.message, "bad");
   }
   refresh();
 }
@@ -54,22 +77,22 @@ async function loadFirmware() {
 async function connect() {
   busy = true;
   refresh();
-  say("Looking for the FM-1…", "Allow MIDI access if the browser asks.");
+  say("Looking for the SMK-37…", "Allow MIDI access if the browser asks.");
   try {
     if (!updater) updater = new Updater(await navigator.requestMIDIAccess({ sysex: true }));
     if (device) device.link.close();
     device = await updater.find();
     if (!device) {
       ui.dev.textContent = "not found";
-      say("No FM-1 found", "Is it switched on and connected with a data cable? Is another program using it? " +
+      say("No SMK-37 found", "Is it switched on and connected with a data cable? Is another program using it? " +
         "Then try again.", "bad");
     } else {
       const mode = device.id.loader ? " — in update mode: the install will finish the write" : "";
       ui.dev.textContent = `${device.id.text}${mode}`;
-      say("FM-1 found", "Press Install Tonitor. Do not unplug it or close this page until it has restarted.");
+      say("SMK-37 found", "Press the install button. Do not unplug it or close this page until it has restarted.");
     }
   } catch (e) {
-    say("MIDI access was refused", "This page needs MIDI with system-exclusive messages to update the FM-1. " +
+    say("MIDI access was refused", "This page needs MIDI with system-exclusive messages to update the keyboard. " +
       "Allow it in the site settings, then reload.", "bad");
   }
   busy = false;
@@ -77,11 +100,11 @@ async function connect() {
 }
 
 const STEP = {
-  start: () => ["Starting the update", "The FM-1 checks the firmware."],
-  check: (n) => ["Checking", `The FM-1 has read ${n} parts of the firmware.`],
-  loader: () => ["Switching to update mode", "The FM-1 restarts into its update loader. It may take a few seconds."],
-  write: (p) => [`Writing ${p}%`, "Do not unplug the FM-1 or close this page."],
-  reboot: () => ["Restarting", "The FM-1 restarts into Tonitor."],
+  start: () => ["Starting the update", "The keyboard checks the firmware."],
+  check: (n) => ["Checking", `The keyboard has read ${n} parts of the firmware.`],
+  loader: () => ["Switching to update mode", "The keyboard restarts into its update loader. It may take a few seconds."],
+  write: (p) => [`Writing ${p}%`, "Do not unplug the keyboard or close this page."],
+  reboot: () => ["Restarting", "The keyboard restarts into the new firmware."],
 };
 
 async function install() {
@@ -100,7 +123,8 @@ async function install() {
     });
     ui.fill.style.width = "100%";
     ui.dev.textContent = text;
-    say("Done: your FM-1 runs Tonitor", "Read the manual to get started.", "ok");
+    say(pkg.stock ? "Done: your SMK-37 runs M-VAVE's firmware" : "Done: your SMK-37 runs Tonitor",
+      pkg.stock ? text : "Read the manual to get started.", "ok");
   } catch (e) {
     const msg = e instanceof InstallError ? e.message : `Unexpected error: ${e.message}`;
     say("The install stopped", msg + "\nReload this page and try again; see “If something goes wrong” below.", "bad");
@@ -114,4 +138,11 @@ async function install() {
 ui.agree.addEventListener("change", refresh);
 ui.connect.addEventListener("click", connect);
 ui.install.addEventListener("click", install);
+ui.file.addEventListener("change", chooseFile);
+ui.latest.addEventListener("click", () => {
+  pkg = published;
+  show();
+  say("Ready", "Tonitor again. Find your SMK-37, then install it.");
+  refresh();
+});
 loadFirmware();

@@ -12,9 +12,12 @@ Tonitor for the SMK-37 Pro is a separate firmware that shares its core with
 It turns the SMK-37 Pro into a self-contained six-track instrument: seven synthesis engines, loopers,
 sequencers and three modes in which the other tracks play along with the one you play.
 
+**Website, browser installer and manual: <https://nzimas.github.io/tonitor-smk37/>** ([MANUAL.md](MANUAL.md),
+[CHANGELOG.md](CHANGELOG.md)).
+
 > [!NOTE]
-> **Work in progress.** Builds are numbered (BUILD N); the manual and the website for the SMK-37 are still to
-> come. The SMK-37's hardware notes and the flash backup procedure are in [docs/smk37](docs/smk37/).
+> **Work in progress.** Builds are numbered (BUILD N). The SMK-37's hardware notes and the flash backup procedure
+> are in [docs/smk37](docs/smk37/).
 > What each engine costs, and how much you can stack: [docs/smk37/engine-costs.md](docs/smk37/engine-costs.md).
 
 > [!WARNING]

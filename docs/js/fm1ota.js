@@ -4,15 +4,17 @@
 //
 // Step 1: the running firmware reads parts of the package and starts the update loader. Step 2: the loader
 // reads the whole package and writes it. In both the device asks (SysEx read requests on the logical image)
-// and we answer. Then the FM-1 restarts and the installed identity is checked. An FM-1 found already in
-// update mode (an install cut off) only needs step 2.
+// and we answer. Then the keyboard restarts and the installed identity is checked. A keyboard found already in
+// update mode (an install cut off) only needs step 2. M-VAVE's own SMK-37 packages (the way back to the stock
+// firmware) are read as tools/fm1_install.py reads them: their 36 interleave blocks, and their board checked
+// from the package itself, so an FM-1 package is never written to an SMK-37.
 //
 // No DOM here: the page (install.js) gives it a MIDIAccess and a progress callback; tests give it a fake.
 
 export const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 export const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
 export const FINISH_CHECK = 0xE0000000, FINISH_WRITE = 0xF0000000;
-const MAXDATA = 512, BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
+const MAXDATA = 512, BLOCKS = 20, BLK = 0x30, KEEP = 0x2F, MAX_BLOCKS = 64;
 const LOADER_MARK = "FELUCCA-LOADER-1";
 // never probe other gear: the SMK-37 (stock: "SMK-37 Pro-Private") and the FM-1 under TONITOR (or ACOUSMA, its
 // working name), SLOOP / Felucca, CLIPPER,
@@ -103,30 +105,67 @@ export function parseIdentity(pkt) {
 
 // --------------------------------------------------------------- package ---
 
-/** the package identity ("FM-1_700"): one marker byte after each of the first 20 blocks */
+const marker = (raw, k) => ((k + 1) * BLK <= raw.length ? raw[k * BLK + KEEP] : null);
+const idChar = (m, i) => { const c = (m - i - 1) & 0xFF; return c >= 0x20 && c < 0x7F; };
+
+/** the identity blocks: 20, or more when the identity is longer (then unused 0x7D markers follow) */
+function identityBlocks(raw) {
+  let n = BLOCKS, m;
+  while (n < MAX_BLOCKS && (m = marker(raw, n)) !== null && m !== 0x7D && idChar(m, n)) n++;
+  return n > BLOCKS && marker(raw, n) === 0x7D ? n : BLOCKS;
+}
+
+/** interleave blocks: the identity blocks, then more while the marker is the unused 0x7D (SMK-37 Pro v016: 36) */
+function blockCount(raw) {
+  let n = identityBlocks(raw);
+  while (n < MAX_BLOCKS && (n + 1) * BLK <= raw.length && raw[n * BLK + KEEP] === 0x7D) n++;
+  return n;
+}
+
+/** the image the device reads during an update: the package without the marker bytes */
+export function logicalImage(raw, blocks = BLOCKS) {
+  const out = new Uint8Array(raw.length - blocks);
+  let o = 0;
+  for (let i = 0; i < blocks; i++) {
+    out.set(raw.subarray(i * BLK, i * BLK + KEEP), o);
+    o += KEEP;
+  }
+  out.set(raw.subarray(blocks * BLK), o);
+  return out;
+}
+
+/** -> [image, blocks]: the detected count when the files' CRCs agree, else 20 */
+function deinterleave(raw) {
+  const n = blockCount(raw), image = logicalImage(raw, n);
+  if (n !== BLOCKS && packageDamage(image)) {
+    const alt = logicalImage(raw, BLOCKS);
+    if (!packageDamage(alt)) return [alt, BLOCKS];
+  }
+  return [image, n];
+}
+
+/** the package identity ("SMK-37 Pro_731", "SMK-37 Pro_016"): one marker byte after each identity block */
 export function productOf(raw) {
-  if (raw.length < BLOCKS * BLK) throw new InstallError("badpkg", "not an FM-1 package (too short)");
+  if (raw.length < BLOCKS * BLK) throw new InstallError("badpkg", "not a firmware package (too short)");
+  const ib = identityBlocks(raw);
+  const n = ib === BLOCKS ? BLOCKS : Math.min(ib, deinterleave(raw)[1]);
   let s = "";
-  for (let i = 0; i < BLOCKS; i++) {
+  for (let i = 0; i < n; i++) {
     const m = raw[i * BLK + KEEP];
     if (m !== 0x7D) s += String.fromCharCode((m - i - 1) & 0xFF);
   }
   return s;
 }
 
-/** the image the device reads during an update: the package without the 20 marker bytes */
-export function logicalImage(raw) {
-  const out = new Uint8Array(raw.length - BLOCKS);
-  let o = 0;
-  for (let i = 0; i < BLOCKS; i++) {
-    out.set(raw.subarray(i * BLK, i * BLK + KEEP), o);
-    o += KEEP;
-  }
-  out.set(raw.subarray(BLOCKS * BLK), o);
-  return out;
-}
-
 export const modelOf = (text) => text.split("_")[0].replace(/^ota-/, "");
+// the SMK-37 Pro, SMK-37 Elite, MKE-P37, Starrykey 37 Play: one keyboard under several names
+const SMK_FAMILY = /^(SMK-37[ +].*|MKE-P37|STARRYKEY-37.*)$/i;
+const SMK_MODEL = /^(ota-)?(SMK-37([ +].*)?|MKE-P37|STARRYKEY-37.*)$/i;
+/** the models of identities a and b are the same hardware (never an FM-1 and an SMK) */
+export function sameKeyboard(a, b) {
+  const ma = modelOf(a), mb = modelOf(b);
+  return ma === mb || (SMK_FAMILY.test(ma) && SMK_FAMILY.test(mb));
+}
 
 /** CRC-16/XMODEM, as the package and the device use */
 export function crc16(data, crc = 0) {
@@ -164,27 +203,102 @@ export function packageDamage(image) {
     let name = "";
     for (let k = 0x40; k < 0x50 && e[k]; k++) name += String.fromCharCode(e[k]);
     if (off + size > image.length) return `${name}: cut short`;
-    if (crc16(image.subarray(off, off + size)) !== dcrc) return `${name}: CRC`;
+    // flash.bin (0) and ota.bin (100) carry the CRC of their bytes as served; the stock packer's other entries
+    // store a CRC of something else: checked for their bounds only
+    const typ = e[0] | (e[1] << 8);
+    if ((typ === 0 || typ === 100) && crc16(image.subarray(off, off + size)) !== dcrc) return `${name}: CRC`;
   }
   return null;
 }
 
-/** raw .fwsc bytes -> {product, image}; throws InstallError("badpkg") */
-export function loadPackage(raw) {
-  const product = productOf(raw);
-  if (!/^[^_]+_\d+$/.test(product)) throw new InstallError("badpkg", `not an FM-1 package (identity ${product})`);
+// ---------------------------------------------------- the package's board ---
+// Read from the package itself, never from an identity: the FM-1's and the SMK-37's official packages share the
+// head and the update loader. Installed on an SMK-37, the FM-1's stock package erases the factory calibration and
+// overwrites the stock resources. The board: flash.bin's length, its region table (SFC-enciphered, key 0x980F)
+// and where a USR image (file type 50) goes.
+const LAYOUT = { smk: [0x9D000, 0xC0000, [0xF4000, 0xA000]], fm1: [0x93000, 0xE9000, [0xEA000, 0x12000]] };
+
+function sfc(data, base, key = 0x980F) {
+  const out = Uint8Array.from(data);
+  for (let i = 0; i < out.length; i += 32) {
+    let k = (key ^ ((base + i) >>> 2)) & 0xFFFF;
+    for (let j = i; j < Math.min(i + 32, out.length); j++) {
+      out[j] ^= k & 0xFF;
+      k = ((k << 1) ^ (k & 0x8000 ? 0x1021 : 0)) & 0xFFFF;
+    }
+  }
+  return out;
+}
+
+const rd = (b, o, n) => le(Array.from(b.subarray(o, o + n)), 0, n);
+
+/** [{typ, off, size, to, tosize}] from the file list */
+function packageFiles(image) {
+  if (image.length < 0x40) return [];
+  const count = rd(dec(image.subarray(0, 0x40)), 8, 2), out = [];
+  for (let i = 0; i < Math.min(count, 11); i++) {
+    if (0x90 + i * 0x50 > image.length) break;
+    const e = dec(image.subarray(0x40 + i * 0x50, 0x90 + i * 0x50));
+    out.push({ typ: rd(e, 0, 2), off: rd(e, 8, 4), size: rd(e, 12, 4), to: rd(e, 0x1C, 4), tosize: rd(e, 0x20, 4) });
+  }
+  return out;
+}
+
+/** flash.bin's region table: {name: [address, size]} */
+function regionTable(flash) {
+  if (flash.length < 0x4120) return {};
+  const t = sfc(flash.subarray(0x4060, 0x4120), 0x60), out = {};
+  for (let r = 0; r < 0xC0; r += 32) {
+    let name = "";
+    for (let c = r + 16; c < r + 32 && t[c] > 0x20 && t[c] < 0x7F; c++) name += String.fromCharCode(t[c]);
+    if (name) out[name] = [rd(t, r + 4, 4), rd(t, r + 8, 4)];
+  }
+  return out;
+}
+
+/** "smk", "fm1" (any sign of the FM-1's layout) or null */
+export function packageBoard(image) {
+  const files = packageFiles(image), fl = files.find((f) => f.typ === 0);
+  if (!fl || fl.off + fl.size > image.length) return null;
+  const rt = regionTable(image.subarray(fl.off, fl.off + fl.size));
+  const usr = files.filter((f) => f.typ === 50);
+  const [sLen, sBtif, sUsr] = LAYOUT.smk, [fLen, fBtif, fUsr] = LAYOUT.fm1;
+  const btif = rt.BTIF ? rt.BTIF[0] : 0, rUsr = rt.USR || [0, 0];
+  if (fl.size === sLen && btif === sBtif && rUsr[0] === sUsr[0] && rUsr[1] === sUsr[1] &&
+      usr.every((u) => u.to === sUsr[0] && u.tosize === sUsr[1]))
+    return "smk";
+  if (fl.size === fLen || btif === fBtif || rUsr[0] === fUsr[0] || usr.some((u) => u.to === fUsr[0])) return "fm1";
+  return null;
+}
+
+function hasLoaderMark(raw) {
   const mark = new TextEncoder().encode(LOADER_MARK);
-  let found = false;
   outer: for (let i = 0; i + mark.length <= raw.length; i++) {
     for (let k = 0; k < mark.length; k++) if (raw[i + k] !== mark[k]) continue outer;
-    found = true;
-    break;
+    return true;
   }
-  if (!found) throw new InstallError("badpkg", "no Felucca update loader in this package");
-  const image = logicalImage(raw);
+  return false;
+}
+
+/** raw .fwsc bytes -> {product, image, stock}; throws InstallError("badpkg"). A package without our update
+ * loader (M-VAVE's) only with allowStock, and only when it is laid out for the SMK-37 */
+export function loadPackage(raw, allowStock = false) {
+  const product = productOf(raw);
+  if (!/^[^_]+_\d+$/.test(product)) throw new InstallError("badpkg", `not a firmware package (identity ${product})`);
+  const stock = !hasLoaderMark(raw);
+  if (stock && !allowStock) throw new InstallError("badpkg", "no Felucca update loader in this package");
+  const [image] = deinterleave(raw);
   const bad = packageDamage(image);
-  if (bad) throw new InstallError("badpkg", `damaged package (${bad}); nothing was written. Reload the page.`);
-  return { product, image };
+  if (bad) throw new InstallError("badpkg", `damaged package (${bad}); nothing was written. Download it again.`);
+  const board = packageBoard(image);
+  if (board === "fm1")
+    throw new InstallError("fm1pkg", "This is a firmware for the FM-1, not for the SMK-37. On an SMK-37 it would " +
+      "erase the keyboard's calibration. Nothing was sent.");
+  if (stock && board !== "smk")
+    throw new InstallError("board", "This package is not laid out for the SMK-37. Nothing was sent.");
+  if (!SMK_MODEL.test(modelOf(product)))
+    throw new InstallError("model", `This package is for ${product}, not for the SMK-37. Nothing was sent.`);
+  return { product, image, stock };
 }
 
 // ------------------------------------------------------------------ MIDI ---
@@ -288,7 +402,7 @@ export class Updater {
     return [...this.access.outputs.values()].filter((p) => p.state !== "disconnected");
   }
 
-  /** the first FM-1-looking port that answers the handshake (and want(identity)) -> {link, id} or null */
+  /** the first keyboard-looking port that answers the handshake (and want(identity)) -> {link, id} or null */
   async find(want = null) {
     const outs = this.outputs();
     for (const inp of this.inputs()) {
@@ -357,13 +471,13 @@ export class Updater {
     dev.link.close();
     if (!r.finished)
       throw new InstallError(r.lost ? "lost" : "stopped",
-        `The FM-1 ${r.lost ? "was disconnected" : "stopped answering"} after ${r.served} requests. Nothing was written.`);
+        `The keyboard ${r.lost ? "was disconnected" : "stopped answering"} after ${r.served} requests. Nothing was written.`);
     step("loader");
     await sleep(DELAY.loader);
     const ota = await this.waitFor((i) => i.loader, DELAY.waitLoader);
     if (!ota)
       throw new InstallError("noloader", "The update loader did not appear. Replug the USB cable and run the install " +
-        "again: the FM-1 stays in update mode until it is done.");
+        "again: the keyboard stays in update mode until it is done.");
     return ota;
   }
 
@@ -385,23 +499,23 @@ export class Updater {
     step("reboot");
     await sleep(DELAY.reboot);
     const back = await this.waitFor((i) => !i.loader, DELAY.waitReboot);
-    if (!back) throw new InstallError("noreturn", "The FM-1 did not come back: switch it off and on again.");
+    if (!back) throw new InstallError("noreturn", "The keyboard did not come back: switch it off and on again.");
     back.link.close();
     if (back.id.text !== product)
-      throw new InstallError("mismatch", `Written, but the FM-1 reports ${back.id.text} (expected ${product}).`);
+      throw new InstallError("mismatch", `Written, but the keyboard reports ${back.id.text} (expected ${product}).`);
     step("done", back.id.text);
     return back.id.text;
   }
 
   /** running firmware -> loader -> new firmware; dev from find() */
   async install(dev, image, product, step = () => {}) {
-    if (modelOf(dev.id.text) !== modelOf(product)) {
+    if (!sameKeyboard(dev.id.text, product) || !SMK_MODEL.test(modelOf(dev.id.text))) {
       dev.link.close();
-      throw new InstallError("model", `The device is ${dev.id.text}; this firmware is for ${product}.`);
+      throw new InstallError("model", `The device is ${dev.id.text}; this firmware is for ${product}. Nothing was sent.`);
     }
     if (dev.id.loader && !/^ota-(SMK-37 Pro|FM-1)_9\d\d$/i.test(dev.id.text)) {   // (our loader: SLOOP's)
       dev.link.close();   // another firmware's loader: its image layout may differ
-      throw new InstallError("foreign", `The FM-1 is in the update mode of another firmware (${dev.id.text}). ` +
+      throw new InstallError("foreign", `The keyboard is in the update mode of another firmware (${dev.id.text}). ` +
         "Finish that update with its own updater (M-UPGRADE), then install again.");
     }
     const ota = dev.id.loader ? dev : await this.check(dev, image, step);

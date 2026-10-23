@@ -8,8 +8,8 @@
 import { pack7, unpack7 } from "./fm1ota.js";
 
 export const PRE_NUM = 1000, CHUNK = 256;
-export const STATUS = ["done", "the FM-1 has no flash store", "the request was not understood",
-  "there is no room left on the FM-1", "the record was not whole (damaged file?)", "writing the flash failed"];
+export const STATUS = ["done", "the keyboard has no flash store", "the request was not understood",
+  "there is no room left on the keyboard", "the record was not whole (damaged file?)", "writing the flash failed"];
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 export function frame(cmd, body = []) {
@@ -20,7 +20,7 @@ export function frame(cmd, body = []) {
 export async function ask(link, cmd, body = [], ms = 3000) {
   for (let tries = 0; tries < 3; tries++) {
     link.drain();
-    if (!link.send(frame(cmd, body))) throw new Error("The FM-1 is no longer reachable.");
+    if (!link.send(frame(cmd, body))) throw new Error("The keyboard is no longer reachable.");
     const end = now() + ms;
     let left;
     while ((left = end - now()) > 0) {
@@ -40,7 +40,7 @@ export async function ask(link, cmd, body = [], ms = 3000) {
 const le32 = (b, i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
 const w32 = (v) => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
 
-/** the records on the FM-1: [{number, length}], or null if it does not answer (no backup in its firmware) */
+/** the records on the keyboard: [{number, length}], or null if it does not answer (no backup in its firmware) */
 export async function list(link) {
   const b = await ask(link, 0x50, [], 1500);
   if (!b) return null;
@@ -53,7 +53,7 @@ export async function readRecord(link, rec, done = () => {}) {
   const out = new Uint8Array(rec.length);
   for (let off = 0; off < rec.length;) {
     const b = await ask(link, 0x51, [rec.number & 0xFF, rec.number >> 8, ...w32(off), CHUNK & 0xFF, CHUNK >> 8]);
-    if (!b) throw new Error(`The FM-1 stopped answering while reading record ${rec.number}.`);
+    if (!b) throw new Error(`The keyboard stopped answering while reading record ${rec.number}.`);
     const n = b[6] | (b[7] << 8);
     if (!n || le32(b, 2) !== off) throw new Error(`Record ${rec.number} could not be read whole.`);
     out.set(b.slice(8, 8 + n), off);
@@ -64,7 +64,7 @@ export async function readRecord(link, rec, done = () => {}) {
 }
 export async function writeRecord(link, number, bytes, done = () => {}) {
   const check = (b, what) => {
-    if (!b) throw new Error(`The FM-1 stopped answering (${what}).`);
+    if (!b) throw new Error(`The keyboard stopped answering (${what}).`);
     if (b[0]) throw new Error(`${number === PRE_NUM + 2 ? "The global setup" : number >= PRE_NUM ? "The presets" : "Session " + number}: ${STATUS[b[0]] || "error " + b[0]}.`);
   };
   check(await ask(link, 0x52, [number & 0xFF, number >> 8, ...w32(bytes.length)], 8000), "making room");

@@ -16,6 +16,7 @@ const check = (ok, what) => {
 
 const raw = new Uint8Array(readFileSync(process.argv[2]));
 const py = JSON.parse(readFileSync(process.argv[3], "utf8"));
+const P = py.product;   // (the package tested: its identity is what the simulated keyboard reports once written)
 
 // ------------------------------------------------- the same as the Python ---
 const { product, image } = ota.loadPackage(raw);
@@ -164,26 +165,26 @@ async function run(dev, fm1) {
 }
 
 {   /* a whole install, from the running firmware */
-  const fm1 = new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700");
+  const fm1 = new FakeFM1(P, P);
   const r = await run(null, fm1);
-  check(r.text === "SMK-37 Pro_700", `install: ${r.err || ""} ${r.msg || ""}`);
+  check(r.text === P, `install: ${r.err || ""} ${r.msg || ""}`);
   check(JSON.stringify(Array.from(fm1.written)) === JSON.stringify(Array.from(image)), "install: the loader was not given the image");
   check(["start", "check", "loader", "write", "reboot", "done"].every((s) => r.steps.includes(s)), `install: steps ${[...new Set(r.steps)]}`);
 }
 {   /* an FM-1 left in update mode: the write is finished */
-  const fm1 = new FakeFM1("ota-SMK-37 Pro_900", "SMK-37 Pro_700");
+  const fm1 = new FakeFM1("ota-SMK-37 Pro_900", P);
   const r = await run(null, fm1);
-  check(r.text === "SMK-37 Pro_700" && !r.steps.includes("check"), `resume: ${r.err || ""} ${r.steps}`);
+  check(r.text === P && !r.steps.includes("check"), `resume: ${r.err || ""} ${r.steps}`);
 }
 {   /* another model, another firmware's loader, a stop before anything is written, a cable pulled while writing,
      * another identity after it */
   const cases = [
     [new FakeFM1("FM-2_100", "FM-2_100"), "model"],
-    [new FakeFM1("ota-SMK-37 Pro_500", "SMK-37 Pro_700"), "foreign"],
+    [new FakeFM1("ota-SMK-37 Pro_500", P), "foreign"],
     [new FakeFM1("FM-1_700", "FM-1_700"), "model"],              /* an FM-1: never the SMK-37's package */
-    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700", { stopInCheck: true }), "stopped"],
-    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_700", { unplugAt: 0x8000 }), "lost"],
-    [new FakeFM1("SMK-37 Pro_700", "SMK-37 Pro_706"), "mismatch"],
+    [new FakeFM1(P, P, { stopInCheck: true }), "stopped"],
+    [new FakeFM1(P, P, { unplugAt: 0x8000 }), "lost"],
+    [new FakeFM1(P, "SMK-37 Pro_001"), "mismatch"],
   ];
   for (const [fm1, want] of cases) {
     const r = await run(null, fm1);

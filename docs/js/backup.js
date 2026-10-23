@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// TONITOR: the backup page -- the sessions and presets on an FM-1 read into a file, and written back from one,
-// over Web MIDI. The FM-1 is found as the installer finds it (fm1ota.js); the protocol is fm1backup.js's.
+// TONITOR: the backup page -- the sessions and presets on an SMK-37 read into a file, and written back from one,
+// over Web MIDI. The keyboard is found as the installer finds it (fm1ota.js); the protocol is fm1backup.js's.
 import { Updater } from "./fm1ota.js";
 import { PRE_NUM, list as listOn, readRecord as readOn, writeRecord as writeOn } from "./fm1backup.js";
 
@@ -65,7 +65,7 @@ const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 async function connect() {
   busy = true;
   refresh();
-  say("Looking for the FM-1…", "Allow MIDI access if the browser asks.");
+  say("Looking for the SMK-37…", "Allow MIDI access if the browser asks.");
   try {
     if (!navigator.requestMIDIAccess)
       throw new Error("This browser has no Web MIDI. Open this page in a desktop Chrome, Edge or Opera.");
@@ -73,19 +73,19 @@ async function connect() {
     if (device) device.link.close();
     device = await updater.find();
     if (!device) {
-      say("No FM-1 found", "Check the cable (it must carry data), switch the FM-1 on, close other MIDI programs, and try again.", "bad");
+      say("No SMK-37 found", "Check the cable (it must carry data), switch the SMK-37 on, close other MIDI programs, and try again.", "bad");
       return;
     }
     onDevice = await listOn(device.link);
     if (!onDevice) {
-      say("This FM-1 cannot be backed up from here",
-        "It does not run Tonitor 0.47 or later. Install Tonitor first (Install page), then come back.", "bad");
+      say("This keyboard cannot be backed up from here",
+        "It does not run Tonitor. Install Tonitor first (Install page), then come back.", "bad");
       onDevice = null;
       return;
     }
     ui.facts.hidden = false;
     ui.dev.textContent = describe(onDevice);
-    say("FM-1 found", onDevice.length ? "Save its sessions and presets to a file, or restore a file to it." :
+    say("SMK-37 found", onDevice.length ? "Save its sessions and presets to a file, or restore a file to it." :
       "It holds no sessions or presets yet. You can restore a file to it.", "ok");
   } catch (e) {
     say("Something went wrong", e.message, "bad");
@@ -141,7 +141,7 @@ async function openFile() {
     backup = recs;
     ui.facts.hidden = false;
     ui.fileInfo.textContent = `${describe(recs)}, saved ${(j.saved || "").slice(0, 10)}`;
-    rsay(device ? "File opened" : "File opened: now find the FM-1 (above)", "Tick the box, then restore it.");
+    rsay(device ? "File opened" : "File opened: now find the SMK-37 (above)", "Tick the box, then restore it.");
   } catch (e) {
     rsay("The file could not be opened", e.message, "bad");
   }
@@ -166,7 +166,7 @@ async function restore() {
     }
     onDevice = await listOn(device.link);
     if (onDevice) ui.dev.textContent = describe(onDevice);
-    rsay("Restored", `${describe(backup)} written to the FM-1.`, "ok");
+    rsay("Restored", `${describe(backup)} written to the SMK-37.`, "ok");
   } catch (e) {
     rsay("The restore did not finish", e.message + " What was written before stays; run it again to finish.", "bad");
   } finally {

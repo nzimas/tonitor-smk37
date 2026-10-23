@@ -1,537 +1,300 @@
 # Changelog
 
-## 0.53
+This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
+
+## BUILD 31
+
+23 October 2026
+
+Changed
+- The sound engines now run from faster memory. Six tracks on six different engines, one note each, used 146 % of the processor's time per block before: the audio could fall behind. Now they use 82 % (peak 96 %). Two notes on each of six tracks: 211 % before, 123 % now. An idle instrument went from 35 % to 14 %. You hear more voices before notes are cut.
+- The reverb runs at half the sample rate (22.05 kHz). Its times and decay are kept; it sounds a little darker. It and the delay switch off while nothing goes in and their tails are gone.
+- When the instrument has to let a voice go (too many voices, or a stolen voice), it takes the quietest tail first and fades it out over 6 ms. The cuts are quieter.
+- HIVE is lighter: silent oscillators are skipped, and with three HIVE voices or more, those 12 dB under the loudest are skipped too.
+
+## BUILD 30
+
+23 October 2026
 
 Fixed
-- Presets are saved where their page is opened: on the PRESETS page (SHIFT + ARP), ARP held saves the track's sound
-  into the slot chosen and ARP pressed loads it (or answers OVERWRITE?). SAVE still does the same there.
+- Latched notes are kept. When the instrument was overloaded it could let go of a latched drone, because nothing else is held so long. A new note could also take a latched voice when every voice was held. Neither happens now.
+- A latched key pressed alone now strikes again, still latched. Before, it did nothing (only SHIFT let it go), so a latched note that had faded or been cut left its key dead on that track.
+
+## BUILD 29
+
+23 October 2026
+
+Changed
+- The six tracks start with these engines, in a new session too: FM, ANIMA, CALIGULA, HIVE, DRUID, BAYAREA.
+- ARP: when you play a new chord, each track takes it at its next step, once the chord has stood for 90 ms. A chord never changes between two notes, so the pulse stays unbroken.
+- Soft playing on the keys is heard. A slowly timed strike counts as a firmer one, and no key plays below velocity 16. Before, soft keys could sound silent on engines that need velocity.
+
+## BUILD 28
+
+23 October 2026
 
 Added
-- A modulation matrix per track: two LFOs (SHAPE: sine, triangle, saw up, saw down, square, steps, drift; RATE
-  0.01-20 Hz; MODE free, note, once; FADE in up to 10 s) and four slots, each FROM a source (LFO 1, LFO 2,
-  velocity, key, a random value per note) TO a destination (the sound's four macros, filter, grains, crush,
-  drive, reverb send, delay send, level, pan, either LFO's rate) by an AMOUNT (-100 to +100). It moves the
-  track's own values once a block. On the MOD page, SEQ's third. Sessions and copies keep it (session format 24).
-- HOME draws a modulation with some sounds: often with the slow, sustained families of FM, HIVE, BAYAREA and
-  DRUID, now and then a velocity on the brightness of struck and plucked ones, never with ANIMA or CALIGULA. A
-  preset loaded draws it again.
-
-Changed
-- SEQ goes through three pages, press after press: DELAY, REVERB, MOD, then back to playing. SHIFT + SEQ no
-  longer opens the delay: it throws the chosen track's modulation anew (MOD RANDOM) -- both LFOs, and two to four
-  slots from any source to any destination, by amounts that may go far.
-
-## 0.52
-
-Added
-- USB audio (as BIGORNA's build 49): the FM-1 is a class-compliant USB audio input, "FM-1 Tonitor", carrying its
-  master output, stereo, 16-bit, 44.1 kHz -- as it is rendered, with no resampling. It is Felucca's and SLOOP's USB
-  audio, switched on, fed by the render a block at a time and served at every 1 ms USB frame, also while a half
-  buffer renders. The stream is the master before the MASTER knob: the knob sets the headphone jack's level only.
-  MIDI goes on as before over the same cable. The update loader is unchanged.
-
-## 0.51
-
-Added
-- GLOBAL SETUP on SHIFT + SAVE (after BIGORNA): the FM-1's own settings, kept apart from the sessions. One section,
-  MIDI, with IN CHAN (each track's channel, and AUTO for the chosen track), OUT CHAN (each track's), RECEIVE and
-  SEND (notes, CC), and PORTS (USB IN, TRS IN). PRESETS moves, SAVE enters and sets, SHIFT + SAVE goes back; BACK
-  heads each level. The settings are kept in flash, and the Backup page saves and restores them.
-- MIDI IN on the TRS jack (after BIGORNA and MELODEE 1.4.5), beside USB. Notes go to the tracks by channel, at
-  their velocity; CC 7 level, 10 pan, 16-19 the four macros, 74 the filter, 91 the reverb send, 92 the delay
-  send.
-- MIDI out over USB: each track's notes (from the keys, the loops, BALLSY, BRICKLAYER and MIDI) on its OUT
-  channel with SEND NOTES; the CCs above when their values change, with SEND CC.
-- SHIFT + PRESETS in the track's view: a new sound of the family before or after, on the track's engine (after
-  BIGORNA). At the first or last family, a new sound of that family again.
-- A battery meter at the top right (after BIGORNA): three bars green, two green, one amber, one red when low; a
-  white bolt on a computer's USB power.
-- The track's octave at the top right, left of the battery (+1, -2; nothing at 0).
-
-Changed
-- The PRESETS page moves to SHIFT + ARP (SHIFT + SAVE is GLOBAL SETUP's).
-- MIDI notes no longer all play the chosen track: each track listens on its own channel (1 to 6 at the start),
-  and channel 16 plays the chosen track.
-- VAR moves under the octave and the battery.
-- The screen's type is stored in runs (about 116 KB of flash freed, for this and what comes); the screen is the same,
-  pixel for pixel.
-
-## 0.50
-
-Changed
-- The FM-1's second core (CPU1) now renders about half the work of each audio block: the sounding voices and the
-  CALIGULA and RUSSOLO organisms are dealt to the two cores by their cost, the dearest first, and CPU1 also runs
-  the master delay and reverb. Each core renders into buffers of its own; CPU0 then applies each track's
-  envelope, fades, filter, granulator, crush, distortion, level and sends as before. The start, hold, fault
-  handling, job mailbox and supply setup come from BIGORNA, after Melodee 1.4.5 (keremimo/melodee; LICENSING.md).
-- The delay and reverb run one block behind, on the sends of the block before: their returns come 0.73 ms later.
-  The sound is otherwise the same with one core or two (checked by a test).
-- At start-up, the stock firmware's supply setup (core rail 1.38 V). CPU1 starts only if that held and the last
-  boot did not fail.
-- A fault, stall or misread on CPU1 stops it until the FM-1 is switched off: CPU0 renders everything from then
-  on and the sound goes on. 1 CORE shows on the screen when the FM-1 starts on one core or falls back to one.
-- The overload guard counts a new voice at half its cost while CPU1 is on.
-- ANIMA keeps 13 wavetables in RAM (15 before), to make room for CPU1's stacks and the two cores' buffers; a
-  table missed is copied in after both cores have finished the block.
-
-## 0.49
-
-Changed
-- BALLSY and BRICKLAYER wait for PLAY when turned on. On their page PLAY starts and stops them (PLAY or STOP on
-  the screen) and blinks with their key while they play; on every other page PLAY is the looper's, lit
-  steadily while the loops play. BRICKLAYER starts from its first step; BALLSY's balls stop where they are and
-  move on from there. The looper works beside either, and records only notes played on the keys: BALLSY's and
-  BRICKLAYER's notes are no longer recorded.
-- SHIFT + PLAY starts or stops every loop and every sequencer that is on, together (ALL PLAYING, ALL STOPPED).
-- Session format 23: whether each sequencer plays. Older sessions load with their sequencers playing.
-
-## 0.48
-
-Added
-- HIVE, a seventh engine, ported from the SWARMER machine of DigiRust and extended: per voice, seven
-  oscillators, each sound drawing for each one its place (the note, an octave or fifth, a cluster step, or an
-  inharmonic partial), its share of the detune spread, its wave (sine, triangle, saw, square), its level and the
-  LFO that moves it; slow noise on the pitches; noise; ring modulation; a 4-pole low-, band- or high-pass filter
-  with its own envelope and an LFO; an ADSR; a drive. Twelve kinds: SUB, LEAD, STAB, PAD, DRONE, WASH (after
-  DigiRust's), and CLUSTER, METAL, SPECTRA, GROUND, AIR, TIDES (inharmonic and textural, for non-melodic use).
-  Macros: DETUNE, MOVEMENT, MIX (NOISE on GROUND and AIR), CUTOFF. It is the last position of the PRESETS knob,
-  after BAYAREA, and has its own preset table.
-- 14 scales, after the nine there were (23 in all): phrygian, lydian, mixolydian, locrian, major pentatonic,
-  blues, Hungarian minor, double harmonic, phrygian dominant, hirajoshi, iwato, pelog (selisir, equal
-  temperament), octatonic (half–whole, eight notes) and Prometheus. Sessions keep their scale. Long names are
-  split over the screen's two lines.
-
-Changed
-- Session format 22 (a seventh sound per track). Older sessions load; their tracks get a new HIVE sound.
-
-## 0.47
-
-Changed
-- Generator generation 4 for new sounds. FM IMPACT: six kinds (thud, wooden knock, metal hit, drum skin, debris,
-  falling pitch); the falling pitch, previously on every IMPACT sound, now about one in ten; carrier ratios and
-  the octave vary more. FM GLITCH: five kinds (level chopped by a square or random LFO, feedback crunch with
-  fixed-frequency modulators, pitch steps from the pitch envelope, slow wobble, sample-and-hold pitch); the
-  sample-and-hold pitch stepping, previously on every GLITCH sound, now about one in seven and shallower.
-  The other families and engines are unchanged.
-
-Added
-- Backup page on the website (backup.html): saves every session and both preset tables from the FM-1 to a JSON
-  file and restores them, over Web MIDI. The firmware answers new SysEx commands in the installer's framing
-  (0x50 list, 0x51 read, 0x52/0x53/0x54 write and commit, 256-byte pieces). Restored records are written whole,
-  with a new sequence number, after their head and body CRCs are checked; a record that does not arrive intact
-  is not written. The screen shows RESTORED and the number.
-
-Compatibility
-- Sounds stored as seeds (sessions, presets) regenerate identically for generations 0–3 (checked by a test).
-
-## 0.46
-
-Changed
-- One sequencer per track: BALLSY and BRICKLAYER are mutually exclusive. Starting one while the other runs on
-  the same track shows NOT ALLOWED and changes nothing. A session that has both on for a track loads with
-  BALLSY on and BRICKLAYER off. The looper runs beside either.
+- ARP, a third mode on REACT's page. With FADER BANK held, < and > now step REACT, SHADOW, ARP. In ARP, the tracks taken in break the chord you hold into arpeggios. They start again with each new chord. If you let go, they keep the last chord for a while. A single note is arpeggiated over its octaves. It follows keys, loops, BALLSY and BRICKLAYER.
+- Six knobs on ARP's page, K3 to K8, in two rows of three, in lime: RATE (a step every 2 s down to 62 ms), RELATION (each track's pace against the rate), MOTION (each track's direction, the second against the first), MUTATE (patterns that change as they repeat), RANGE (1 to 4 octaves, the tracks apart) and CHANCE (steps left out, or struck twice). Textures arpeggiate four times slower.
 
 Fixed
-- The FM-1 showed up as "Felucca" in MIDI applications on computers that had seen Felucca before: they kept the
-  name stored for the same USB IDs (1209:0001). Tonitor now uses its own USB product ID (1209:0003), so it shows
-  up as "FM-1 Tonitor". The update loader is unchanged (1209:0002).
+- Every sound now ends. Many sounds left a faint residue after release that never stopped, and only HOME silenced it. Twelve seconds after a note, 19 of 40 FM sounds and 24 of 40 DRUID sounds were still sounding. Now, once you let go of a key, its voice fades out over 0.19 s if it has been 66 dB under its loudest for 0.2 s, if it has not fallen by 1.5 dB in 2 s, or 30 s after release at the latest. Held and latched notes are not touched.
 
-## 0.45
+## BUILD 27
+
+23 October 2026
 
 Added
-- BRICKLAYER, a step sequencer per track on SHIFT + the envelope key (the key blinks while it runs; holding the
-  key 0.6 s shows or hides its page; a short press is still the ENVELOPE page, now acting on release). On its
-  page REC is the note entry (lit while on): white keys add notes at the end; SHIFT + a white key removes that
-  note; SHIFT + REC removes the last; REC held 1 s empties the sequence. Notes play in order, spread evenly over
-  the length (Euclidean, first note on the first step) and are stored as scale steps, following the loop
-  transposition, scale and root. KNOB 1: length (number of notes to 32 steps). KNOB 2: rate (0.5–16 steps a
-  second). KNOB 3: harmony (diads and triads in the scale). KNOB 4: variation (each note's level, down to
-  −12 dB, and length, ×¼ to ×2, spread at random; pace from ×0.5 to ×2, stops, rushes, stutters, beat repeats,
-  echoes, ghost notes). On its page the loop direction and speed keys (REVERSE, PENDULUM, RANDOM, HALF SPEED,
-  DOUBLE SPEED) are its own, lit while on. Notes last 70 % of a step. The screen shows the steps as cells, eight
-  to a row, the step playing lit. Stored in sessions (format 20) and copied with the track.
+- Five new FM sound families learned from a collection of DX7 voices: SHAPER, LADDER, REVERSE, CREEP and CLANG. They are drawn on every path. The older families draw exactly as before. A sixth family, DIVE, was left out because it bends the pitch too much. REACT treats CLANG as a struck sound.
 
-Removed
-- SHIFT + the envelope key no longer resets the track's envelope to AS DRAWN; HOME and loading a preset still do.
+## BUILD 26
 
-## 0.44
+23 October 2026
 
 Fixed
-- VARY switched on while a loop's notes were sounding (long notes, especially ones held over the loop's end) left
-  those notes sounding indefinitely: under VARY the recorded note-offs were ignored. A note struck as recorded
-  before VARY came on is now released at its recorded end; notes struck by VARY keep their own random lengths.
+- SHADOW's note length is now worked out in a way the SMK-37's chip can run. Builds 24 and 25 used a calculation the chip cannot do.
 
-## 0.43
+## BUILD 25
 
-Added
-- VARY also modulates the loops' pace: a slow sine undulation (0.07–0.35 Hz, depth ±15–40 %, redrawn every few
-  seconds), and on average every ~6 s one event: halt (0.15–1 s, abrupt stop and resume), burst (2–3× for
-  0.2–0.8 s), grind (slowing to a stop over 0.4–1.5 s, held up to 0.4 s, then back at once) or swoop (rising to
-  2–2.5× over 0.8–2 s, then 0.4× for 0.3 s). Note lengths stay in real time. Not applied while REC records.
-
-## 0.42
+22 October 2026
 
 Added
-- A sixth engine, BAYAREA: a West Coast voice, ported to fixed point from the bayarea opcode of Vascular. Per
-  voice: an oscillator morphing sine → triangle → square → saw with two linear (through-zero) FM modulators
-  (ratios 0.66 and 3.3 by default, each wandering slowly), a wavefolder, a 12 kHz Butterworth smoothing filter,
-  then a low-pass gate (resonant low-pass and amplifier struck by one-shot envelopes) or a sustaining envelope
-  over two resonant low-passes, a saturating output stage, a bank of three resonators, and an LFO on eight
-  destinations. Six kinds: BONGO, PLUCK, CHIME, FOLDED (gate); SWELL, DRONE (sustain). Macros: SHAPE, FOLDS, FM,
-  DECAY. Square and saw band-limited with polyBLEP (the opcode sums 44 partials); the opcode's reverb is left to
-  the track's sends, its resonator bank kept. Polyphonic from the shared voice pool; each voice uses the memory
-  of an ANIMA voice. Sixth position on the PRESETS knob.
-
-- VARY (SHIFT + REC) also changes or adds notes, each at fixed odds per loop note: drop (5 %), 5–40 ms late
-  (25 %), octave up or down (8 %), a note not recorded — ±1–2 scale steps or a fifth, replacing or added (8 %),
-  a grace note a step away 50–90 ms before (4 %), ratchet of 2–4 hits 50–110 ms apart (4 %), a third or fifth
-  above added (10 %), 1–4 echoes 120–400 ms apart at 60 % level each, sometimes climbing or falling a scale step
-  each (15 %), chord notes strummed 20–60 ms apart (12 %). All notes stay in the scale; up to 32 notes queued
-  per track.
+- FM sounds are now drawn from a newer generation. GLISSE and RUBBER are no longer drawn as families of their own. WARP takes their weight, and now and then also GLISSE's long glide (with its siren), RUBBER's bounce, or both, and RUBBER's plain carrier ratios. A GLISSE or RUBBER asked for is a WARP, and SHIFT + < > steps over them. Sounds saved before this build are drawn exactly as they were.
 
 Changed
-- Sessions: format 19 (a sixth sound per track; macros and envelopes for six engines). Older sessions load
-  with a new BAYAREA sound drawn for each track.
-- Presets: BAYAREA's 64 slots are kept in a second preset record; the first is unchanged.
+- REACT keeps to the scale and the harmony. Every note it plays is snapped to the scale, where before a note held at the edge of the range could fall off it. A long note over what you hold moves to the nearest scale note that fits the harmony. In a test, 91 % of the notes fell in the chord held, up from 74 %.
 
-## 0.41
+## BUILD 24
 
-Added
-- BALLSY, a physics sequencer per track: SHIFT + EDIT turns it on (its page shown) or off; EDIT blinks while it
-  runs. Holding EDIT (0.6 s) while it runs shows or hides its page; with the page hidden the balls keep playing
-  and the knobs, screen and other pages work as usual. A short press of EDIT is still EDIT (now acting on
-  release). One to eight balls bounce in a box; each wall hit plays a note on the track as a key would (scale,
-  loop transposition, chord mode, recorded by the looper), with a random length (50 ms – 1.5 s) and a random
-  level (−10 dB to full; FM, ANIMA and DRUID voices; looped notes replay at full level). Each bounce changes the
-  angle at random by up to 12°, kept 15°–75° from the walls. Each wall holds the scale's steps, one segment a
-  step; pitch rises clockwise, one octave per wall: bottom −1 (right to left), left 0 (upwards), top +1 (left to
-  right), right +2 (downwards), relative to the keyboard's octave. KNOB 1: number of balls (1–8). KNOB 2: speed
-  (0.08–2.4 box widths per second). KNOB 3: the four walls' octaves, one octave per click (bottom wall from −3
-  to +2). KNOB 4: instability (0–100): per ball, two smoothed random values scale the speed (up to ×8 or ÷8)
-  and turn the direction (up to half a turn a second), plus occasional gusts of up to 60°. Physics runs in the
-  main loop on elapsed time in steps of at most 4 ms. Stored in sessions (format 18) and copied with the track.
-- VARY per track on SHIFT + REC (VAR shown at the top right of the screen): the track's loops play each note at
-  a random level (−10 dB to full, FM, ANIMA and DRUID voices) for a random length (50 ms – 1.5 s) instead of the
-  recorded length; notes tied over the loop's end are struck again each time round. All overdubs of the track.
-  Stored in sessions (in the loop state) and copied with the track; reset when the track's loops are emptied.
-  SHIFT + REC previously did the same as REC.
-- Note level: EV_ON events carry a level; pool voices (FM, ANIMA, DRUID) are scaled by it. Keys and loops play
-  at full level.
-
-## 0.40
+22 October 2026
 
 Added
-- A fifth engine, DRUID, after the resonators of Mutable Instruments Rings (Émilie Gillet, MIT licence),
-  ported to fixed point. Three resonators: a Karplus-Strong string (Hermite-interpolated delay, all-pass
-  dispersion, delay noise, a buzzing bridge, FIR and state-variable damping with the decay set as a time to
-  −60 dB, a pickup comb at the position), sympathetic strings (a string and three more tuned to intervals of
-  it, driven by its sound), and a modal resonator (up to 16 two-pole resonators at stretched partials). Four
-  internal exciters: pluck (Rings' plucker), strike, bow (noise while the key is held) and dust (random impacts
-  while the key is held). Ten kinds: PLUCK, BOWED, STRUCK, SITAR, RATTLE, HARP, DRONE, BELL, BOWL, PLATE. EDIT's
-  macros are Rings' controls: STRUCTURE, BRIGHTNESS, DAMPING, POSITION. Releasing a key damps the sound by an
-  amount set per sound. Voices come from the shared pool; each uses the memory of an ANIMA voice (no new
-  memory). Fifth position on the PRESETS knob.
+- SHADOW, a second mode beside REACT. The tracks taken in shadow what you play (keys, chords, loops, BALLSY, BRICKLAYER). Each stays its own distance behind, at its own pace. Now and then one plays backwards or to and fro, rests, and comes in again. Rhythm is loosened, and notes are moved along the scale. On its page, < and > choose REACT or SHADOW. Four knobs: DELAY (right behind to 15 s), DRIFT (a little loose to half or twice the pace), VARIATION (how often its way changes) and TRANSPOSE (as played to a third to a sixth away). The memory it plays from grows to 128 events, each with its time.
 
 Changed
-- Sessions: format 17 (a fifth sound per track; macros and envelopes for five engines). Older sessions load
-  with a new DRUID sound drawn for each track.
-- Presets: format 4 (12 bytes a slot, 64 slots for each of five engines in one 4 KB sector). Presets saved
-  before still load.
+- SHIFT + FADER BANK now turns the mode on or off, with no page. FADER BANK held brings the mode's page and the track pads up or down. FADER BANK pressed alone is still the ENVELOPE page. You can leave the page while the mode runs.
 
-## 0.39
+## BUILD 23
+
+22 October 2026
+
+Added
+- REACT's page. With REACT on, its page shows the name of the knob turned last, its value large, and K3 to K6 side by side with a bar each. K1 and K2 stay level and pan.
+  - DENSITY: how often they play, how long they wait, how many sit out.
+  - COMPLEXITY: from single notes in plain rhythms up to harmonised notes, split and pushed steps, and threes against twos.
+  - CONTINUITY: recombining what you played freely, or keeping to your phrases.
+  - SPREAD: around your hands, or from deep bass to high air.
+
+## BUILD 22
+
+22 October 2026
 
 Changed
-- Track 1 starts with its pan in the middle (was half left), at power-on and in an empty session. The other
-  tracks' starting pans are unchanged. Saved sessions keep their pans.
+- REACT is rebuilt a second time, on the model of the Continuator, OMax and Voyager. The other tracks improvise from a memory of what you played (its last 96 events: notes or chords, levels, lengths and gaps). Each one goes on as you went on, or jumps to where you played the same intervals and rhythm. It prefers what fits the harmony now. Their rhythm is yours, slowed or quickened.
+- The ensemble regroups at your phrases, and every 6 to 9 seconds of unbroken playing. Each musician FOLLOWS, CONTRASTS, ECHOES, ANSWERS (continues your phrase in your rests) or RESTS, as suits its sound, each in its own register. Textures play slow, low, single notes. Long notes that stop fitting a new chord let go.
+
+## BUILD 21
+
+22 October 2026
+
+Changed
+- REACT is rebuilt. The beat grid, the arpeggios and the walking bass are gone. The other tracks only react to what you do: a note, a chord, a hold, a rest, an accent, a repeated phrase. They take their timing from your gaps, lengths and fastest notes. When you stop, they stop.
+- Parts are dealt by sound. CALIGULA, RUSSOLO and drones get TEXTURE and never play note by note. Sustained sounds get PAD or SHADOW, plucked ones ANSWER, ORNAMENT or ECHO. The parts are TEXTURE, PAD, BASS, SHADOW, ECHO, ANSWER and ORNAMENT, and a second voice of a part is made unlike the first. Who joins each phrase is drawn from how intense your playing is and how long it has gone on.
+- A held chord alone sets off no pattern. Silence brings silence.
+
+## BUILD 20
+
+22 October 2026
+
+Added
+- REACT: the other tracks answer the one you play. SHIFT + FADER BANK turns it on. Its pads are on the bottom row: tracks that are in are lit, and the guide's pad turns red when pressed. Held, the pads go up or down. REACT listens to everything the chosen track sounds (keys, latches, chords, MIDI in, sequencers, loops) for the chord, the pulse, the phrase, how busy and how hard. The tracks taken in play ORNAMENT, BASS, PAD, ECHO and TALK (call and response in your rests), in the scale. They grow more elaborate as you keep playing and let go after a silence.
+
+## BUILD 19
+
+22 October 2026
 
 Fixed
-- With SHIFT held, a KNOB 3 or KNOB 4 click arriving while the panel was being read could go to the knob's
-  own function: the crush or the reverb send changed by one step and its dial showed briefly. While SHIFT is
-  held, KNOB 3 and 4 now go only to the distortion and the delay send.
+- CALIGULA's tail ends at low notes. At C2 the feedback and delay settled on a faint residue that never fell far enough for the voice to end. It ran on silently, used processor time and kept its pad lit. The cut-off level is now higher (below -54 dB), and the voice ends.
 
-## 0.38
+## BUILD 18
 
-Added
-- Per-track distortion on SHIFT + KNOB 3 (0–100, 0 off), after the track's limiter and before its level, pan
-  and the delay and reverb sends. Two gain stages: symmetric, then asymmetric; drive ×0.5 to ×32 (+36 dB). A
-  bias proportional to the input's peak level is added before the first stage, so even harmonics remain at
-  high drive. Highs +6 dB before the stages and −6 dB after; the stages run at 2× the sample rate (linear
-  interpolation up, [¼ ½ ¼] half-band down); a DC blocker; a one-pole low-pass from 16 kHz down to 6.5 kHz as
-  the amount increases. The output is matched to the dry signal's RMS level (about 0.2 s), so the loudness
-  does not change with the amount. Stored in sessions (format 16) and copied with the track.
-
-## 0.37
+22 October 2026
 
 Added
-- ENVELOPE page on the 3rd black key from the right (lit while up): the chosen track's amplitude envelope as
-  attack, decay, sustain and release, drawn and with values. Until the knobs are turned it shows the sound's
-  own envelope (AS DRAWN; FM: the loudest carrier; CALIGULA: its pairs' times averaged; CALIGULA and
-  RUSSOLO: no decay or sustain stage). KNOB 1–4 set ATTACK (1 ms – 10 s), DECAY (5 ms – 10 s), SUSTAIN
-  (0–100 %) and RELEASE (5 ms – 20 s), logarithmic. The first turn starts from the values shown and replaces
-  the sound's amplitude envelope: FM carrier envelopes and the ANIMA envelope are held at full, CALIGULA and
-  RUSSOLO are held through the release and then let go. Applies from the next note; afterwards knob changes
-  also affect sounding notes. Linear attack, exponential decay and release (release ends at −60 dB).
-- SHIFT + the envelope key, HOME and preset loading return to the sound's own envelope. One envelope per
-  track and engine; stored in sessions (format 15) and copied with the track; not stored in presets.
+- MIDI OUT on the 3.5 mm jack. Every message sent over USB goes out of the jack too, with or without a computer. Switch it in GLOBAL SETUP > MIDI > PORTS > TRS OUT. MIDI in works over USB only.
+- A track that is not chosen but sounding has its pad half way between dim and full.
 
 Changed
-- The XS font has a space character.
+- The two rows of six buttons on the right are lit dim while idle, without flicker, and full when active.
+- The instrument has its own USB product number, so computers read "SMK-37 Tonitor" afresh. You may need to reconnect it or reselect it in your software.
 
-## 0.36
+## BUILD 17
 
-Added
-- SHIFT + HOME generates a new sound of the same family (FM), kind (ANIMA, RUSSOLO) or species (CALIGULA) as
-  the selected track's current sound, on its engine and path. HOME alone still changes the family.
-
-## 0.35
-
-Added
-- Chord mode per track on the 3rd black key: held 0.6 s toggles it (CHO at the top left of the screen, key lit),
-  pressed steps the form: TRIAD (0 2 4), INV 1 (2 4 7), INV 2 (−3 0 2), SUS2 (0 1 4), SUS4 (0 3 4), OPEN (0 4 9),
-  FOURTHS (0 3 6), in scale steps from the key's note. One chord per track at a time. Chords latch, follow the
-  loop transpositions, are recorded by the loopers, and are stored in sessions (format 14) and copied with the
-  track.
-
-Changed
-- Latched notes and chords move with the loop transposition: SHIFT + track button + OCT moves that track's, SHIFT +
-  OCT moves every track's, by scale steps. The lit latched keys move by the same number of white keys.
-- The chord form is shown under CHO as a three-letter abbreviation (TRI, IN1, IN2, SU2, SU4, OPN, 4TH) in a new
-  smaller font (XS, 19 px).
-
-## 0.34
-
-Changed
-- The loop direction and speed keys (REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED) are lit only while the
-  selected track's loops play (PLAY lit): dimly when off, fully when on. With the loops stopped they are unlit;
-  their settings are kept and the keys still respond.
-
-## 0.33
-
-Changed
-- The black keys with a function (AMBIENT, EXPERIMENTAL, REVERSE, PENDULUM, RANDOM, HALF SPEED, DOUBLE SPEED,
-  EDIT) are dimly lit while off and fully lit while on. SHIFT and the black keys without a function stay unlit.
-
-## 0.32
-
-Added
-- Master delay, mono, before the reverb. Per-track send on SHIFT + KNOB 4 (default 0). DELAY page on
-  SHIFT + SEQ with TIME (20 ms – 2 s, logarithmic), FEEDBACK (0–0.95), DAMP (one-pole low-pass in the feedback
-  path) and MIX. Delay line: 2 s at 22.05 kHz, 8-bit μ-law (44 100 bytes, split between the buffer pool and
-  unused code RAM). Echoes go to both master channels and, at half level, to the reverb input. TIME changes glide
-  over about 0.1 s. Stored in sessions (format 13); the send is copied with the track.
-
-Changed
-- The screen is drawn in bands of at most 56 rows (was 112), freeing 27 KB of buffer memory; the display is
-  unchanged.
-
-## 0.31
-
-Added
-- Loop direction and speed per track, on the 4th–8th black keys (lit while on): REVERSE, PENDULUM (forwards
-  and backwards alternately), RANDOM, HALF SPEED, DOUBLE SPEED. REVERSE/PENDULUM/RANDOM are exclusive, as are
-  HALF/DOUBLE; direction and speed combine. RANDOM plays forwards and, each time the next note-on is due and at
-  the loop end, releases the sounding notes and jumps to a randomly chosen note-on (with any note-ons at the
-  same time); note lengths and the interval to the following note-on are those recorded. Applies to all overdubs of the track, each within its own length. A direction
-  change continues from the current position (sounding notes are not cut or retriggered). The loop clock runs
-  at the selected speed, so overdubs recorded at half or double speed keep their played timing; overdubs
-  recorded in reverse are stored mirrored and play back as played. Stored in sessions (format 12), copied with
-  the track, reset when the track's loops are cleared.
-
-## 0.30
-
-Added
-- Per-track loop transposition: hold SHIFT and a track button, then press OCT+ or OCT− to move that track's
-  loops (all overdubs) by one scale step. The screen shows the value (e.g. TRANSP T3 +2). It is added to the
-  global loop transposition (SHIFT + OCT). Stored in sessions (format 11), copied with the track, reset when the
-  track's loops are cleared.
-- The white keys follow the transposition of the selected track (global + per-track), so new notes and
-  overdubs are in the same transposed scale. Overdubs store the transposition at which they were recorded and
-  play back as recorded. USB MIDI notes are not transposed.
-
-Changed
-- FM macros: BRIGHT renamed BRIGHTNESS, range on modulator output levels increased from ±26 to ±36 steps
-  (about ±27 dB); turning it up also raises feedback. DETUNE now spreads carriers ±40 cents (was ±30) and
-  modulators ±25 cents (was ±12), so single-carrier patches also produce beating.
-- All macros on all engines use a square-root response: a quarter turn gives half of the full change.
-- Macro names: FM SKEW → INHARMONIC, GRIT → SATURATION; ANIMA AIR → NOISE, VOWEL → FORMANT, SPACE →
-  RESONATOR; CALIGULA EDGE → WAVEFORM, DEPTH → MOD DEPTH, CHAOS → FEEDBACK, ECHO → DELAY, HAND → TOUCHES,
-  PULSE → GATE RATE; RUSSOLO CHAOS → RANDOMNESS. Names too wide for the dial title use the smaller font.
-- SHIFT no longer displays the audio load.
-
-## 0.29
-
-Added
-- Generator generation 3. ANIMA: eight kinds (PLUCK, REED, FOG, ORGAN, BITS, DRIFT, MURMUR, HOWL). FM: five
-  families (PLUCK, MALLET, WARP, GLITCH, RUBBER). All kinds and families draw from wider ranges: any of the 24
-  wavetables, more intervals, FM ratios and stack steps, detuning, optional percussive or slow-attack envelopes,
-  other hand-motion modes, square-wave tremolo, sample-rate reduction, high filter resonance (ANIMA); optional
-  percussive envelopes, modulator ratio changes and operator detuning (FM).
-
-Changed
-- ANIMA renders each voice at 22.05 kHz (16 samples per 32-sample block), upsampled by linear interpolation;
-  bandwidth limited to 11 kHz. Oscillator increments, delay lengths, grain lengths and filter coefficients are
-  scaled to keep pitch and timing. CPU cost per voice reduced from about 15 % to about 9 % of a block.
-- ANIMA wavetables in use are copied to a 15-slot RAM cache (one copy per audio block at most); a read from
-  flash costs 6–33 CPU ticks, from RAM 1.6.
-- Loop capacity reduced from 2048 to 1024 note events per track (about 500 notes) to free memory for the
-  cache. Sessions with longer loops load the first 1024 events per track.
-- ANIMA macros: TONE ±4 octaves on all filters (was ±2.5) and FM index; the kind macro (GRAINS, AIR, FM, VOWEL,
-  DRIVE) ranges from zero to several times the design value, DRIVE below centre removes the second
-  oscillator, FM, noise and grains; SPACE from 0 to 0.85 resonator mix; MOTION from ¼ to 4× hand speed, adding
-  a tremolo above centre. At centre the sound is unchanged.
-
-Compatibility
-- Sounds stored as seeds (sessions, presets) regenerate identically for generations 0–2. ANIMA sounds play at
-  the new sample rate.
-
-## 0.28
-
-Added
-- Track copy/paste: holding a track button for 0.8 s copies the track (screen: COPIED; the button blinks while
-  the clipboard holds it). Holding another track button pastes it (screen: PASTED) and empties the clipboard.
-  Copied: engine, the sound of each of the four engines with macros, filter, granulator, crush, reverb send,
-  octave, generative path, all loops with their mute states. Not copied: level, pan. The destination's latched
-  notes are released.
-
-Changed
-- Documentation uses "track" instead of "layer".
-
-## 0.27
-
-Added
-- Global loop transposition: SHIFT + OCT+/OCT− moves all loops by one step of the current scale, up to two
-  octaves of the scale either way. Sounding notes are moved immediately. Changing scale or root re-maps the
-  loops to the new scale. Stored in sessions (format 10).
-- Selecting an empty session slot resets the machine to its power-on state: loops and latches cleared, new
-  sounds on all tracks, all track settings, scale, root, reverb and transposition at defaults.
+22 October 2026
 
 Fixed
-- A note held while REC closes a loop is no longer released at the loop end and retriggered at the start; it
-  sustains across the loop boundary.
-- ANIMA voice reuse: the comb resonator, phaser and sample-and-hold states of a reassigned voice are now
-  cleared; previously the previous note's state was audible as a click.
-- Audio dropouts when starting a loop under high load: the render cost of each voice and organism is now
-  measured per block, and before new voices start the oldest release tails are faded out (2 ms) until the
-  predicted cost is under 82 % of the block. Held notes are only dropped if a buffer is actually late.
+- A transposition keeps the notes' velocities. Latched notes remember the velocity they were struck at. Moved with SHIFT + OCT (with or without a track's pad), they sound at it again, not at full. Loops' sounding notes moved at once also take the velocity of their voices. Sessions keep the velocities. Sessions saved before this build are not affected.
 
-## 0.26
+## BUILD 16
+
+22 October 2026
 
 Added
-- RUSSOLO engine, based on the techniques of Noisferatu by Robert Heel: 17 kinds of noise, logic-gate
-  oscillators, buffer manipulation and random tones, rendered at FS/3 with 10-bit values plus per-sound bit and
-  sample-hold reduction. One instance per track; keys gate it and set its pitch. Macros: two per kind, CRUSH,
-  CHAOS. 64 presets.
-- Sessions also store each track's granulator character and latched notes (format 8).
+- SHIFT held and a key pressed latches the note at once, and letting go of the key does not end it. A latched key pressed with SHIFT held lets it go. The FM-1's order (keys held, then SHIFT) still latches too.
+- SHIFT tapped twice within 0.35 s lets every latched note go, on every track (LATCH OFF).
 
-## 0.25
+## BUILD 15
+
+22 October 2026
+
+Added
+- FADER BANK opens the ENVELOPE page, up or down, with its A D S R on K3 to K6. It is lit while up.
 
 Changed
-- Voice allocation: a pool of 12 voices shared by all tracks replaces two fixed voices per track. Stealing
-  order: oldest release tail, then the oldest held note of the same track, then the oldest held note.
+- The track view's knobs are reordered: K1 level, K2 pan, K3 filter, K4 grain, K5 crush, K6 distortion, K7 delay send, K8 reverb send. Distortion has its own knob now. SHIFT + K5 no longer does it. The pages' four values stay on K3 to K6. With MACRO on, K1 to K8 are the eight macros, in knob order.
 
-## 0.24
+## BUILD 14
 
-Changed
-- Sessions are read and written one 4 KB flash sector at a time; about 54 KB of RAM freed. Session format
-  unchanged.
-
-Fixed
-- The name on the start-up screen fits.
-
-## 0.23
-
-Added
-- Overdub muting: holding PLAY shows the selected track's loops on the white keys; pressing a key mutes or
-  unmutes that loop. Mute states are stored in sessions (format 7).
-
-## 0.22
-
-Added
-- EDIT key (the black key left of SHIFT): KNOB 1–4 control four macros of the selected track's sound, defined
-  per engine and kind. Stored in sessions and presets.
-
-Fixed
-- FM generator: operator ratios were computed with the fine value 100 times too large, placing patches about
-  two octaves above the played note. Corrected for new sounds (generation 2); generations 0 and 1 are kept
-  unchanged so stored sounds regenerate identically.
-
-## 0.21
-
-Added
-- Presets: SHIFT + SAVE opens 64 preset slots per engine.
-- Generator generation 1. FM: eight families (CHOIR, BOWED, HOLLOW, BLOOM, TIDE, SHARDS, STATIC, WIND),
-  modulator levels reduced on high ratios, keyboard level scaling, several candidates generated and the one
-  whose brightness fits the path kept. ANIMA: six kinds (TIDE, CHOIR, SHARDS, BOWL, DUST, MACHINE), filter
-  keyboard tracking, path-dependent oscillator intervals, resonator on most AMBIENT sounds. CALIGULA: four
-  species (LITANY, UNDERTOW, WIRE, MOTH), four tunings, repeated touch patterns.
-
-Compatibility
-- Generation 0 is kept; sounds stored as seeds regenerate identically (checked by a test).
-
-## 0.20
+22 October 2026
 
 Changed
-- Firmware renamed Tonitor (previously ACOUSMA). USB device name "FM-1 Tonitor". Existing sessions load.
+- About 15 KB of memory freed (from 98168 to 83352 bytes used). No sound changes: the engines sound as before.
+- The clipboard is now kept in the sessions' flash storage. A copy writes the track into it, and the audio may hush for a moment when a sector is erased. A paste reads it back. The clipboard is let go at power-on, and it is not in the backup.
+
+## BUILD 13
+
+22 October 2026
 
 Added
-- Browser installer using Web MIDI (Chrome, Edge, Opera).
-- Website and online manual.
-
-## 0.19
-
-Added
-- SHIFT + PLAY with no loop playing starts all loops from their beginnings.
-
-## 0.18
-
-Added
-- Sessions page: holding SAVE saves to the displayed slot, with an OVERWRITE? confirmation for occupied slots.
-  Occupied slots shown in red, empty slots in grey.
-
-## 0.17
+- BRICKLAYER, with its button held, gets the loops' full options on pads 9 to 16, in violets: REVERSE, PENDULUM, RANDOM, STUTTER, CLIMB DOWN, CLIMB UP, HALF, DOUBLE. Its CLIMB moves it a step of the scale after each run of its steps. Its STUTTER wanders: the same step again, the one before, the next, or the one after. Sessions keep these options. Earlier sessions load with them off.
+- PLAY held for 0.6 s shows the chosen track's loops on the bottom row of pads, in a soft red: half-lit while in, dim while out. A pad takes its loop out or brings it back. Held again, the pads are freed.
+- Up to eight loops per track, a pad each. The ninth is refused with 8 LOOPS.
 
 Changed
-- ANIMA EXPERIMENTAL path: sample-rate reduction, wavefolding, band-pass noise, scattered grains, fast
-  tremolo and high resonator feedback on most sounds.
-- Level meter moved to the bottom of the screen; level shown in percent.
+- The loops' STUTTER wanders. At the end of each eighth of the loop, the next one is drawn: the same again, the one before, the next (twice as likely) or the one after.
+
+## BUILD 12
+
+22 October 2026
 
 Added
-- SHIFT + PLAY stops all loops on all tracks.
-
-Fixed
-- Long messages fit the screen.
-
-## 0.16
-
-Added
-- Generative paths AMBIENT and EXPERIMENTAL on the two leftmost black keys, per track.
-
-Fixed
-- CALIGULA slow attacks and long releases.
-- Overload handling no longer drops the most recently played note.
-
-## 0.15
+- The pitch wheel bends the chosen track by up to 2 semitones. Every engine bends, FM, ANIMA, CALIGULA, RUSSOLO, DRUID, BAYAREA and HIVE alike.
+- The mod wheel adds vibrato (5.5 Hz, up to 0.4 semitone) and pushes macro 1 up (each engine's main tone control).
+- BRICKLAYER held shows its direction (pads 9 to 11, violet) and speed (pads 15 and 16, a pinker violet) on the bottom row, like the loops'. Held again, the pads are freed. Held while off, it turns BRICKLAYER on with them. Pressed off, they go.
 
 Changed
-- Latching: hold keys, then press SHIFT. SCALE page: SELECT sets the root, ALGORITHM the scale.
+- While a sequencer plays (BALLSY or BRICKLAYER), PLAY blinks on every page and stops it from there. On the sequencer's own page it starts and stops it, as before.
 
-## 0.14
+## BUILD 11
+
+22 October 2026
 
 Added
-- SHIFT key and latched notes.
-
-## 0.13
+- BALLSY (the 4th top-row button) and BRICKLAYER (the 5th). Pressed, the chosen track's sequencer is on (its page up) or off (stopped). Held while on, its page goes up or down. PLAY starts and stops it on its page, as on the FM-1. The button is lit while on and blinks while the sequencer plays. It is still one sequencer per track.
+- With MACRO on, EDIT shows over the sound, in red.
 
 Changed
-- CALIGULA played from the keyboard.
+- MACRO pressed now only turns the macros on or off. BALLSY has its own button.
+- In GLOBAL SETUP, VELOCITY has the curves EVEN, SOFT, HARD and FIXED, and a FIXED row. Names and values sit side by side without overlapping.
 
-## 0.12
+## BUILD 10
+
+22 October 2026
 
 Added
-- CALIGULA engine.
+- MACRO (the third top-row button). Pressed, the macros go on or off (lit while on). The FM-1's EDIT is behind it. With macros on, K1 to K8 turn the eight macros of the chosen track's sound, each with its dial. Macros 5 to 8 are new (1 to 4 as they were; at 0 every sound is as drawn):
+  - FM: ATTACK, RELEASE, LFO RATE, VELOCITY (velocity on brightness; FM voices now know their note's velocity)
+  - ANIMA: ATTACK, RELEASE, GRAIN SIZE, PHASER
+  - CALIGULA: ATTACK, RELEASE, SPREAD, DELAY TIME
+  - RUSSOLO: ATTACK, RELEASE, CHORD, HOLD
+  - DRUID: EXCITATION, BOW, DUST, MUTE
+  - BAYAREA: ATTACK, FM RATIO, SPRING, DRIVE
+  - HIVE: RESONANCE, FILTER ENV, RING, SHIMMER
+- MIDI CC 20 to 23 control macros 5 to 8. The modulation matrix gets MAC5 to MAC8 as destinations.
 
-## 0.1 – 0.11
+Changed
+- Eight macros per sound instead of four. Earlier sessions load with their four macros. Saved presets are carried over to the new format at the first save. Older versions' presets still load.
 
-- FM and ANIMA engines; six tracks with two voices each; one looper per track with up to ten overdubs; track
-  level, pan and reverb send; master reverb; 64 session slots; scales on the white keys; per-track filter,
-  granulator and crush.
+## BUILD 9
+
+22 October 2026
+
+Added
+- STUTTER (pad 12 of LOOP's pads): each loop repeats the eighth of it that it is in (the last eighth, to its end). What it sounds is let go each time. Turn it off and the loop goes on from there. Not in RANDOM.
+- CLIMB DOWN (pad 13) and CLIMB UP (pad 14): each pass is a step of the scale lower or higher, round an octave of it. The two exclude each other.
+
+Changed
+- SCATTER and DRIFT, added in build 8, are gone. Earlier sessions load with the loops' options let go.
+
+## BUILD 8
+
+22 October 2026
+
+Added
+- Three options on LOOP's pads 12 to 14, each on or off (a magenta red, lit while on), combinable with direction and speed and kept by sessions:
+  - SCATTER: each recorded pitch is played as another of the loop's own, drawn afresh each pass. The rhythm is kept.
+  - DRIFT: each pass starts 1/50 of the loop later, so it slides out of phase with the other tracks' loops. Not in RANDOM.
+  - CLIMB: each pass is a step of the scale higher, round an octave of it.
+
+## BUILD 7
+
+22 October 2026
+
+Added
+- LOOP (the second top-row button). Pressed, the chosen track's loop options show on the bottom row of pads (lit while up). Pressed again, the pads are freed.
+- Pads 9 to 11 are REVERSE, PENDULUM and RANDOM (red; none lit means forward). Pads 15 and 16 are HALF and DOUBLE (a warmer red; none lit means normal). Pressing the lit pad again goes back. Direction and speed combine, as on the FM-1. BRICKLAYER has its own page. Pads 12 to 14 are dark, for later.
+
+## BUILD 6
+
+22 October 2026
+
+Changed
+- Chord mode and its shapes page are tied together. CHORD held with chord mode off turns the shapes up and chord mode on. CHORD pressed with chord mode off takes the shapes off the pads too. Choosing a track without chords closes them as well.
+
+## BUILD 5
+
+22 October 2026
+
+Added
+- CHORD (the first top-row button). Pressed, the chosen track's chord mode goes on or off (lit while on). Held, the chord shapes show on the bottom row of pads. Held again, the pads are freed.
+- Pads 1 to 8 of the bottom row choose TRIAD, INV 1, INV 2, SUS2, SUS4, OPEN, FOURTHS and FIFTHS (new: stacked fifths of the scale). They are blue, the chosen one bright and the others dim.
+
+## BUILD 4
+
+22 October 2026
+
+Added
+- Knobs per track: K1 the track's level, K2 pan, K3 filter, K4 grain, K5 crush, K6 delay send, K7 reverb send. K8 is free. The pages' four values are on K3 to K6. SHIFT + K5 is the distortion.
+- The master volume is on fader 4 (the rightmost).
+- In GLOBAL SETUP, a VELOCITY section under KEYS: CURVE (LINEAR, LIGHT, HEAVY, FIXED), LOWEST and HIGHEST (the range it maps into) and FIXED AT.
+- The looper records each note's velocity (in 16 steps). Played backwards, a note-off carries its note-on's velocity. A loop can last at most 12.7 minutes and closes by itself there.
+
+Changed
+- Pads 7 and 8 (the paths) are white now, unlike the tracks' colours.
+- Earlier sessions' loops play at full velocity, as before.
+
+## BUILD 3
+
+22 October 2026
+
+Added
+- Pads 7 and 8 of the top row are the chosen track's AMBIENT and EXPERIMENTAL paths (blue and red). Lit while on, dim while off.
+- The bottom row of buttons is lit while its page is up: SAVE (SESSIONS, GLOBAL SETUP), ARP (SCALE, PRESETS) and SEQ (its pages). HOME is lit while held.
+- < and > (under the screen) do everything the FM-1's PRESETS knob did, a step a press, SHIFT combinations too. K4 has no job for now.
+
+Changed
+- The USB product name is SMK-37 Tonitor, and the installer says keyboard.
+
+## BUILD 2
+
+22 October 2026
+
+Added
+- All 37 keys (C3 to C6) play, with their velocity. With a scale, every key, black ones too, plays the next step from the root on the lowest key. CHROMATIC (new, last in the list) is the keyboard as printed.
+- The six tracks on the first six pads of the top row: the chosen one in its colour, the others dim (blinking on the clipboard). The rest are dark. The pads play no notes.
+- SHIFT is KNOB BANK, lit while held.
+
+Changed
+- A track's octave 0 is centred for the scale's length: 12 steps C3 to C6; 7 and 8 steps an octave lower; 6 steps one more; 5 steps two lower. OCT stops where a key would leave MIDI's range. Changing the scale or root brings the octaves back into range.
+- The FM-1's black-key functions (paths, ENVELOPE, EDIT, CHORD, the loops' direction and speed) have no control yet. Their states are kept for the pads.
+- Earlier sessions load with their latches let go, because latches now cover 37 keys.

@@ -1,123 +1,118 @@
 <div class="hero">
-  <h1>A firmware for the M-VAVE FM-1 for electroacoustic experimentation, live ambient music and sound exploration</h1>
+  <h1>A firmware for the M-VAVE SMK-37 Pro for electroacoustic experimentation, live ambient music and sound exploration</h1>
   <div class="cta">
     <a class="btn primary" href="install.html">Install via browser</a>
     <a class="btn" href="manual.html">Read the manual</a>
   </div>
 </div>
 
-<div class="demo" data-video="Ck0gDlUYx4M">
-  <img src="assets/demo-poster.jpg" alt="" width="1600" height="900">
-  <button class="demo-play" type="button" aria-label="Play the demo video (YouTube)">
-    <span class="demo-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></span>
-    <span class="demo-label">Watch the demo</span>
-  </button>
+<div class="panel-art" aria-hidden="true">
+  <span class="t1"></span><span class="t2"></span><span class="t3"></span><span class="t4"></span><span class="t5"></span><span class="t6"></span><span class="p on"></span><span class="p"></span>
+  <span class="b"></span><span class="b on"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span>
 </div>
+
+<p>Tonitor turns the SMK-37 Pro into a self-contained six-track instrument: seven synthesis engines, loopers,
+  sequencers, and three modes in which the other tracks play along with the one you play. It shares its sound engines
+  with <a href="https://nzimas.github.io/tonitor/">Tonitor for the M-VAVE FM-1</a>; the panel, the manual and the builds
+  are its own.</p>
 
 <h2>Features</h2>
 <dl class="features">
   <dt>Six tracks</dt>
-  <dd>Each with its own engine, sound, octave, level and pan.</dd>
-  <dt>Voices</dt>
-  <dd>Twelve voices shared by all tracks: each track takes as many as its notes need.</dd>
+  <dd>On the first six pads of the top row, each in its colour, each with its own engine, sound, octave, level, pan
+    and effects. They start as FM, ANIMA, CALIGULA, HIVE, DRUID and BAYAREA.</dd>
+  <dt>Every key plays</dt>
+  <dd>The 37 keys follow the chosen scale and root without gaps, black keys included; CHROMATIC plays the keyboard
+    as printed.</dd>
   <dt>Seven engines</dt>
   <dd>FM, ANIMA, CALIGULA, RUSSOLO, DRUID, BAYAREA and HIVE, chosen per track (described <a href="#engines">below</a>).</dd>
   <dt>Sound generation</dt>
-  <dd>HOME generates a new sound for the track from the engine's families of sounds.</dd>
-  <dt>Generative paths</dt>
-  <dd>Per track, new sounds can be biased towards ambient (darker, slower) or experimental (noisier, harder).</dd>
-  <dt>Macros</dt>
-  <dd>With EDIT on, the four knobs adjust four engine-specific parameters of the current sound.</dd>
-  <dt>Modulation</dt>
-  <dd>Per track, two LFOs and four slots routing an LFO, velocity, key or a random value to the sound's macros, filter,
-    grains, crush, drive, sends, level, pan or the LFOs' rates. New sounds of the slow, sustained families often come
-    with modulation of their own; SHIFT + SEQ randomises a track's modulation.</dd>
-  <dt>Envelope</dt>
-  <dd>Per track, the sound's amplitude envelope shown as attack, decay, sustain and release, and set with the four knobs.</dd>
-  <dt>Copy and paste</dt>
-  <dd>Holding a track's button copies its sound and loops; holding another's pastes them there.</dd>
+  <dd>HOME draws a new sound for the track from the engine's families. Pads 7 and 8 bias the next sounds towards
+    the AMBIENT or the EXPERIMENTAL path.</dd>
+  <dt>Eight macros</dt>
+  <dd>With MACRO on, the eight knobs turn eight parameters of the current sound, each engine its own.</dd>
+  <dt>REACT, SHADOW, ARP</dt>
+  <dd>The tracks you choose play along with the one you play. REACT improvises from a memory of your playing, in
+    your scale and rhythm. SHADOW follows you at a distance, now and then backwards or moved along the scale. ARP
+    breaks your chords into arpeggios at related speeds and follows your chord changes.</dd>
   <dt>Loopers</dt>
-  <dd>One per track, up to ten overdubs, each with its own length; each can be switched in and out. Per track: played forwards, in reverse, forwards and backwards alternately or in a random note order,
-    at half, normal or double speed; transposed by steps of the scale (per track and all together).</dd>
+  <dd>Per track, with overdubs; played forwards, in reverse, back and forth or in random order, at half, normal or
+    double speed, with STUTTER and CLIMB, all set on the bottom row of pads.</dd>
   <dt>BALLSY</dt>
-  <dd>A physics sequencer per track: one to eight balls bounce in a box; each wall hit plays a note of the scale, one octave per wall,
-    with a random level and length. Knobs set the number of balls, their speed, the octaves and how unsteady
-    their motion is.</dd>
+  <dd>A physics sequencer per track: balls bounce in a box, and each wall hit plays a note of the scale.</dd>
   <dt>BRICKLAYER</dt>
-  <dd>A step sequencer per track, built a note at a time: the notes spread evenly over up to 32 steps, with rate,
-    harmony and variation controls, and the loops' direction and speed keys.</dd>
-  <dt>Sequencers and looper together</dt>
-  <dd>A track running BALLSY or BRICKLAYER keeps its looper: more material can be played on the keys and
-    recorded over the sequencer, and both play together.</dd>
-  <dt>Varied loops</dt>
-  <dd>Per track, the loops can play each note at a random level and for a random length, and now and then change
-    or add notes: echoes, harmonies, octave jumps, notes that were not recorded, grace notes, ratchets, strummed
-    chords, drops and slight lateness, all in the scale; and their pace can undulate, halt, burst and swoop.</dd>
-  <dt>Latching</dt>
-  <dd>Notes held when SHIFT is pressed keep sounding after the keys are released.</dd>
-  <dt>Filter, grains, crush</dt>
-  <dd>A resonant low/high-pass filter, a granulator and a bit-depth and sample-rate reducer on every track.</dd>
-  <dt>Distortion</dt>
-  <dd>On every track, before the delay and reverb: two gain stages with odd and even harmonics, the output level matched to the dry signal.</dd>
-  <dt>Delay</dt>
-  <dd>A master delay (up to 2 s) before the reverb, with a send from every track.</dd>
-  <dt>Reverb</dt>
-  <dd>A plate reverb (Dattorro) with a send from every track.</dd>
-  <dt>Scales</dt>
-  <dd>The white keys play a scale from any root.</dd>
-  <dt>Presets</dt>
-  <dd>64 per engine; a stored sound can be loaded on any track.</dd>
-  <dt>Sessions</dt>
-  <dd>64 slots holding every track, sound, loop, latched note and setting, the reverb included.</dd>
+  <dd>A step sequencer per track, built a note at a time, with the loops' direction and speed.</dd>
+  <dt>Chords and latches</dt>
+  <dd>Eight chord shapes on the bottom pads. SHIFT and a key keep it sounding; SHIFT tapped twice lets every latch go.</dd>
+  <dt>Envelope</dt>
+  <dd>FADER BANK opens the sound's attack, decay, sustain and release.</dd>
+  <dt>Effects</dt>
+  <dd>On every track a filter, a granulator, a crush and a distortion, with sends to a master delay and a plate
+    reverb.</dd>
+  <dt>Wheels</dt>
+  <dd>Pitch bend on the chosen track; the mod wheel adds vibrato and opens the sound's main tone control.</dd>
+  <dt>Presets and sessions</dt>
+  <dd>Sounds stored per engine; sessions hold every track, sound, loop, latched note and setting.</dd>
+  <dt>MIDI and audio</dt>
+  <dd>MIDI over USB in and out, MIDI OUT on the TRS jack, and the master output as a USB audio input.</dd>
   <dt>Accessible</dt>
-  <dd>Few words, very large type, high contrast, a colour per track.</dd>
+  <dd>Few words, very large type, high contrast, a colour per track on the screen and the pads.</dd>
 </dl>
 
 <h2 id="engines">Engines</h2>
+<p>What each engine costs the processor, and how much you can stack: <a href="https://github.com/nzimas/tonitor-smk37/blob/main/docs/smk37/engine-costs.md">engine costs</a>.</p>
 
 <h3>FM</h3>
-<p>Six-operator FM. Patches are generated from twenty-two families: bells, gongs, drones, noise, impacts,
-  glissandi, plucks and stranger sounds.</p>
-<p>Macros: <b>BRIGHTNESS</b>, <b>DETUNE</b>, <b>SATURATION</b>, <b>MOTION</b>.</p>
+<p>Six-operator FM, DX7 style. Patches are drawn from 25 families, among them bells, drones, noise, impacts,
+  plucks, mallets and families learned from a large collection of DX7 patches.</p>
+<p>Macros: <b>BRIGHTNESS</b>, <b>DETUNE</b>, <b>SATURATION</b>, <b>MOTION</b>, <b>ATTACK</b>, <b>RELEASE</b>,
+  <b>LFO RATE</b>, <b>VELOCITY</b>.</p>
 
 <h3>ANIMA</h3>
 <p>A lo-fi synthesizer: wavetables, FM, grains, noise, filters and a resonator, all moved by a simulated hand
   while a key is held. Twenty-two kinds.</p>
-<p>Macros: <b>TONE</b>, a macro for the design's main element, <b>RESONATOR</b>, <b>MOTION</b>.</p>
+<p>Macros: <b>TONE</b>, a macro for the design's main element, <b>RESONATOR</b>, <b>MOTION</b>, <b>ATTACK</b>,
+  <b>RELEASE</b>, <b>GRAIN SIZE</b>, <b>PHASER</b>.</p>
 
 <h3>CALIGULA</h3>
-<p>Eight cross-modulating oscillators with feedback, delays and a simulated hand on the sensors. One voice per
+<p>Eight cross-modulating oscillators with feedback, delays and a simulated hand on the sensors. One organism per
   track; ten kinds.</p>
-<p>Macros: <b>WAVEFORM</b>, <b>MOD DEPTH</b>, <b>FEEDBACK</b>, <b>TOUCHES</b>.</p>
+<p>Macros: <b>WAVEFORM</b>, <b>MOD DEPTH</b>, <b>FEEDBACK</b>, <b>TOUCHES</b>, <b>ATTACK</b>, <b>RELEASE</b>,
+  <b>SPREAD</b>, <b>DELAY TIME</b>.</p>
 
 <h3>RUSSOLO</h3>
 <p>Noise, logic and broken buffers, crushed and sample-held. One voice per track; seventeen kinds.</p>
-<p>Macros: two per kind, <b>CRUSH</b>, <b>RANDOMNESS</b>.</p>
+<p>Macros: two per kind, <b>CRUSH</b>, <b>RANDOMNESS</b>, <b>ATTACK</b>, <b>RELEASE</b>, <b>CHORD</b>, <b>HOLD</b>.</p>
 
 <h3>DRUID</h3>
 <p>Strings and resonant bodies: a string, sympathetic strings and a modal resonator, plucked, struck, bowed or
   rattled. Ten kinds.</p>
-<p>Macros: <b>STRUCTURE</b>, <b>BRIGHTNESS</b>, <b>DAMPING</b>, <b>POSITION</b>.</p>
+<p>Macros: <b>STRUCTURE</b>, <b>BRIGHTNESS</b>, <b>DAMPING</b>, <b>POSITION</b>, <b>EXCITATION</b>, <b>BOW</b>,
+  <b>DUST</b>, <b>MUTE</b>.</p>
 
 <h3>BAYAREA</h3>
 <p>A West Coast voice: a morphing oscillator, through-zero FM, a wavefolder and a low-pass gate. Six kinds.</p>
-<p>Macros: <b>SHAPE</b>, <b>FOLDS</b>, <b>FM</b>, <b>DECAY</b>.</p>
+<p>Macros: <b>SHAPE</b>, <b>FOLDS</b>, <b>FM</b>, <b>DECAY</b>, <b>ATTACK</b>, <b>FM RATIO</b>, <b>SPRING</b>,
+  <b>DRIVE</b>.</p>
 
 <h3>HIVE</h3>
-<p>A swarm of seven oscillators per voice: detuned, stacked or on inharmonic partials, through a moving filter.
+<p>A swarm of oscillators per voice: detuned, stacked or on inharmonic partials, through a moving filter.
   Twelve kinds, from leads and pads to non-melodic textures.</p>
-<p>Macros: <b>DETUNE</b>, <b>MOVEMENT</b>, <b>MIX</b>, <b>CUTOFF</b>.</p>
+<p>Macros: <b>DETUNE</b>, <b>MOVEMENT</b>, <b>MIX</b>, <b>CUTOFF</b>, <b>RESONANCE</b>, <b>FILTER ENV</b>,
+  <b>RING</b>, <b>SHIMMER</b>.</p>
 
 <h2>Install</h2>
-<p>The installer runs in a desktop Chrome, Edge or Opera and talks to the FM-1 over USB MIDI. Nothing to
+<p>The installer runs in a desktop Chrome, Edge or Opera and talks to the SMK-37 Pro over USB MIDI. Nothing to
   download, nothing uploaded.</p>
 <ol class="steps">
-  <li>Connect the FM-1 with a USB <b>data</b> cable and switch it on.</li>
+  <li><b>Back up the keyboard's flash first</b> (<a href="https://github.com/nzimas/tonitor-smk37/blob/main/docs/smk37/backup.md">how</a>):
+    parts of it are unique to each unit.</li>
+  <li>Connect the SMK-37 Pro with a USB <b>data</b> cable and switch it on.</li>
   <li>Open the <a href="install.html">installer</a>, read the warning and allow MIDI access.</li>
-  <li>Press Install and leave the FM-1 connected until it restarts into Tonitor.</li>
+  <li>Press Install and leave the keyboard connected until it restarts into Tonitor.</li>
 </ol>
 <div class="warn">
   <p><b>Tonitor is unofficial.</b> It is not made, endorsed or supported by M-VAVE, and installing it
-    <b>may void any warranty that applies to your FM-1</b>. You install it at your own risk; see the
-    <a href="https://github.com/nzimas/tonitor#disclaimer">disclaimer</a>.</p>
+    <b>may void any warranty that applies to your SMK-37 Pro</b>. You install it at your own risk; see the
+    <a href="https://github.com/nzimas/tonitor-smk37#disclaimer">disclaimer</a>.</p>
 </div>
