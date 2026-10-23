@@ -1,0 +1,144 @@
+== cluster 19  n=1066
+  sound: centroid Hz 337/536/780  fall c0/c2 376/588/964->287/444/674  inharm 0.00 (0% >0.3)  t90 ms 12/23/46  lvl@0.5s -2 dB @3.8s -5  rel -67  am 0.15
+  params: alg 18:180 5:94 16:90 3:89 22:87 | carriers 2 fb 7 fixed>0 24% inharm-mod 37% inharm-car 4% modOL 90 | car R1 63/71/85 L3 53/88/96 R4 55/60/70 | PEG 0% LFO-pitch 2% LFO-amp 8%
+  examples: [13, 22, 26, 73, 89, 90, 92, 93]
+== cluster 35  n=757
+  sound: centroid Hz 421/559/785  fall c0/c2 451/617/851->318/485/674  inharm 0.01 (1% >0.3)  t90 ms 186/348/627  lvl@0.5s -2 dB @3.8s -4  rel -65  am 0.29
+  params: alg 2:166 5:86 15:70 16:51 18:51 | carriers 2 fb 7 fixed>0 34% inharm-mod 21% inharm-car 2% modOL 87 | car R1 48/54/78 L3 56/90/98 R4 47/54/65 | PEG 1% LFO-pitch 4% LFO-amp 8%
+  examples: [3, 10, 20, 29, 64, 65, 66, 67]
+== cluster 33  n=678
+  sound: centroid Hz 199/274/377  fall c0/c2 258/358/529->154/204/284  inharm 0.00 (1% >0.3)  t90 ms 12/23/46  lvl@0.5s -4 dB @3.8s -9  rel -62  am 1.01
+  params: alg 18:102 2:59 5:55 22:50 3:50 | carriers 2 fb 6 fixed>0 24% inharm-mod 27% inharm-car 5% modOL 90 | car R1 66/76/92 L3 0/85/95 R4 50/59/67 | PEG 1% LFO-pitch 3% LFO-amp 6%
+  examples: [28, 41, 78, 81, 111, 124, 132, 159]
+== cluster 6  n=607
+  sound: centroid Hz 256/337/436  fall c0/c2 280/376/522->202/293/420  inharm 0.01 (1% >0.3)  t90 ms 163/313/731  lvl@0.5s -3 dB @3.8s -4  rel -66  am 0.82
+  params: alg 2:132 5:73 15:49 18:41 22:35 | carriers 2 fb 7 fixed>0 39% inharm-mod 15% inharm-car 4% modOL 89 | car R1 50/60/86 L3 64/95/99 R4 50/54/65 | PEG 1% LFO-pitch 4% LFO-amp 6%
+  examples: [8, 12, 16, 17, 21, 27, 34, 68]
+== cluster 30  n=591
+  sound: centroid Hz 273/406/582  fall c0/c2 376/601/938->162/268/392  inharm 0.00 (1% >0.3)  t90 ms 0/0/0  lvl@0.5s -6 dB @3.8s -28  rel -43  am 0.25
+  params: alg 16:74 5:60 18:52 17:43 3:42 | carriers 2 fb 6 fixed>0 18% inharm-mod 34% inharm-car 4% modOL 94 | car R1 84/90/97 L3 0/0/0 R4 46/52/63 | PEG 0% LFO-pitch 0% LFO-amp 5%
+  examples: [4, 59, 204, 236, 262, 374, 392, 393]
+== cluster 34  n=570
+  sound: centroid Hz 357/524/887  fall c0/c2 413/637/1083->274/403/710  inharm 0.00 (2% >0.3)  t90 ms 0/0/0  lvl@0.5s -3 dB @3.8s -8  rel -63  am 0.22
+  params: alg 5:87 18:69 16:38 29:32 17:29 | carriers 2 fb 6 fixed>0 26% inharm-mod 24% inharm-car 4% modOL 92 | car R1 88/95/99 L3 0/74/93 R4 55/63/76 | PEG 1% LFO-pitch 1% LFO-amp 5%
+  examples: [0, 11, 30, 36, 48, 112, 113, 115]
+== cluster 28  n=565
+  sound: centroid Hz 414/567/870  fall c0/c2 431/625/974->341/501/745  inharm 0.04 (3% >0.3)  t90 ms 104/290/615  lvl@0.5s -3 dB @3.8s -4  rel -22  am 0.33
+  params: alg 2:96 5:66 15:55 3:46 9:37 | carriers 2 fb 7 fixed>0 33% inharm-mod 29% inharm-car 9% modOL 90 | car R1 45/53/66 L3 56/91/97 R4 35/40/44 | PEG 2% LFO-pitch 4% LFO-amp 9%
+  examples: [7, 9, 18, 69, 71, 72, 79, 99]
+== cluster 26  n=494
+  sound: centroid Hz 201/282/399  fall c0/c2 257/371/664->136/195/267  inharm 0.00 (1% >0.3)  t90 ms 0/0/0  lvl@0.5s -4 dB @3.8s -15  rel -56  am 0.96
+  params: alg 16:68 5:64 18:42 32:35 2:30 | carriers 2 fb 6 fixed>0 22% inharm-mod 22% inharm-car 8% modOL 95 | car R1 88/95/99 L3 0/32/80 R4 50/57/67 | PEG 0% LFO-pitch 1% LFO-amp 7%
+  examples: [15, 37, 38, 39, 117, 161, 275, 276]
+== cluster 32  n=483
+  sound: centroid Hz 236/311/396  fall c0/c2 273/359/529->202/268/384  inharm 0.01 (2% >0.3)  t90 ms 104/313/720  lvl@0.5s -3 dB @3.8s -5  rel -24  am 0.91
+  params: alg 2:123 15:75 5:55 9:44 3:17 | carriers 2 fb 7 fixed>0 35% inharm-mod 20% inharm-car 6% modOL 86 | car R1 47/56/69 L3 61/90/96 R4 35/41/44 | PEG 2% LFO-pitch 3% LFO-amp 6%
+  examples: [14, 25, 42, 100, 122, 125, 126, 127]
+== cluster 1  n=416
+  sound: centroid Hz 168/269/504  fall c0/c2 262/372/671->176/293/554  inharm 0.00 (2% >0.3)  t90 ms 0/0/12  lvl@0.5s -12 dB @3.8s -64  rel -7  am 0.32
+  params: alg 5:57 17:54 3:44 16:32 9:29 | carriers 2 fb 7 fixed>0 28% inharm-mod 46% inharm-car 11% modOL 94 | car R1 84/95/99 L3 0/0/0 R4 38/45/58 | PEG 1% LFO-pitch 2% LFO-amp 5%
+  examples: [23, 35, 46, 53, 62, 63, 84, 85]
+== cluster 31  n=410
+  sound: centroid Hz 271/400/571  fall c0/c2 366/614/998->163/275/419  inharm 0.00 (2% >0.3)  t90 ms 12/12/58  lvl@0.5s -5 dB @3.8s -28  rel -41  am 0.29
+  params: alg 5:44 3:41 11:39 18:34 16:33 | carriers 2 fb 6 fixed>0 28% inharm-mod 40% inharm-car 6% modOL 92 | car R1 65/76/85 L3 0/0/0 R4 42/48/56 | PEG 2% LFO-pitch 1% LFO-amp 4%
+  examples: [6, 33, 43, 44, 56, 230, 380, 382]
+== cluster 14  n=305
+  sound: centroid Hz 284/448/777  fall c0/c2 334/537/902->257/406/638  inharm 0.02 (4% >0.3)  t90 ms 0/0/12  lvl@0.5s -3 dB @3.8s -8  rel -18  am 0.40
+  params: alg 5:59 3:26 2:20 16:16 6:15 | carriers 2 fb 6 fixed>0 27% inharm-mod 35% inharm-car 7% modOL 94 | car R1 79/89/99 L3 18/59/90 R4 33/39/45 | PEG 3% LFO-pitch 4% LFO-amp 8%
+  examples: [1, 31, 179, 189, 220, 319, 324, 346]
+== cluster 2  n=301
+  sound: centroid Hz 223/321/486  fall c0/c2 302/547/987->138/198/274  inharm 0.00 (3% >0.3)  t90 ms 0/0/12  lvl@0.5s -6 dB @3.8s -32  rel -38  am 1.09
+  params: alg 17:46 4:45 16:35 18:27 3:23 | carriers 2 fb 5 fixed>0 34% inharm-mod 27% inharm-car 2% modOL 93 | car R1 80/88/97 L3 0/0/12 R4 46/52/60 | PEG 0% LFO-pitch 1% LFO-amp 4%
+  examples: [19, 32, 40, 57, 260, 271, 274, 277]
+== cluster 27  n=282
+  sound: centroid Hz 680/996/1843  fall c0/c2 918/1392/2097->370/624/1158  inharm 0.00 (6% >0.3)  t90 ms 0/0/0  lvl@0.5s -7 dB @3.8s -40  rel -26  am 0.24
+  params: alg 5:56 3:38 16:27 18:23 17:21 | carriers 2 fb 5 fixed>0 25% inharm-mod 32% inharm-car 9% modOL 99 | car R1 88/95/98 L3 0/0/0 R4 39/46/60 | PEG 0% LFO-pitch 1% LFO-amp 4%
+  examples: [2, 24, 45, 52, 58, 169, 186, 187]
+== cluster 29  n=233
+  sound: centroid Hz 610/1019/1692  fall c0/c2 617/1182/1970->482/853/1365  inharm 0.63 (100% >0.3)  t90 ms 23/128/372  lvl@0.5s -2 dB @3.8s -6  rel -64  am 0.29
+  params: alg 2:58 5:22 18:21 16:20 1:10 | carriers 2 fb 7 fixed>0 56% inharm-mod 34% inharm-car 14% modOL 91 | car R1 47/56/73 L3 60/86/97 R4 50/55/70 | PEG 16% LFO-pitch 27% LFO-amp 10%
+  examples: [109, 166, 205, 210, 217, 285, 527, 528]
+== cluster 0  n=210
+  sound: centroid Hz 160/265/544  fall c0/c2 261/390/842->0/0/0  inharm 0.01 (15% >0.3)  t90 ms 0/0/12  lvl@0.5s -20 dB @3.8s -72  rel 0  am 0.47
+  params: alg 16:34 3:31 7:26 5:17 17:14 | carriers 2 fb 7 fixed>0 22% inharm-mod 48% inharm-car 14% modOL 94 | car R1 84/95/99 L3 0/0/0 R4 38/46/53 | PEG 5% LFO-pitch 3% LFO-amp 8%
+  examples: [47, 49, 51, 55, 61, 214, 219, 297]
+== cluster 5  n=205
+  sound: centroid Hz 742/1498/3218  fall c0/c2 981/2388/4084->318/856/2583  inharm 0.63 (98% >0.3)  t90 ms 0/0/0  lvl@0.5s -4 dB @3.8s -17  rel -31  am 0.31
+  params: alg 16:24 5:19 8:18 3:13 4:13 | carriers 2 fb 5 fixed>0 43% inharm-mod 47% inharm-car 10% modOL 99 | car R1 84/94/99 L3 0/33/72 R4 36/45/56 | PEG 4% LFO-pitch 9% LFO-amp 16%
+  examples: [50, 188, 321, 568, 586, 587, 667, 857]
+== cluster 16  n=144
+  sound: centroid Hz 492/853/1812  fall c0/c2 525/874/1982->343/575/1399  inharm 0.75 (100% >0.3)  t90 ms 58/290/761  lvl@0.5s -3 dB @3.8s -4  rel -15  am 0.54
+  params: alg 5:30 16:14 6:12 1:11 4:7 | carriers 2 fb 6 fixed>0 50% inharm-mod 45% inharm-car 20% modOL 99 | car R1 41/56/68 L3 57/90/99 R4 30/36/44 | PEG 11% LFO-pitch 8% LFO-amp 24%
+  examples: [218, 521, 541, 544, 590, 593, 619, 809]
+== cluster 11  n=127
+  sound: centroid Hz 260/351/526  fall c0/c2 259/408/537->261/379/526  inharm 0.01 (6% >0.3)  t90 ms 12/81/238  lvl@0.5s -7 dB @3.8s -7  rel -59  am 2.11
+  params: alg 5:29 18:27 22:12 2:11 17:6 | carriers 2 fb 7 fixed>0 33% inharm-mod 34% inharm-car 7% modOL 85 | car R1 53/70/87 L3 32/74/95 R4 42/50/60 | PEG 3% LFO-pitch 2% LFO-amp 27%
+  examples: [142, 160, 513, 514, 634, 794, 1347, 1383]
+== cluster 24  n=119
+  sound: centroid Hz 427/904/3399  fall c0/c2 362/991/3410->522/1379/3910  inharm 0.86 (92% >0.3)  t90 ms 0/12/46  lvl@0.5s -3 dB @3.8s -5  rel -54  am 0.27
+  params: alg 5:13 1:12 18:11 17:10 3:10 | carriers 2 fb 5 fixed>0 54% inharm-mod 39% inharm-car 9% modOL 99 | car R1 54/78/96 L3 5/78/96 R4 47/58/71 | PEG 100% LFO-pitch 12% LFO-amp 19%
+  examples: [235, 347, 366, 523, 524, 888, 1007, 1039]
+== cluster 23  n=114
+  sound: centroid Hz 331/598/3101  fall c0/c2 245/554/3200->0/0/0  inharm 0.84 (73% >0.3)  t90 ms 0/0/0  lvl@0.5s -50 dB @3.8s -72  rel 0  am 0.00
+  params: alg 5:15 18:14 4:11 3:10 16:8 | carriers 2 fb 7 fixed>0 73% inharm-mod 28% inharm-car 11% modOL 99 | car R1 89/94/99 L3 0/0/0 R4 48/52/60 | PEG 11% LFO-pitch 16% LFO-amp 5%
+  examples: [60, 201, 248, 250, 311, 312, 313, 519]
+== cluster 7  n=109
+  sound: centroid Hz 177/306/484  fall c0/c2 137/278/474->267/392/724  inharm 0.01 (10% >0.3)  t90 ms 1544/2183/3657  lvl@0.5s -24 dB @3.8s -3  rel -16  am 0.45
+  params: alg 5:23 17:14 2:13 1:10 32:6 | carriers 2 fb 5 fixed>0 30% inharm-mod 31% inharm-car 8% modOL 92 | car R1 20/28/32 L3 17/79/98 R4 28/36/46 | PEG 7% LFO-pitch 4% LFO-amp 11%
+  examples: [208, 238, 384, 397, 882, 936, 944, 972]
+== cluster 15  n=104
+  sound: centroid Hz 298/844/2462  fall c0/c2 258/825/3731->330/813/1699  inharm 0.45 (62% >0.3)  t90 ms 186/680/2110  lvl@0.5s -5 dB @3.8s -2  rel -11  am 0.41
+  params: alg 19:15 10:12 16:11 1:11 17:10 | carriers 2 fb 6 fixed>0 40% inharm-mod 46% inharm-car 23% modOL 99 | car R1 15/35/59 L3 0/64/99 R4 30/36/53 | PEG 100% LFO-pitch 7% LFO-amp 9%
+  examples: [5, 348, 350, 351, 352, 353, 354, 356]
+== cluster 12  n=92
+  sound: centroid Hz 297/646/3160  fall c0/c2 347/846/3791->200/449/2649  inharm 0.83 (83% >0.3)  t90 ms 0/6/93  lvl@0.5s -4 dB @3.8s -8  rel -11  am 0.32
+  params: alg 1:13 16:9 18:9 5:8 8:8 | carriers 2 fb 7 fixed>0 61% inharm-mod 57% inharm-car 25% modOL 99 | car R1 62/95/99 L3 0/62/99 R4 30/46/54 | PEG 13% LFO-pitch 100% LFO-amp 23%
+  examples: [545, 549, 550, 1246, 1248, 1251, 1263, 1326]
+== cluster 18  n=90
+  sound: centroid Hz 0/0/0  fall c0/c2 301/646/2080->0/0/0  inharm 0.95 (94% >0.3)  t90 ms 0/0/0  lvl@0.5s -73 dB @3.8s -73  rel 0  am 0.00
+  params: alg 16:12 18:12 15:7 5:7 7:7 | carriers 2 fb 7 fixed>0 86% inharm-mod 19% inharm-car 19% modOL 99 | car R1 89/99/99 L3 0/0/0 R4 50/62/74 | PEG 43% LFO-pitch 20% LFO-amp 6%
+  examples: [231, 293, 305, 639, 817, 953, 979, 1380]
+== cluster 9  n=79
+  sound: centroid Hz 540/1338/3471  fall c0/c2 634/1613/4067->540/982/3436  inharm 0.86 (99% >0.3)  t90 ms 0/0/12  lvl@0.5s -14 dB @3.8s -60  rel -7  am 0.33
+  params: alg 5:19 16:11 7:8 18:5 6:4 | carriers 2 fb 6 fixed>0 61% inharm-mod 58% inharm-car 22% modOL 99 | car R1 80/94/99 L3 0/0/14 R4 36/41/53 | PEG 11% LFO-pitch 11% LFO-amp 13%
+  examples: [54, 251, 303, 589, 618, 620, 628, 847]
+== cluster 8  n=69
+  sound: centroid Hz 240/835/2123  fall c0/c2 113/230/1233->0/0/0  inharm 0.95 (93% >0.3)  t90 ms 0/0/23  lvl@0.5s -30 dB @3.8s -71  rel 0  am 0.00
+  params: alg 18:19 16:11 3:5 13:5 1:4 | carriers 2 fb 6 fixed>0 72% inharm-mod 49% inharm-car 9% modOL 99 | car R1 63/96/99 L3 0/0/0 R4 49/62/71 | PEG 100% LFO-pitch 16% LFO-amp 19%
+  examples: [626, 640, 1001, 1013, 1177, 1396, 1425, 1433]
+== cluster 10  n=62
+  sound: centroid Hz 0/0/0  fall c0/c2 141/266/523->0/0/0  inharm 0.02 (13% >0.3)  t90 ms 0/0/0  lvl@0.5s -73 dB @3.8s -73  rel 0  am 0.00
+  params: alg 16:8 18:8 5:7 6:7 2:5 | carriers 2 fb 7 fixed>0 32% inharm-mod 32% inharm-car 13% modOL 94 | car R1 90/96/99 L3 0/0/0 R4 54/64/84 | PEG 5% LFO-pitch 6% LFO-amp 3%
+  examples: [82, 83, 185, 247, 282, 308, 543, 846]
+== cluster 3  n=54
+  sound: centroid Hz 499/936/2057  fall c0/c2 432/1148/2515->318/1006/2500  inharm 0.86 (96% >0.3)  t90 ms 0/46/392  lvl@0.5s -4 dB @3.8s -5  rel -13  am 0.53
+  params: alg 16:8 5:6 18:5 31:4 6:4 | carriers 2 fb 7 fixed>0 56% inharm-mod 52% inharm-car 31% modOL 99 | car R1 63/96/99 L3 15/72/99 R4 30/51/65 | PEG 100% LFO-pitch 100% LFO-amp 35%
+  examples: [530, 531, 532, 534, 535, 536, 542, 547]
+== cluster 25  n=54
+  sound: centroid Hz 124/510/1100  fall c0/c2 107/468/1123->150/492/1220  inharm 0.81 (69% >0.3)  t90 ms 58/302/1277  lvl@0.5s -6 dB @3.8s -5  rel -48  am 3.52
+  params: alg 16:14 19:7 22:5 9:4 14:4 | carriers 2 fb 5 fixed>0 52% inharm-mod 48% inharm-car 17% modOL 99 | car R1 32/54/91 L3 2/88/99 R4 46/58/79 | PEG 100% LFO-pitch 13% LFO-amp 22%
+  examples: [349, 361, 367, 369, 370, 1182, 1237, 1258]
+== cluster 21  n=50
+  sound: centroid Hz 0/0/0  fall c0/c2 0/0/0->0/0/0  inharm 0.00 (0% >0.3)  t90 ms 0/0/0  lvl@0.5s 0 dB @3.8s 0  rel 0  am 0.00
+  params: alg 1:29 15:5 8:4 16:3 12:2 | carriers 2 fb 2 fixed>0 34% inharm-mod 30% inharm-car 0% modOL 72 | car R1 32/56/97 L3 0/26/88 R4 40/48/71 | PEG 68% LFO-pitch 0% LFO-amp 32%
+  examples: [588, 627, 641, 906, 2240, 2870, 3694, 4724]
+== cluster 22  n=46
+  sound: centroid Hz 352/545/1061  fall c0/c2 402/530/1065->448/529/1242  inharm 0.89 (100% >0.3)  t90 ms 58/279/1428  lvl@0.5s -8 dB @3.8s -6  rel -44  am 2.46
+  params: alg 5:22 6:4 7:3 16:2 4:2 | carriers 3 fb 4 fixed>0 74% inharm-mod 20% inharm-car 9% modOL 98 | car R1 41/64/99 L3 0/70/99 R4 34/47/87 | PEG 9% LFO-pitch 11% LFO-amp 48%
+  examples: [110, 207, 237, 245, 267, 299, 399, 585]
+== cluster 20  n=45
+  sound: centroid Hz 93/445/1506  fall c0/c2 121/187/357->0/279/445  inharm 0.93 (89% >0.3)  t90 ms 0/0/12  lvl@0.5s -9 dB @3.8s -70  rel 0  am 3.88
+  params: alg 18:8 28:7 11:7 16:6 26:4 | carriers 2 fb 7 fixed>0 67% inharm-mod 53% inharm-car 24% modOL 99 | car R1 78/88/99 L3 0/0/0 R4 48/54/60 | PEG 100% LFO-pitch 0% LFO-amp 18%
+  examples: [306, 371, 526, 988, 1421, 1728, 2422, 3147]
+== cluster 17  n=38
+  sound: centroid Hz 272/444/947  fall c0/c2 270/484/1342->133/262/502  inharm 0.21 (37% >0.3)  t90 ms 0/0/12  lvl@0.5s -13 dB @3.8s -53  rel -15  am 2.76
+  params: alg 5:8 16:4 3:4 23:3 31:3 | carriers 3 fb 6 fixed>0 39% inharm-mod 39% inharm-car 18% modOL 92 | car R1 78/95/99 L3 0/0/23 R4 39/45/53 | PEG 11% LFO-pitch 8% LFO-amp 32%
+  examples: [300, 951, 952, 1138, 2351, 3168, 3280, 3328]
+== cluster 4  n=30
+  sound: centroid Hz 131/356/732  fall c0/c2 186/305/1039->471/720/2134  inharm 0.98 (100% >0.3)  t90 ms 0/0/29  lvl@0.5s -12 dB @3.8s -59  rel -2  am 2.66
+  params: alg 32:7 6:6 18:3 16:3 30:2 | carriers 3 fb 7 fixed>0 90% inharm-mod 27% inharm-car 13% modOL 99 | car R1 90/99/99 L3 0/66/99 R4 36/50/78 | PEG 0% LFO-pitch 10% LFO-amp 43%
+  examples: [268, 310, 1242, 1244, 1874, 1980, 3525, 3526]
+== cluster 13  n=7
+  sound: centroid Hz 278/3467/3467  fall c0/c2 0/0/0->2939/3548/3548  inharm 1.00 (71% >0.3)  t90 ms 801/801/1486  lvl@0.5s -72 dB @3.8s -65  rel -7  am 0.35
+  params: alg 5:4 18:1 1:1 3:1 | carriers 3 fb 5 fixed>0 86% inharm-mod 14% inharm-car 0% modOL 71 | car R1 4/8/8 L3 0/0/50 R4 40/40/77 | PEG 14% LFO-pitch 14% LFO-amp 29%
+  examples: [515, 3407, 4516, 4569, 6146, 7502, 7565]

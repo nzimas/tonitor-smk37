@@ -1,0 +1,3 @@
+# the audition (about 60 MB): research/dx7/audition.sh renders it again
+wav/*.wav
+wav/sources/

@@ -1,0 +1,156 @@
+diff --git a/firmware/src/dsp.h b/firmware/src/dsp.h
+index 61b4374..8509a3b 100644
+--- a/firmware/src/dsp.h
++++ b/firmware/src/dsp.h
+@@ -32,8 +32,8 @@ enum { PATH_OPEN, PATH_AMBIENT, PATH_EXP, PATH_N };
+ /* the generators' generation: a sound is drawn again from (seed, path, gen) bit for bit, so a sound saved as its
+  * seed (sessions, presets) keeps its generation, and every generation stays as it was (tests/golden: 0 is the
+  * generators up to 0.20). New sounds are drawn on GEN_NOW. */
+-#define GEN_NOW 5u
+-#define GEN_N 6u                 /* 0: up to 0.20; 1: 0.21 (more families, kinds, species); 2: FM's ratios as meant; 3: 0.29 (plucks, mallets, warps, glitches, rubber; eight ANIMA kinds more, and breadth); 4: 0.47 (FM's IMPACT and GLITCH more various); 5: SMK-37 build 25 (FM's GLISSE and RUBBER folded into WARP) */
++#define GEN_NOW 6u
++#define GEN_N 7u                 /* 0: up to 0.20; 1: 0.21 (more families, kinds, species); 2: FM's ratios as meant; 3: 0.29 (plucks, mallets, warps, glitches, rubber; eight ANIMA kinds more, and breadth); 4: 0.47 (FM's IMPACT and GLITCH more various); 5: SMK-37 build 25 (FM's GLISSE and RUBBER folded into WARP); 6: FM's six families learned from a DX7 collection (fm_dx7.c) */
+ /* the macros on a sound (the SMK-37's eight, one a knob): -MAC_MAX .. MAC_MAX each, 0 = the sound as it was drawn */
+ #define MAC_MAX 64
+ #define NMAC 8u
+diff --git a/firmware/src/fm.c b/firmware/src/fm.c
+index 659ccf8..5946ff3 100644
+--- a/firmware/src/fm.c
++++ b/firmware/src/fm.c
+@@ -52,7 +52,9 @@ enum { FF_METAL, FF_DRONE, FF_BRUIT, FF_IMPACT, FF_ITERATIF, FF_GLISSE, FF_SPECT
+        FF_N0,                    /* (generation 0 draws these nine only) */
+        FF_CHOIR = FF_N0, FF_BOWED, FF_HOLLOW, FF_BLOOM, FF_TIDE, FF_SHARDS, FF_STATIC, FF_WIND,
+        FF_N1,                    /* (generations 1 and 2 draw these seventeen) */
+-       FF_PLUCK = FF_N1, FF_MALLET, FF_WARP, FF_GLITCH, FF_RUBBER, FF_N };
++       FF_PLUCK = FF_N1, FF_MALLET, FF_WARP, FF_GLITCH, FF_RUBBER,
++       FF_N5,                    /* (generations 3 to 5 draw these twenty-two) */
++       FF_SHAPER = FF_N5, FF_LADDER, FF_DIVE, FF_REVERSE, FF_CREEP, FF_CLANG, FF_N };
+ /* the families' weights on each path: generation 0 (the open path: rnd_below, all alike), generation 1 */
+ static const uint8_t FF_W[3][FF_N0] = {
+     {1, 1, 1, 1, 1, 1, 1, 1, 1},
+@@ -74,10 +76,16 @@ static const uint8_t FF_W5[3][FF_N] = {             /* generation 5: GLISSE and
+     {3, 4, 0, 0, 1, 0, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 1, 0, 0},
+     {2, 1, 4, 3, 3, 0, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 8, 5, 0},
+ };
++static const uint8_t FF_W6[3][FF_N] = {             /* generation 6: the six learned from the DX7 collection (fm_dx7.c) */
++    {2, 2, 2, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 3, 5, 3, 0, 3, 3, 3, 3, 3, 3},
++    {3, 4, 0, 0, 1, 0, 4, 3, 0, 4, 4, 4, 3, 4, 0, 0, 2, 3, 4, 1, 0, 0, 3, 4, 0, 4, 4, 2},
++    {2, 1, 4, 3, 3, 0, 0, 1, 4, 0, 0, 1, 2, 0, 4, 4, 3, 2, 2, 8, 5, 0, 4, 2, 5, 2, 2, 4},
++};
+ static int fm_retired(int32_t f) { return f == FF_GLISSE || f == FF_RUBBER; }   /* (from generation 5: into WARP) */
+ static const char *const FF_NAME[FF_N] = {"METAL", "DRONE", "BRUIT", "IMPACT", "ITERATIF", "GLISSE", "SPECTRE",
+                                           "ABYSS", "FRICTION", "CHOIR", "BOWED", "HOLLOW", "BLOOM", "TIDE",
+-                                          "SHARDS", "STATIC", "WIND", "PLUCK", "MALLET", "WARP", "GLITCH", "RUBBER"};
++                                          "SHARDS", "STATIC", "WIND", "PLUCK", "MALLET", "WARP", "GLITCH", "RUBBER",
++                                          "SHAPER", "LADDER", "DIVE", "REVERSE", "CREEP", "CLANG"};
+ 
+ typedef struct {
+     uint8_t p[FP_SIZE + 1u];
+@@ -205,7 +213,8 @@ static uint32_t fm_carriers_of(const uint8_t *p);
+ static int fm_skews(uint32_t f)
+ {
+     return f == FF_METAL || f == FF_BRUIT || f == FF_IMPACT || f == FF_ITERATIF || f == FF_GLISSE || f == FF_FRICTION ||
+-           f == FF_SHARDS || f == FF_STATIC || f == FF_WIND || f == FF_WARP || f == FF_GLITCH || f == FF_MALLET;
++           f == FF_SHARDS || f == FF_STATIC || f == FF_WIND || f == FF_WARP || f == FF_GLITCH || f == FF_MALLET ||
++           f == FF_DIVE || f == FF_CLANG;
+ }
+ static const char *fm_mac_name(const fm_patch_t *pt, uint32_t j)
+ {
+@@ -1209,7 +1218,7 @@ static void fm_ambient(uint8_t *p, int32_t f, rnd_t *r)
+     for (n = 1; n <= 6; n++) {
+         uint8_t *op = fm_op(p, n);
+         if (fm_is_carrier(p, n)) {
+-            if ((f != FF_METAL && f != FF_PLUCK && f != FF_MALLET) || rnd_chance(r, 50))
++            if ((f != FF_METAL && f != FF_PLUCK && f != FF_MALLET && f != FF_CLANG) || rnd_chance(r, 50))
+                                                               /* swells (a bell, a pluck may keep its strike) */
+                 op[FP_R1] = (uint8_t)clampi(op[FP_R1], 0, rnd_in(r, 18, 55));
+             op[FP_R1 + 3] = (uint8_t)clampi(op[FP_R1 + 3], 0, rnd_in(r, 8, 28));   /* long tails */
+@@ -1236,6 +1245,8 @@ static void fm_experimental(uint8_t *p, rnd_t *r)
+             fm_op(p, n)[FP_OL] = (uint8_t)clampi(fm_op(p, n)[FP_OL] + rnd_in(r, 0, 10), 0, 99);
+ }
+ 
++#include "fm_dx7.c"        /* generation 6's families */
++
+ /* a patch of family f (FF_N: any), from seed, on a path; then fm_measure */
+ /* generation 4: IMPACT as struck things of many kinds -- a falling pitch (the old one's every sound) now one kind in
+  * ten; the tone moved about (the carriers' ratios, the octave) */
+@@ -1359,10 +1370,12 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
+         f = path == PATH_OPEN ? rnd_below(r, FF_N0) : (int32_t)rnd_weighted(r, FF_W[path], FF_N0);
+     else if (gen <= 2u && (f < 0 || f >= FF_N1))
+         f = (int32_t)rnd_weighted(r, FF_W1[path], FF_N1);
+-    else if (gen <= 4u && (f < 0 || f >= FF_N))
+-        f = (int32_t)rnd_weighted(r, FF_W3[path], FF_N);
++    else if (gen <= 4u && (f < 0 || f >= FF_N5))
++        f = (int32_t)rnd_weighted(r, FF_W3[path], FF_N5);
++    else if (gen <= 5u && (f < 0 || f >= FF_N5))
++        f = (int32_t)rnd_weighted(r, FF_W5[path], FF_N5);
+     else if (f < 0 || f >= FF_N)
+-        f = (int32_t)rnd_weighted(r, FF_W5[path], FF_N);
++        f = (int32_t)rnd_weighted(r, FF_W6[path], FF_N);
+     if (gen >= 5u && fm_retired(f))
+         f = FF_WARP;                                     /* (a GLISSE or a RUBBER asked for: a WARP, which has them) */
+     fm_voice_defaults(p);
+@@ -1388,6 +1401,12 @@ static void fm_generate(fm_patch_t *pt, int32_t f, uint32_t seed, uint32_t path,
+     case FF_WARP: gen >= 5u ? fm_gen_warp5(p, r) : fm_gen_warp(p, r); break;
+     case FF_GLITCH: gen >= 4u ? fm_gen_glitch4(p, r) : fm_gen_glitch(p, r); break;
+     case FF_RUBBER: fm_gen_rubber(p, r); break;
++    case FF_SHAPER: fm_gen_shaper(p, r); break;
++    case FF_LADDER: fm_gen_ladder(p, r); break;
++    case FF_DIVE: fm_gen_dive(p, r); break;
++    case FF_REVERSE: fm_gen_reverse(p, r); break;
++    case FF_CREEP: fm_gen_creep(p, r); break;
++    case FF_CLANG: fm_gen_clang(p, r); break;
+     default: fm_gen_wind(p, r); break;
+     }
+     if (gen >= 1u) {                                     /* generation 1: shaped, bent with care, then leaned */
+diff --git a/firmware/src/mod.c b/firmware/src/mod.c
+index d8bb05e..e77b6e0 100644
+--- a/firmware/src/mod.c
++++ b/firmware/src/mod.c
+@@ -174,7 +174,8 @@ static void mod_check(void)                      /* (as read from a session: eac
+ 
+ /* ------------------------------------------------------- HOME's draws --- */
+ /* how likely a sound of each family is to come with a modulation (%): the slow and sustained most */
+-static const uint8_t MODP_FM[FF_N] = {10, 80, 10, 5, 10, 30, 70, 70, 40, 70, 60, 50, 70, 40, 10, 40, 50, 10, 10, 15, 10, 10};
++static const uint8_t MODP_FM[FF_N] = {10, 80, 10, 5, 10, 30, 70, 70, 40, 70, 60, 50, 70, 40, 10, 40, 50, 10, 10, 15, 10, 10,
++                                     60, 50, 15, 50, 70, 10};
+ static const uint8_t MODP_HV[HK_N] = {20, 25, 10, 70, 80, 70, 50, 20, 40, 60, 50, 30};
+ static const uint8_t MODP_BA[BK_N] = {5, 10, 20, 30, 70, 80};
+ static const uint8_t MODP_DR[DK_N] = {10, 60, 10, 20, 20, 15, 80, 20, 50, 30};
+diff --git a/tests/golden/golden.c b/tests/golden/golden.c
+index eed23d5..ceb0679 100644
+--- a/tests/golden/golden.c
++++ b/tests/golden/golden.c
+@@ -1,5 +1,5 @@
+ /* SPDX-License-Identifier: GPL-3.0-only
+- * TONITOR: the sounds of each past generation of the generators -- 0 (up to 0.20), 1 (0.21), 2 (0.22, and RUSSOLO from 0.26), 3 (0.29), 4 (0.47), 5 (SMK-37 build 25) -- fingerprinted, so
++ * TONITOR: the sounds of each past generation of the generators -- 0 (up to 0.20), 1 (0.21), 2 (0.22, and RUSSOLO from 0.26), 3 (0.29), 4 (0.47), 5 (SMK-37 build 25), 6 (the DX7 families) -- fingerprinted, so
+  * that every later firmware draws them again bit for bit from their seeds: the sessions and presets that keep only
+  * seeds depend on it. `golden G` prints one line per (engine, kind, path): an FNV-1a hash over many seeds of the
+  * design's fields as generation G had them. Built with the host harness (tests/run_tests.sh). */
+@@ -24,7 +24,7 @@ int main(int argc, char **argv)
+ {
+     uint32_t gen = argc > 1 ? (uint32_t)atoi(argv[1]) : 0u;
+     /* each generation's kinds, and the bytes of its designs (later fields go after them) */
+-    int32_t nf = gen >= 3u ? FF_N : gen ? 17 : 9, na = gen >= 3u ? AK_N : gen ? 14 : 8, nc = gen ? 10 : 6;
++    int32_t nf = gen >= 6u ? FF_N : gen >= 3u ? FF_N5 : gen ? 17 : 9, na = gen >= 3u ? AK_N : gen ? 14 : 8, nc = gen ? 10 : 6;
+     uint32_t anb = gen ? 384u : GEN0_AN_BYTES, calb = gen ? 212u : GEN0_CAL_BYTES;
+     static fm_patch_t fp;
+     static an_design_t ad;
+diff --git a/tests/run_tests.sh b/tests/run_tests.sh
+index 1db4003..3fb7da0 100755
+--- a/tests/run_tests.sh
++++ b/tests/run_tests.sh
+@@ -15,10 +15,10 @@ clang -O2 -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-
+     -Ifirmware/src -Ifirmware/hal -Ibuild/gen tests/host/host.c -o build/host
+ build/host check
+ clang -O2 -std=gnu99 -w -Ifirmware/src -Ifirmware/hal -Ibuild/gen tests/golden/golden.c -o build/golden
+-for g in 0 1 2 3 4 5; do
++for g in 0 1 2 3 4 5 6; do
+     build/golden $g | diff -q - tests/golden/gen$g.txt >/dev/null || { echo "FAIL golden: generation $g no longer draws its sounds again"; exit 1; }
+ done
+-echo "golden: generations 0 to 5 as they were"
++echo "golden: generations 0 to 6 as they were"
+ build/host flows
+ build/host latch
+ build/host presets build/screens
