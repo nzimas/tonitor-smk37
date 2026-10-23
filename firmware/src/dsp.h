@@ -44,13 +44,13 @@ static int32_t meas_win[MEAS_WIN_N];
 
 AINL int32_t clampi(int32_t x, int32_t lo, int32_t hi) { return x < lo ? lo : x > hi ? hi : x; }
 AINL int32_t mulq15(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 15); }
-static inline int32_t mulq16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 16); }
+AINL int32_t mulq16(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 16); }
 AINL int32_t mulq12(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 12); }
 AINL int32_t absi(int32_t x) { return x < 0 ? -x : x; }
 AINL int32_t maxi(int32_t a, int32_t b) { return a > b ? a : b; }
 
 /* 2^(x / 65536), Q16 in and out; x from -16 to +15 octaves */
-static inline uint32_t exp2_q16(int32_t x)
+AINL uint32_t exp2_q16(int32_t x)
 {
     int32_t i = x >> 16;
     uint32_t f = (uint32_t)x & 0xFFFFu, k = f >> 8, a = EXP2_FRAC[k];
@@ -65,7 +65,7 @@ static inline uint32_t exp2_q16(int32_t x)
 }
 
 /* log2(x), x > 0 an integer; Q16 result */
-static inline int32_t log2_q16(uint32_t x)
+AINL int32_t log2_q16(uint32_t x)
 {
     int32_t e = 0;
     uint32_t f, k;
@@ -106,7 +106,7 @@ AINL int32_t sin_ph(uint32_t ph)
 }
 
 /* integer square root of a 32-bit value */
-static inline uint32_t isqrt32(uint32_t x)
+AINL uint32_t isqrt32(uint32_t x)
 {
     uint32_t r = 0, b = 1u << 30;
     while (b > x)
@@ -154,7 +154,7 @@ AINL uint32_t hz8_inc(int32_t hz8)
 static inline int32_t inc_hz8(uint32_t inc) { return (int32_t)(((uint64_t)inc * 11289600u) >> 32); }   /* x FS * 256 / 2^32 */
 
 /* the state-variable filter's g = tan(pi f / FS), Q24, for f in Hz (integer) */
-static inline int32_t svf_g(int32_t hz)
+AINL int32_t svf_g(int32_t hz)
 {
     uint32_t x, i, f8;
     hz = clampi(hz, 16, TANG_FMAX);
@@ -175,7 +175,7 @@ AINL int32_t mulr24(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b + (
  * (one 32-bit divide), then per sample. a1 Q16, a2 a3 k Q24. */
 typedef struct { int32_t ic1, ic2; } svf_t;
 typedef struct { int32_t a1, a2, a3, k; } svf_c;
-static void svf_coef(svf_c *c, int32_t hz, int32_t q12)   /* q in Q12, 0.5 .. 25 */
+AINL void svf_coef(svf_c *c, int32_t hz, int32_t q12)   /* q in Q12, 0.5 .. 25 */
 {
     int32_t g = svf_g(hz), den;
     q12 = clampi(q12, 2048, 25 * 4096);
@@ -222,8 +222,8 @@ static inline void rnd_seed(rnd_t *r, uint32_t seed)
 }
 AINL int32_t rnd_q15(rnd_t *r) { return (int32_t)(rnd_next(r) >> 17); }               /* 0 .. 32767 */
 AINL int32_t rnd_bi(rnd_t *r) { return (int32_t)(rnd_next(r) >> 16) - 32768; }        /* -32768 .. 32767 */
-static inline int32_t rnd_below(rnd_t *r, int32_t n) { return n <= 1 ? 0 : (int32_t)(((uint64_t)rnd_next(r) * (uint32_t)n) >> 32); }
-static inline int rnd_chance(rnd_t *r, int32_t p_pct) { return rnd_below(r, 1000) < p_pct * 10; }   /* p in percent */
+AINL int32_t rnd_below(rnd_t *r, int32_t n) { return n <= 1 ? 0 : (int32_t)(((uint64_t)rnd_next(r) * (uint32_t)n) >> 32); }
+AINL int rnd_chance(rnd_t *r, int32_t p_pct) { return rnd_below(r, 1000) < p_pct * 10; }   /* p in percent */
 /* one of n, each as likely as its weight */
 static inline uint32_t rnd_weighted(rnd_t *r, const uint8_t *w, uint32_t n)
 {
@@ -237,7 +237,7 @@ static inline uint32_t rnd_weighted(rnd_t *r, const uint8_t *w, uint32_t n)
 }
 static inline int rnd_chance_q15(rnd_t *r, int32_t p) { return rnd_q15(r) < p; }
 /* uniform in [a, b] (any integer unit) */
-static inline int32_t rnd_in(rnd_t *r, int32_t a, int32_t b)
+AINL int32_t rnd_in(rnd_t *r, int32_t a, int32_t b)
 {
     return a + (int32_t)(((int64_t)(b - a) * rnd_q15(r)) >> 15);
 }

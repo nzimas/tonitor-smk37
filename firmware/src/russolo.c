@@ -403,7 +403,7 @@ static int rus_render_p(rus_t *c, const rus_design_t *d, int32_t *out, int32_t p
         uint64_t x = ((uint64_t)c->inc * exp2_q16(pq / 12)) >> 16;
         c->inc = x > 0xF0000000u ? 0xF0000000u : (uint32_t)x;
     }
-    k = e_t > c->env ? cal_ex(att) : cal_ex(rel);
+    k = e_t > c->env ? cal_ex_p(att) : cal_ex_p(rel);
     e1 = e_t + mulq16(c->env - e_t, k);
     if (absi(e1 - e_t) < 32 << 8)
         e1 = e_t;

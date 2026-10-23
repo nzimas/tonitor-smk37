@@ -170,7 +170,7 @@ static uint32_t an_cache_now;                   /* the ISR's block (+ 1) while i
 static uint16_t an_cache_wish;                  /* a table missed in this block (its tag), copied in after */
 /* a table, from RAM if it is there; else from the flash, and wished for (two cores may render ANIMA voices at
  * once: they only read the cache; CPU0 copies a table in after both are done, an_cache_fill) */
-static const int16_t *an_tab(uint32_t k, uint32_t inc)
+static FAST const int16_t *an_tab(uint32_t k, uint32_t inc)
 {
     uint32_t lv = inc < AN_INC_200 ? 0u : inc < AN_INC_600 ? 1u : inc < AN_INC_2000 ? 2u : 3u, tag = k * AN_LEVELS + lv + 1u;
     uint32_t i;
@@ -281,7 +281,7 @@ typedef struct {
 /* ------------------------------------------------------ the envelope --- */
 enum { EN_IDLE, EN_ATT, EN_HOLD, EN_DEC, EN_SUS, EN_REL };
 /* e^(-a), a in Q16, Q16 */
-static int32_t an_expneg(int32_t a)
+AINL int32_t an_expneg(int32_t a)
 {
     return (int32_t)exp2_q16(-(int32_t)(((int64_t)a * 94548) >> 16));   /* log2(e) = 1.4427, Q16 */
 }
@@ -300,7 +300,7 @@ static void an_env_times(an_voice_t *v, const an_design_t *d)
     v->decK = Q16 - an_expneg((int32_t)(218760u / (uint32_t)clampi(d->dec, 1, 600000)));
     an_env_ar(v, d, Q16, Q16);
 }
-static int32_t an_env_tick(an_voice_t *v, const an_design_t *d)   /* once a block, Q24 */
+static FAST int32_t an_env_tick(an_voice_t *v, const an_design_t *d)   /* once a block, Q24 */
 {
     if (v->env_hold) {
         v->est = EN_SUS;
@@ -346,7 +346,7 @@ static int32_t an_env_tick(an_voice_t *v, const an_design_t *d)   /* once a bloc
 /* ---------------------------------------------------------- geometry --- */
 /* sin / cos of an angle in radians, Q16 -> Q15 */
 static inline int32_t an_sinr(int32_t a) { return sin_ph((uint32_t)((int64_t)a * 10430)); }
-static inline int32_t an_cosr(int32_t a) { return sin_ph((uint32_t)((int64_t)a * 10430) + 0x40000000u); }
+AINL int32_t an_cosr(int32_t a) { return sin_ph((uint32_t)((int64_t)a * 10430) + 0x40000000u); }
 static inline int32_t an_smooth(int32_t u)    /* smoothstep, Q15 */
 {
     u = clampi(u, 0, Q15);
@@ -610,7 +610,7 @@ static const char *an_mac_name(const an_design_t *d, uint32_t j)
     return j == 0u ? "TONE" : j == 1u ? ROLE[an_mac_role(d)] : j == 2u ? "RESONATOR" : REST[(j - 3u) % 5u];
 }
 /* 2^(m / MAC_MAX x oct), Q16 (oct in Q16 / MAC_MAX steps: the caller's) */
-static int32_t an_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
+AINL int32_t an_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
 
 static void an_control(an_voice_t *v, const an_design_t *d)
 {
@@ -832,7 +832,8 @@ static void an_control(an_voice_t *v, const an_design_t *d)
 /* ------------------------------------------------------- one block --- */
 /* renders n (= CTL) samples, Q15 into out; returns 0 when the voice is silent for good */
 #ifndef AN_RENDER_PLACE
-#define AN_RENDER_PLACE __attribute__((noinline))   /* (FAST, from RAM: measured no faster -- the cost is the work) */
+#define AN_RENDER_PLACE FAST     /* (from RAM: alone it measured no faster, but beside the other engines the flash's cache
+                                  * cannot hold them all -- the SMK-37's chip benchmark: six engines cost twice six FMs) */
 #endif
 /* a block's samples, e / a the envelope and the amplitude moving by de / da a sample; its mean square back, for the
  * leveller. Everything a sample touches is held in locals for the block (the compiler cannot otherwise tell the
@@ -1024,14 +1025,14 @@ static int64_t (*volatile an_samples_at)(an_voice_t *, const an_design_t *, int3
 static uint32_t an_t_ctl, an_t_smp, an_t_n;    /* (a diagnostic build: the control's and the samples' ticks, summed) */
 #endif
 static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n, int32_t pq);
-static uint32_t an_bend_inc(uint32_t inc, uint32_t k)
+AINL uint32_t an_bend_inc(uint32_t inc, uint32_t k)
 {
     uint64_t x = ((uint64_t)inc * k) >> 16;
     return x > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)x;
 }
 /* the wheels' pitch on a block: the note's increments x 2^(pq / 12), the comb shorter, the filter's keyboard
  * tracking with it; the voice's own kept in sv (9), an_unbend puts them back */
-static void an_bend(an_voice_t *v, const an_design_t *d, int32_t pq, uint32_t *sv)
+static FAST void an_bend(an_voice_t *v, const an_design_t *d, int32_t pq, uint32_t *sv)
 {
     int32_t oct = pq / 12;                           /* Q16 octaves */
     uint32_t k = exp2_q16(oct), j;
@@ -1051,7 +1052,7 @@ static void an_bend(an_voice_t *v, const an_design_t *d, int32_t pq, uint32_t *s
     if (d->kt)
         v->ktmul = (int32_t)(((int64_t)v->ktmul * exp2_q16((int32_t)(((int64_t)oct * d->kt) >> 8))) >> 16);
 }
-static void an_unbend(an_voice_t *v, const uint32_t *sv)
+static FAST void an_unbend(an_voice_t *v, const uint32_t *sv)
 {
     uint32_t j;
     for (j = 0; j < 4u; j++)
@@ -1063,8 +1064,11 @@ static void an_unbend(an_voice_t *v, const uint32_t *sv)
     v->ktmul = (int32_t)sv[8];
 }
 /* (the wheels' pitch, pq: semitones Q16 -- the live voices' an_render_p; everyone else an_render, none) */
-static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n) { return an_render_p(v, d, out, n, 0); }
-static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n, int32_t pq)
+static __typeof__(&an_render_p) volatile an_render_p_p;   /* (defined after it: the flash's way into RAM code) */
+static int an_render(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n) { return an_render_p_p(v, d, out, n, 0); }
+/* (once a block, out of RAM: called through a pointer -- RAM code cannot reach the flash by a call) */
+static void (*volatile an_control_p)(an_voice_t *, const an_design_t *) = an_control;
+static FAST int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     int32_t e0, e1, de, a0, da;
     int64_t ms;
@@ -1076,7 +1080,7 @@ static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32
         return 0;
     if (pq)
         an_bend(v, d, pq, sv);
-    an_control(v, d);
+    an_control_p(v, d);
 #if TELEMETRY
     if (an_cache_now)
         t1 = fm1_ticks();
@@ -1180,6 +1184,7 @@ static int an_render_p(an_voice_t *v, const an_design_t *d, int32_t *out, uint32
     }
     return 1;
 }
+static __typeof__(&an_render_p) volatile an_render_p_p = an_render_p;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* ------------------------------------------------------- the designs --- */
 static an_map AM_(uint8_t s, int32_t lo, int32_t hi, int32_t slope)

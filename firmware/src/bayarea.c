@@ -84,7 +84,7 @@ static const int32_t BA_RES[3][3] = {{2141525796, -1073405498, 1229}, {214561480
 
 /* ------------------------------------------------------------- helpers --- */
 /* a segment from y0 to y1 over ms, its curve c (the Env law: (1 - e^(c t)) / (1 - e^c)) */
-static void ba_seg(ba_seg_t *s, int32_t y0, int32_t y1, int32_t ms, int32_t c)
+AINL void ba_seg(ba_seg_t *s, int32_t y0, int32_t y1, int32_t ms, int32_t c)
 {
     s->from = y0;
     s->to = y1;
@@ -149,7 +149,7 @@ AINL int32_t ba_blep(int32_t t, int32_t dt, uint32_t inv)
     }
     return 0;
 }
-static int32_t ba_quad(const int32_t *p, int32_t u)   /* the quadratic B-spline through p at u (Q16), Q15 */
+AINL int32_t ba_quad(const int32_t *p, int32_t u)   /* the quadratic B-spline through p at u (Q16), Q15 */
 {
     int32_t v = Q16 - u, a = (int32_t)(((int64_t)v * v) >> 17), c = (int32_t)(((int64_t)u * u) >> 17);
     int32_t b = Q16 - a - c;
@@ -203,7 +203,7 @@ static void ba_note_off(ba_voice_t *v, const ba_design_t *d)
         v->stage_g = 3;
     }
 }
-static int32_t ba_knob(int32_t base, int32_t m, int32_t top) { return clampi(base + m * (top / (2 * MAC_MAX)), 0, top); }
+AINL int32_t ba_knob(int32_t base, int32_t m, int32_t top) { return clampi(base + m * (top / (2 * MAC_MAX)), 0, top); }
 
 /* a control block: the LFO, the destinations smoothed, the envelopes stepped, the filters set */
 static void ba_control(ba_voice_t *v, const ba_design_t *d)
@@ -330,8 +330,11 @@ static void ba_control(ba_voice_t *v, const ba_design_t *d)
 /* n samples (a block) into out, Q15 */
 static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n, int32_t pq);
 /* (the wheels' pitch, pq: semitones Q16 -- the live voices' ba_render_p; everyone else ba_render, none) */
-static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n) { return ba_render_p(v, d, out, n, 0); }
-static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n, int32_t pq)
+static __typeof__(&ba_render_p) volatile ba_render_p_p;   /* (defined after it: the flash's way into RAM code) */
+static int ba_render(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n) { return ba_render_p_p(v, d, out, n, 0); }
+/* (once a block, out of RAM: called through a pointer -- RAM code cannot reach the flash by a call) */
+static void (*volatile ba_control_p)(ba_voice_t *, const ba_design_t *) = ba_control;
+static FAST int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     static const int32_t BW[5] = {179736481, 359472962, 179736481, 87442742, 94632269};   /* 12 kHz, Q29 */
     uint32_t i;
@@ -347,7 +350,7 @@ static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32
         v->f = (int32_t)(((int64_t)f0 * exp2_q16(pq / 12)) >> 16);
     {
         int32_t was_c = v->cl0, was_a = v->al0, was_g = v->gl0;
-        ba_control(v, d);
+        ba_control_p(v, d);
         g0 = d->asr ? was_g : was_a;
         g1 = d->asr ? v->gl0 : v->al0;
         (void)was_c;
@@ -440,6 +443,7 @@ static int ba_render_p(ba_voice_t *v, const ba_design_t *d, int32_t *out, uint32
     v->f = f0;
     return 1;
 }
+static __typeof__(&ba_render_p) volatile ba_render_p_p = ba_render_p;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* ----------------------------------------------------------- the design --- */
 static void ba_design(ba_design_t *d, int32_t kind, uint32_t seed, uint32_t path, uint32_t gen)

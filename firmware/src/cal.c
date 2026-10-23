@@ -112,13 +112,14 @@ typedef struct {
     rnd_t r;
 } cal_t;
 
-static int32_t cal_ex(int32_t ms)            /* a per-block factor: e^(-4.6 x 0.7256 / ms), Q16 */
+static FAST int32_t cal_ex(int32_t ms)            /* a per-block factor: e^(-4.6 x 0.7256 / ms), Q16 */
 {
     return an_expneg((int32_t)(218760u / (uint32_t)clampi(ms, 1, 600000)));
 }
+static __typeof__(&cal_ex) volatile cal_ex_p = cal_ex;   /* (the flash's way in: RAM code is out of a call's reach) */
 
-static inline int32_t cal_dec(uint8_t b) { int32_t m = MULAW_DEC[b & 0x7Fu]; return b & 0x80u ? -m : m; }
-static inline uint8_t cal_enc(int32_t x)
+AINL int32_t cal_dec(uint8_t b) { int32_t m = MULAW_DEC[b & 0x7Fu]; return b & 0x80u ? -m : m; }
+AINL uint8_t cal_enc(int32_t x)
 {
     uint32_t a = (uint32_t)(x < 0 ? -x : x);
     if (a > 32767u)
@@ -137,7 +138,7 @@ static void cal_init(cal_t *c, uint32_t seed)
     }
 }
 
-static int cal_fingers_down(const cal_t *c)
+AINL int cal_fingers_down(const cal_t *c)
 {
     uint32_t k, n = 0;
     for (k = 0; k < 8u; k++)
@@ -145,7 +146,7 @@ static int cal_fingers_down(const cal_t *c)
     return (int)n;
 }
 /* a finger lands on plate k: for good (until the key is let go), held a while, or tapped */
-static void cal_land(cal_t *c, const cal_design_t *d, uint32_t k, int for_good)
+static FAST void cal_land(cal_t *c, const cal_design_t *d, uint32_t k, int for_good)
 {
     c->gate[k] = 1;
     c->ftap[k] = 0;
@@ -157,9 +158,10 @@ static void cal_land(cal_t *c, const cal_design_t *d, uint32_t k, int for_good)
     } else
         c->ftime[k] = (uint16_t)clampi(rnd_in(&c->r, d->hold_lo, d->hold_hi) * 1378 / 1000, 30, 0xFFFE);
 }
+static __typeof__(&cal_land) volatile cal_land_p = cal_land;   /* (the flash's way in: RAM code is out of a call's reach) */
 /* a plate for the next finger: the next of its phrase, if it has one, more often than not (now and then a
  * neighbour instead: a variation); else one it favours more often than not; never one already down */
-static int32_t cal_pick(cal_t *c, const cal_design_t *d)
+static FAST int32_t cal_pick(cal_t *c, const cal_design_t *d)
 {
     uint32_t tries, k;
     if (d->mlen && (rnd_next(&c->r) & 255u) < d->mfollow) {
@@ -179,27 +181,30 @@ static int32_t cal_pick(cal_t *c, const cal_design_t *d)
     }
     return -1;
 }
+static __typeof__(&cal_pick) volatile cal_pick_p = cal_pick;   /* (the flash's way in: RAM code is out of a call's reach) */
 /* EDIT's macros on CALIGULA: EDGE (the oscillators from triangles to squares), DEPTH (how deep the pairs modulate
  * each other), CHAOS (the total feedback and the drive) or, for the gentler species, ECHO (the delay's mix and
  * feedback), HAND (how busy the hand is: its touches and the bursts) or, for the gated ones, PULSE (the hyper
  * LFO's speed), ATTACK and RELEASE (the pairs' envelope times, x 1/8 .. x 8), SPREAD (each oscillator's detuning
  * off its semitone, x 0 .. x 2) and DELAY TIME (the two lines', x 1/4 .. x 4) */
-static int cal_echoes(uint32_t kind)
+static FAST int cal_echoes(uint32_t kind)
 {
     return kind == CS_SPORE || kind == CS_VEIL || kind == CS_LITANY || kind == CS_MOTH;
 }
-static int cal_pulses(uint32_t kind) { return kind == CS_HIVE || kind == CS_MOTH || kind == CS_WIRE; }
+static __typeof__(&cal_echoes) volatile cal_echoes_p = cal_echoes;   /* (the flash's way in: RAM code is out of a call's reach) */
+static FAST int cal_pulses(uint32_t kind) { return kind == CS_HIVE || kind == CS_MOTH || kind == CS_WIRE; }
+static __typeof__(&cal_pulses) volatile cal_pulses_p = cal_pulses;   /* (the flash's way in: RAM code is out of a call's reach) */
 static const char *cal_mac_name(const cal_design_t *d, uint32_t j)
 {
     static const char *const REST[4] = {"ATTACK", "RELEASE", "SPREAD", "DELAY TIME"};
-    return j == 0u ? "WAVEFORM" : j == 1u ? "MOD DEPTH" : j == 2u ? (cal_echoes(d->kind) ? "DELAY" : "FEEDBACK")
-                                : j == 3u ? (cal_pulses(d->kind) ? "GATE RATE" : "TOUCHES") : REST[(j - 4u) & 3u];
+    return j == 0u ? "WAVEFORM" : j == 1u ? "MOD DEPTH" : j == 2u ? (cal_echoes_p(d->kind) ? "DELAY" : "FEEDBACK")
+                                : j == 3u ? (cal_pulses_p(d->kind) ? "GATE RATE" : "TOUCHES") : REST[(j - 4u) & 3u];
 }
 /* 2^(m / MAC_MAX x oct), Q16 */
-static int32_t cal_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
+static FAST int32_t cal_mac_exp(int32_t m, int32_t oct_q16) { return (int32_t)exp2_q16(m * (oct_q16 / MAC_MAX)); }
 
 /* the wait to the next finger: irregular, around 1 / touch (exponential: -ln u / rate) */
-static uint32_t cal_wait(cal_t *c, const cal_design_t *d)
+static FAST uint32_t cal_wait(cal_t *c, const cal_design_t *d)
 {
     int32_t mean = (int32_t)(1378u * 256u / (uint32_t)clampi(d->touch, 16, 256 * 40));   /* blocks */
     if (c->mac[3] && !cal_pulses(d->kind))            /* HAND: busier (shorter waits) or calmer */
@@ -212,6 +217,7 @@ static uint32_t cal_wait(cal_t *c, const cal_design_t *d)
     int32_t ln = (int32_t)(((int64_t)(R16(15.0) - log2_q16((uint32_t)rnd_in(&c->r, 64, Q15))) * 45426) >> 16);
     return (uint32_t)clampi(mulq16(mean, ln), 8, 1378 * 20);
 }
+static __typeof__(&cal_wait) volatile cal_wait_p = cal_wait;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* a key (or the loop: who 2) down on the note: it sounds there; from silence, the hand lands */
 static void cal_note_on(cal_t *c, const cal_design_t *d, uint32_t note, uint32_t who)
@@ -244,11 +250,11 @@ static void cal_note_on(cal_t *c, const cal_design_t *d, uint32_t note, uint32_t
         c->base = c->base_t;
         n = d->first ? d->first : 1u;
         for (k = 0; k < n; k++) {
-            int32_t p = cal_pick(c, d);
+            int32_t p = cal_pick_p(c, d);
             if (p >= 0)
-                cal_land(c, d, (uint32_t)p, k == 0u);     /* the first for good: it always sounds */
+                cal_land_p(c, d, (uint32_t)p, k == 0u);     /* the first for good: it always sounds */
         }
-        c->touch_wait = cal_wait(c, d);
+        c->touch_wait = cal_wait_p(c, d);
     }
 }
 /* everything the hand holds let go: the organism rings out */
@@ -289,7 +295,7 @@ static void cal_release(cal_t *c, uint32_t who)
 }
 
 /* the hand, a block: fingers lift when their time is up, others land (never more than it has, never none) */
-static void cal_hand(cal_t *c, const cal_design_t *d)
+static FAST void cal_hand(cal_t *c, const cal_design_t *d)
 {
     uint32_t k;
     int down;
@@ -319,7 +325,7 @@ static void cal_hand(cal_t *c, const cal_design_t *d)
 }
 
 /* the hyper LFO: 0 .. Q15 (a gate when square), from its two */
-static int32_t cal_hyper(cal_t *c, const cal_design_t *d)
+static FAST int32_t cal_hyper(cal_t *c, const cal_design_t *d)
 {
     int32_t a, b;
     if (d->lfo_sq) {
@@ -340,8 +346,9 @@ static int32_t cal_hyper(cal_t *c, const cal_design_t *d)
 /* one block (CTL samples), Q15 into out; 0 when it has gone quiet for good */
 static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t pq);
 /* (the wheels' pitch, pq: semitones Q16 -- the live voices' cal_render_p; everyone else cal_render, none) */
-static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out) { return cal_render_p(c, d, out, 0); }
-static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t pq)
+static __typeof__(&cal_render_p) volatile cal_render_p_p;   /* (defined after it: the flash's way into RAM code) */
+static int cal_render(cal_t *c, const cal_design_t *d, int32_t *out) { return cal_render_p_p(c, d, out, 0); }
+static FAST int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t pq)
 {
     uint32_t i, k;
     int32_t h, gate, dmod_lfo, sharp_drv[4], depth[4], gp, total_fb = d->total_fb, drive = d->drive;
@@ -546,6 +553,7 @@ static int cal_render_p(cal_t *c, const cal_design_t *d, int32_t *out, int32_t p
         c->env[k] = env_e[k];                            /* (exactly where the block was going: never stuck short) */
     return 1;
 }
+static __typeof__(&cal_render_p) volatile cal_render_p_p = cal_render_p;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* ------------------------------------------------------------- designs --- */
 /* the intervals a species tunes its eight oscillators to, from the root, semitones */

@@ -1698,7 +1698,7 @@ static int cmd_caligula(const char *dir)
             rv.mix = 0;
             press_btn(B_FX);
             while (ui.engine[0] != ENG_CAL) {
-                host_enc[PANEL_ENC[EN_PRESET]] = 1;
+                host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[0] < ENG_CAL ? 1 : -1;
                 ui_input();
             }
             run_blocks(40, 0);
@@ -1780,7 +1780,7 @@ static int cmd_caligula(const char *dir)
         for (l = 0; l < NLAYER; l++) {
             press_btn(LAYER_BTN[l]);
             while (ui.engine[l] != ENG_CAL) {
-                host_enc[PANEL_ENC[EN_PRESET]] = 1;
+                host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[l] < ENG_CAL ? 1 : -1;
                 ui_input();
             }
         }
@@ -1805,7 +1805,7 @@ static int cmd_caligula(const char *dir)
         ses_scan(1);
         press_btn(B_LFO);
         while (ui.engine[3] != ENG_CAL) {
-            host_enc[PANEL_ENC[EN_PRESET]] = 1;
+            host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[3] < ENG_CAL ? 1 : -1;
             ui_input();
         }
         run_blocks(40, 0);
@@ -1841,12 +1841,12 @@ static int cmd_caligula(const char *dir)
         grain_reset();
         press_btn(B_FX);
         while (ui.engine[0] != ENG_CAL) {
-            host_enc[PANEL_ENC[EN_PRESET]] = 1;
+            host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[0] < ENG_CAL ? 1 : -1;
             ui_input();
         }
         press_btn(B_SEL);
         while (ui.engine[1] != ENG_ANIMA) {
-            host_enc[PANEL_ENC[EN_PRESET]] = 1;
+            host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[1] < ENG_ANIMA ? 1 : -1;
             ui_input();
         }
         run_blocks(40, 0);
@@ -2385,7 +2385,7 @@ static int cmd_presets(const char *dir)
     /* CALIGULA's own presets: layer 2, P5; loaded into layer 4 */
     press_btn(B_SEL);
     while (ui.engine[1] != ENG_CAL) {
-        host_enc[PANEL_ENC[EN_PRESET]] = 1;
+        host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[1] < ENG_CAL ? 1 : -1;
         ui_input();
     }
     run_blocks(40, 0);
@@ -2404,7 +2404,7 @@ static int cmd_presets(const char *dir)
         printf("FAIL presets: they do not outlive a restart\n"), fail++;
     press_btn(B_LFO);
     while (ui.engine[3] != ENG_CAL) {
-        host_enc[PANEL_ENC[EN_PRESET]] = 1;
+        host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[3] < ENG_CAL ? 1 : -1;
         ui_input();
     }
     run_blocks(40, 0);
@@ -2703,7 +2703,7 @@ static int cmd_macros(const char *dir)
     snprintf(path, sizeof path, "%s/screen-32-macro.ppm", dir);
     ppm(path);
     while (ui.engine[0] != ENG_CAL) {                 /* another engine: its own macros, none yet */
-        host_enc[PANEL_ENC[EN_PRESET]] = 1;
+        host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[0] < ENG_CAL ? 1 : -1;
         ui_input();
     }
     run_blocks(40, 0);
@@ -3417,7 +3417,7 @@ static int cmd_clip(const char *dir)
     ses_scan(1);
     press_btn(B_FX);                                  /* track 1: ANIMA, macros, settings, three loops, one out */
     while (ui.engine[0] != ENG_ANIMA) {
-        host_enc[PANEL_ENC[EN_PRESET]] = 1;
+        host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[0] < ENG_ANIMA ? 1 : -1;
         ui_input();
     }
     ui.mac[0][ENG_ANIMA][1] = 30;
@@ -7219,6 +7219,104 @@ static int cmd_drone(void)
     printf("drone: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
+/* bench: what each engine costs here, a voice (or an organism) a block, against an idle block; and the effects */
+#include <time.h>
+static double bn_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e6 + t.tv_nsec / 1e3; }
+static double bn_run(uint32_t blocks)                /* (us a block, the median of 5 runs) */
+{
+    double r[5], x;
+    uint32_t i, j;
+    for (i = 0; i < 5u; i++) {
+        double t0 = bn_now();
+        run_blocks(blocks, 0);
+        r[i] = (bn_now() - t0) / blocks;
+    }
+    for (i = 1; i < 5u; i++)
+        for (j = i; j > 0u && r[j - 1u] > r[j]; j--) {
+            x = r[j];
+            r[j] = r[j - 1u];
+            r[j - 1u] = x;
+        }
+    return r[2];
+}
+static int cmd_bench(void)
+{
+    uint32_t e, t, k;
+    double idle;
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    for (k = 0; k < NLAYER; k++)                      /* (the other tracks silent and dry) */
+        ui.send[k] = 0;
+    run_blocks(2000, 0);
+    idle = bn_run(2000);
+    printf("bench: idle block %.2f us (the mix, the master effects)\n", idle);
+    for (e = 0; e < NENG; e++) {
+        double sum1 = 0, max1 = 0, sum4 = 0;
+        ui.engine[0] = (uint8_t)e;
+        ev_post(EV_ENGINE, 0, 0, e);
+        run_blocks(200, 0);
+        for (t = 0; t < 12u; t++) {
+            double c1, c4;
+            ui.path[0] = (uint8_t)(t % 3u);
+            new_sound_of(-1, 0);
+            run_blocks(40, 0);
+            press_key(5, 1);
+            run_blocks(300, 0);
+            c1 = bn_run(400) - idle;
+            press_key(7, 1);
+            press_key(9, 1);
+            press_key(11, 1);
+            run_blocks(300, 0);
+            c4 = bn_run(400) - idle;
+            press_key(5, 0);
+            press_key(7, 0);
+            press_key(9, 0);
+            press_key(11, 0);
+            ev_post(EV_STOP, 0, 0, 0);
+            run_blocks(400, 0);
+            sum1 += c1;
+            sum4 += c4;
+            max1 = c1 > max1 ? c1 : max1;
+        }
+        printf("bench: %-8s one note %.2f us (the costliest sound %.2f), four notes %.2f us\n", ENG_NAME[e], sum1 / 12, max1, sum4 / 12);
+    }
+    {   /* the track's effects, on an FM note */
+        static const char *const NM[4] = {"filter", "grain", "crush", "distortion"};
+        double base;
+        ui.engine[0] = ENG_FM;
+        ev_post(EV_ENGINE, 0, 0, ENG_FM);
+        run_blocks(200, 0);
+        new_sound_of(-1, 0);
+        press_key(5, 1);
+        run_blocks(300, 0);
+        base = bn_run(800);
+        for (k = 0; k < 4u; k++) {
+            double c;
+            if (k == 0u) ui.flt[0] = 20;
+            if (k == 1u) ui.gr[0] = 20;
+            if (k == 2u) ui.cr[0] = 20;
+            if (k == 3u) ui.dist[0] = 60;
+            level_pan_apply(0);
+            mac_apply(0);
+            ui_input();
+            run_blocks(300, 0);
+            c = bn_run(800);
+            printf("bench: + %-10s %.2f us\n", NM[k], c - base);
+            base = c;
+        }
+        ui.send[0] = SEND_DEF;
+        level_pan_apply(0);
+        ui_input();
+        run_blocks(300, 0);
+        printf("bench: + reverb/delay send %.2f us\n", bn_run(800) - base);
+        press_key(5, 0);
+    }
+    printf("bench: a block lasts %.0f us on the chip (32 samples at 44.1 kHz)\n", 32e6 / 44100);
+    return 0;
+}
 static int cmd_xpvel(void)
 {
     uint32_t fail = 0, k, b, v0 = 0, v1 = 0;
@@ -7743,7 +7841,7 @@ static int cmd_russolo(const char *dir)
         ses_scan(1);
         press_btn(B_LFO);
         while (ui.engine[3] != ENG_RUS) {
-            host_enc[PANEL_ENC[EN_PRESET]] = 1;
+            host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[3] < ENG_RUS ? 1 : -1;
             ui_input();
         }
         run_blocks(40, 0);
@@ -7863,6 +7961,8 @@ int main(int argc, char **argv)
         return cmd_keys();
     if (argc >= 2 && !strcmp(argv[1], "drone"))
         return cmd_drone();
+    if (argc >= 2 && !strcmp(argv[1], "bench"))
+        return cmd_bench();
     if (argc >= 2 && !strcmp(argv[1], "xpvel"))
         return cmd_xpvel();
     if (argc >= 2 && !strcmp(argv[1], "seqplay"))

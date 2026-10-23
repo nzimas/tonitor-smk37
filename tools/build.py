@@ -37,8 +37,8 @@ DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
 LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
 
-PRODUCT = "SMK-37 Pro_730"          # package identity: build N is SMK-37 Pro_7NN
-VERSION = "BUILD 30"                # the SMK-37 port counts its own builds
+PRODUCT = "SMK-37 Pro_731"          # package identity: build N is SMK-37 Pro_7NN
+VERSION = "BUILD 31"                # the SMK-37 port counts its own builds
 
 
 def toolchain():
@@ -141,6 +141,8 @@ def build_loader():
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen",
              f'-DTONITOR_ID="{PRODUCT}"', f'-DTONITOR_VERSION="{VERSION}"']
+    if os.environ.get("TONITOR_TELEMETRY") == "1":      # a diagnostic build: timing over USB, the chip's own benchmark
+        flags.append("-DTELEMETRY=1")
     tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),

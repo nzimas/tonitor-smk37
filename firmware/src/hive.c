@@ -74,7 +74,7 @@ typedef struct {
 
 /* an oscillator's step for a block: Q16 of a cycle, and its reciprocal (for polyBLEP without a division) */
 typedef struct { uint32_t dt, inv; } hv_dt_t;
-static hv_dt_t hv_dt_of(uint32_t inc)
+static FAST hv_dt_t hv_dt_of(uint32_t inc)
 {
     hv_dt_t r;
     r.dt = (inc >> 16) | 1u;
@@ -109,7 +109,7 @@ AINL int32_t hv_wave(uint32_t w, uint32_t ph, const hv_dt_t *inc)
     return (ph < 0x80000000u ? Q15 - 1 : -Q15) + hv_blep(ph, inc) - hv_blep(ph + 0x80000000u, inc);
 }
 /* the place along the four waves: the two and their crossfade */
-static void hv_morph(int32_t x, uint32_t *a, int32_t *f)
+static FAST void hv_morph(int32_t x, uint32_t *a, int32_t *f)
 {
     int32_t q = clampi(x, 0, Q15) * 3;
     *a = (uint32_t)(q >> 15) > 2u ? 2u : (uint32_t)(q >> 15);
@@ -120,7 +120,7 @@ AINL int32_t hv_read(uint32_t a, int32_t f, uint32_t ph, const hv_dt_t *inc)
     int32_t s = hv_wave(a, ph, inc);
     return f ? s + mulq15(hv_wave(a + 1u, ph, inc) - s, f) : s;
 }
-static uint32_t hv_inc(int32_t semi16)                  /* a pitch, semitones Q16 from MIDI 0: a phase step */
+static FAST uint32_t hv_inc(int32_t semi16)                  /* a pitch, semitones Q16 from MIDI 0: a phase step */
 {
     int32_t whole = semi16 >> 16, frac = semi16 & 0xFFFF;
     uint32_t inc = pitch_inc(whole * 16);
@@ -156,15 +156,17 @@ static void hv_note_off(hv_voice_t *v)
         v->stage = 4;
 }
 /* a macro as a factor around the sound's own, Q15: 0 .. 2 (turned fully down, none) */
-static int32_t hv_fac(int32_t m) { return clampi(Q15 + m * (Q15 / MAC_MAX), 0, 2 * Q15); }
+static FAST int32_t hv_fac(int32_t m) { return clampi(Q15 + m * (Q15 / MAC_MAX), 0, 2 * Q15); }
 /* a Q15 value of the design moved by a macro, half the range either way */
-static int32_t hv_knob(int32_t base, int32_t m) { return clampi(base + m * (Q15 / (2 * MAC_MAX)), 0, Q15); }
+static FAST int32_t hv_knob(int32_t base, int32_t m) { return clampi(base + m * (Q15 / (2 * MAC_MAX)), 0, Q15); }
 #define HV_TOP (118 << 16)       /* (above this an oscillator is silent: no aliasing from its harmonics) */
 
 static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n, int32_t pq);
 /* (the wheels' pitch, pq: semitones Q16 -- the live voices' hv_render_p; everyone else hv_render, none) */
-static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n) { return hv_render_p(v, d, out, n, 0); }
-static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n, int32_t pq)
+static __typeof__(&hv_render_p) volatile hv_render_p_p;   /* (defined after it: the flash's way into RAM code) */
+static int hv_render(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n) { return hv_render_p_p(v, d, out, n, 0); }
+static volatile uint8_t hv_thin;   /* (several HIVE voices sounding at once: each a little thinner -- layers.c) */
+static FAST int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32_t n, int32_t pq)
 {
     uint32_t inc[7], i, k, wa[7];
     hv_dt_t dts[7];
@@ -258,9 +260,23 @@ static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32
     {
         int32_t nz = d->kind == HK_GROUND || d->kind == HK_AIR ? clampi(mulq15(d->noise, fmix), 0, Q15) : d->noise;
         int type = d->fmode;
+        uint8_t idx[7];
+        uint32_t na = 0, j;
+        int32_t gm = 0;
+        for (k = 0; k < 6u; k++)                          /* (the loudest of the six, for the thinning) */
+            gm = g[k] > gm ? g[k] : g[k] < -gm ? -g[k] : gm;
+        for (k = 0; k < 7u; k++) {                        /* the oscillators heard: none silent; several HIVE voices at
+                                                          * once (hv_thin), none of the six 12 dB under the loudest */
+            int32_t a = g[k] < 0 ? -g[k] : g[k];
+            if (k == 6u || (k == 0u && ring) || (a && (!hv_thin || a * 4 >= gm)))
+                idx[na++] = (uint8_t)k;
+            else
+                v->ph[k] += inc[k] * n;                    /* (kept turning, unheard: no jump when it comes back) */
+        }
         for (i = 0; i < n; i++) {
             int32_t x = 0, o0 = 0, o = 0;
-            for (k = 0; k < 7u; k++) {                    /* (the seventh, the main, last) */
+            for (j = 0; j < na; j++) {                    /* (the seventh, the main, last) */
+                k = idx[j];
                 v->ph[k] += inc[k];
                 o = hv_read(wa[k], wf[k], v->ph[k], &dts[k]);
                 if (!k)
@@ -288,6 +304,7 @@ static int hv_render_p(hv_voice_t *v, const hv_design_t *d, int32_t *out, uint32
         v->live = 0;
     return 1;
 }
+static __typeof__(&hv_render_p) volatile hv_render_p_p = hv_render_p;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* the draws, out of line (inline, each one's 64-bit product would be repeated a hundred times) */
 static __attribute__((noinline)) int32_t hv_in(rnd_t *r, int32_t a, int32_t b) { return rnd_in(r, a, b); }

@@ -154,7 +154,7 @@ static void fm_hold(fm_voice_t *v, const fm_patch_t *pt)
     for (k = 0; k < 6u; k++)
         if ((car >> k) & 1u) {
             v->n.env[k].hold = 1;
-            fm6_env_advance(&v->n.env[k], pt->p + k * FP_OP, v->n.env[k].ix);
+            fm6_env_advance_p(&v->n.env[k], pt->p + k * FP_OP, v->n.env[k].ix);
         }
 }
 /* the patch's own envelope as A D S R (the ENVELOPE page, as drawn): its loudest carrier at middle C, timed --
@@ -197,7 +197,7 @@ static void fm_note_off(fm_voice_t *v, const fm_patch_t *pt)
         fm6_note_key(&v->n, pt->p, 0);
 }
 
-static uint32_t fm_carriers_of(const uint8_t *p);
+AINL uint32_t fm_carriers_of(const uint8_t *p);
 /* EDIT's macros on FM, live under a held note: BRIGHTNESS (the modulators' level -- the index -- about 27 dB either
  * way, the feedback up with it, and the carriers tilted, the higher ones up: so a patch of carriers only brightens
  * too), DETUNE (the carriers but the lowest pulled apart, +-40 cents one way and the other: beating, chorus; and
@@ -210,7 +210,7 @@ static uint32_t fm_carriers_of(const uint8_t *p);
  * brighter, up to about 27 dB between the ends at full; below the middle, none -- as drawn: FM_VEL for every
  * note). Each felt early: the square root of the knob's turn (a quarter of the way: half the change). 0
  * everywhere: the patch as drawn, bit for bit */
-static int fm_skews(uint32_t f)
+AINL int fm_skews(uint32_t f)
 {
     return f == FF_METAL || f == FF_BRUIT || f == FF_IMPACT || f == FF_ITERATIF || f == FF_GLISSE || f == FF_FRICTION ||
            f == FF_SHARDS || f == FF_STATIC || f == FF_WIND || f == FF_WARP || f == FF_GLITCH || f == FF_MALLET ||
@@ -223,7 +223,7 @@ static const char *fm_mac_name(const fm_patch_t *pt, uint32_t j)
     return j == 1u && fm_skews(pt->family) ? "INHARMONIC" : N[j & 7u];
 }
 /* an operator's frequency against the note's, x 100 (fixed ones: against middle C) */
-static int32_t fm_op_ratio100(const uint8_t *op)
+AINL int32_t fm_op_ratio100(const uint8_t *op)
 {
     if (!op[FP_MODE])
         return op[FP_FC] ? op[FP_FC] * (100 + op[FP_FF]) : (100 + op[FP_FF]) / 2;
@@ -231,7 +231,7 @@ static int32_t fm_op_ratio100(const uint8_t *op)
                      100u / 262u);                       /* 10^x = 2^(3.3219 x), Q16 */
 }
 /* the macros as the core takes them: a pitch and a level offset an operator, the feedback, the LFO's depths */
-static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t vel, int32_t *dt, int32_t *lvl, int32_t *fb,
+static FAST void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t vel, int32_t *dt, int32_t *lvl, int32_t *fb,
                       uint32_t *lfoq8, uint32_t *rq)
 {
     const uint8_t *p = pt->p;
@@ -273,8 +273,9 @@ static void fm_macros(const fm_patch_t *pt, const int8_t *mac, int32_t vel, int3
 /* one block (CTL samples), Q15 into out; 0 when the voice is silent for good. mac: EDIT's macros (0: none) */
 static int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac, int32_t pq);
 /* (the wheels' pitch, pq: semitones Q16 -- the live voices' fm_render_p; everyone else fm_render, none) */
-static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac) { return fm_render_p(v, pt, out, mac, 0); }
-static int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac, int32_t pq)
+static __typeof__(&fm_render_p) volatile fm_render_p_p;   /* (defined after it: the flash's way into RAM code) */
+static int fm_render(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac) { return fm_render_p_p(v, pt, out, mac, 0); }
+static FAST int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const int8_t *mac, int32_t pq)
 {
     const uint8_t *p = pt->p;
     int32_t bus[FM6_N], lv, ld, lf, dt[6] = {0, 0, 0, 0, 0, 0}, lvl[6] = {0, 0, 0, 0, 0, 0}, fb = p[FP_FB] & 7u;
@@ -339,6 +340,7 @@ static int fm_render_p(fm_voice_t *v, const fm_patch_t *pt, int32_t *out, const 
     }
     return 1;
 }
+static __typeof__(&fm_render_p) volatile fm_render_p_p = fm_render_p;   /* (the flash's way in: RAM code is out of a call's reach) */
 
 /* ---------------------------------------------------------- the patch --- */
 /* operator n (1..6, as the DX7 numbers them) of patch p */
@@ -386,7 +388,7 @@ static void fm_fixed(uint8_t *op, int decade, int fine)
     op[FP_FF] = (uint8_t)clampi(fine, 0, 99);
 }
 
-static uint32_t fm_carriers_of(const uint8_t *p) { return fm6_carriers(p[FP_ALG] & 31u); }
+AINL uint32_t fm_carriers_of(const uint8_t *p) { return fm6_carriers(p[FP_ALG] & 31u); }
 static int fm_is_carrier(const uint8_t *p, int n) { return (fm_carriers_of(p) >> (6 - n)) & 1u; }
 static int fm_ncarriers(const uint8_t *p)
 {
