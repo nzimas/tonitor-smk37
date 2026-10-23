@@ -449,8 +449,8 @@ BRICKLAYER's options on pads 9–16 are laid out as the loops' and work the same
 | 15 | **HALF** | half speed |
 | 16 | **DOUBLE** | double speed |
 
-With BRICKLAYER's page up, LOOP's pads 9–11, 15 and 16 also set BRICKLAYER's direction and speed; use BRICKLAYER's
-own pads for all eight.
+With BRICKLAYER's page up, LOOP's pads set BRICKLAYER's options too, all eight: its direction, STUTTER, the
+climbs and its speed, as BRICKLAYER's own pads do.
 
 The screen shows the steps as cells, eight to a row (up to four rows): a note's cell filled in the track's colour,
 an empty one as an outline, the step being played in white. The line above shows the notes and the steps

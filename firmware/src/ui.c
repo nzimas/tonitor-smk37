@@ -826,6 +826,20 @@ static void mod_knob(uint32_t l, uint32_t ix, uint32_t j, int32_t s);   /* (the 
 static void draw_mod_page(void);
 static int32_t batt_raw;                         /* the battery's divider, smoothed (main.c), 0 .. 1023; 0 none yet */
 
+/* BRICKLAYER's STUTTER (i 0), CLIMB DOWN (1) or CLIMB UP (2) on track l, on or off (the climbs exclusive) */
+static void bl_fx_toggle(uint32_t l, uint32_t i)
+{
+    static const uint8_t BIT[3] = {LF_STUTTER, LF_CDOWN, LF_CUP};
+    static const char *const NM[3] = {"STUTTER", "CLIMB DOWN", "CLIMB UP"};
+    uint32_t bit = BIT[i];
+    bl.fx[l] = (uint8_t)(bl.fx[l] ^ bit);
+    if ((bit & LF_CLIMB) && (bl.fx[l] & bit))
+        bl.fx[l] = (uint8_t)(bl.fx[l] & ~(LF_CLIMB & ~bit));
+    if (!(bl.fx[l] & LF_CLIMB))
+        bl.climb[l] = 0;
+    say((bl.fx[l] & bit) ? NM[i] : bit == LF_STUTTER ? "STUTTER OFF" : "CLIMB OFF", 1200);
+}
+
 /* BALLSY's page (k 0) or BRICKLAYER's (1) up: every other page down */
 static void seq_page_only(uint32_t k)
 {
@@ -1354,17 +1368,9 @@ static void ui_input(void)
                     }
                 } else if (ui.pad_page == PP_BRICKS) {   /* BRICKLAYER's direction, options, speed */
                     uint32_t l = ui.sel;
-                    if (j >= 3u && j < 6u) {     /* STUTTER, CLIMB DOWN, CLIMB UP (the climbs exclusive) */
-                        static const uint8_t BIT[3] = {LF_STUTTER, LF_CDOWN, LF_CUP};
-                        static const char *const NM[3] = {"STUTTER", "CLIMB DOWN", "CLIMB UP"};
-                        uint32_t bit = BIT[j - 3u];
-                        bl.fx[l] = (uint8_t)(bl.fx[l] ^ bit);
-                        if ((bit & LF_CLIMB) && (bl.fx[l] & bit))
-                            bl.fx[l] = (uint8_t)(bl.fx[l] & ~(LF_CLIMB & ~bit));
-                        if (!(bl.fx[l] & LF_CLIMB))
-                            bl.climb[l] = 0;
-                        say((bl.fx[l] & bit) ? NM[j - 3u] : bit == LF_STUTTER ? "STUTTER OFF" : "CLIMB OFF", 1200);
-                    } else if (j < 3u) {
+                    if (j >= 3u && j < 6u)       /* STUTTER, CLIMB DOWN, CLIMB UP */
+                        bl_fx_toggle(l, j - 3u);
+                    else if (j < 3u) {
                         uint32_t want = j == 0u ? LD_REV : j == 1u ? LD_PEND : LD_RAND;
                         bl.dir[l] = (uint8_t)(bl.dir[l] == want ? LD_FWD : want);
                         say(bl.dir[l] == LD_REV ? "REVERSE" : bl.dir[l] == LD_PEND ? "PENDULUM" : bl.dir[l] == LD_RAND ? "RANDOM" : "FORWARD", 1200);
@@ -1410,8 +1416,11 @@ static void ui_input(void)
             say(want == LS_HALF ? "HALF SPEED" : want == LS_DOUBLE ? "DOUBLE SPEED" : "NORMAL SPEED", 1200);
         }
     }
-    for (k = FN_STUT; k <= FN_CUP; k++)        /* STUTTER, CLIMB DOWN, CLIMB UP: the chosen track's loops, on or off */
-        if ((fch & fk) >> k & 1u) {
+    for (k = FN_STUT; k <= FN_CUP; k++)        /* STUTTER, CLIMB DOWN, CLIMB UP: the chosen track's loops, on or off
+                                                  * (BRICKLAYER's page: its own) */
+        if (((fch & fk) >> k & 1u) && ui.bl_page && bl.on[ui.sel])
+            bl_fx_toggle(ui.sel, k - FN_STUT);
+        else if ((fch & fk) >> k & 1u) {
             uint32_t bit = k == FN_STUT ? LF_STUTTER : k == FN_CDOWN ? LF_CDOWN : LF_CUP, on = !(lfx[ui.sel] & bit);
             static const char *const NM[3] = {"STUTTER", "CLIMB DOWN", "CLIMB UP"}, *const OFF[3] = {"STUTTER OFF", "CLIMB OFF", "CLIMB OFF"};
             ev_post(EV_LOOP_MODE, ui.sel, 3, bit);
@@ -1708,9 +1717,10 @@ static void pads_show(void)
             uint32_t f = LOOP_PAD_FN[p - 8u];
             int blp = ui.bl_page && bl.on[ui.sel];   /* (BRICKLAYER's page: its own) */
             uint32_t dm = blp ? bl.dir[ui.sel] : loop[ui.sel].dmode, rt = blp ? bl.spd[ui.sel] : loop[ui.sel].rate;
+            uint32_t fx = blp ? bl.fx[ui.sel] : lfx[ui.sel];
             int on = f == FN_REV ? dm == LD_REV : f == FN_PEND ? dm == LD_PEND : f == FN_RAND ? dm == LD_RAND
-                     : f == FN_STUT ? (lfx[ui.sel] & LF_STUTTER) != 0 : f == FN_CDOWN ? (lfx[ui.sel] & LF_CDOWN) != 0
-                     : f == FN_CUP ? (lfx[ui.sel] & LF_CUP) != 0 : f == FN_HALF ? rt == LS_HALF : rt == LS_DOUBLE;
+                     : f == FN_STUT ? (fx & LF_STUTTER) != 0 : f == FN_CDOWN ? (fx & LF_CDOWN) != 0
+                     : f == FN_CUP ? (fx & LF_CUP) != 0 : f == FN_HALF ? rt == LS_HALF : rt == LS_DOUBLE;
             pad_rgb(p, f == FN_HALF || f == FN_DOUBLE ? C_LOOP_SPD : f >= FN_STUT ? C_LOOP_FX : C_LOOP_DIR, on ? 256u : PAD_DIM);
         } else if (p == PAD_AMB || p == PAD_EXP)   /* the chosen track's path: lit while on, dim while off */
             pad_rgb(p, C_PATH,

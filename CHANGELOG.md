@@ -2,6 +2,15 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 32
+
+23 October 2026
+
+Fixed
+- On BRICKLAYER's page, LOOP's pads 12–14 (STUTTER, CLIMB DOWN, CLIMB UP) now set BRICKLAYER's own options, as
+  pads 9–11, 15 and 16 already set its direction and speed. Before, they changed the track's loops instead. The
+  pads show BRICKLAYER's settings there too.
+
 ## BUILD 31
 
 23 October 2026
