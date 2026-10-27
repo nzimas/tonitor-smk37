@@ -31,6 +31,8 @@ build/host obrador
 build/host famseed
 build/host snaps build/screens
 build/host scaledraw build/screens
+build/host looptie
+build/host fastfresh
 build/host delay build/screens
 build/host glow
 build/host samefam

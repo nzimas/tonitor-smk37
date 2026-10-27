@@ -955,6 +955,8 @@ static int same_machine(const char *what, const uint8_t *eng, const int8_t *lv, 
 {
     uint32_t l, bad = 0;
     for (l = 0; l < NLAYER; l++) {
+        snd_ready(l, ENG_FM);                    /* (the sounds as they will play: measured, should they not be yet) */
+        snd_ready(l, ENG_ANIMA);
         bad += ui.engine[l] != eng[l] || ui.level[l] != lv[l] || ui.pan[l] != pn[l] || ui.send[l] != sd[l] ||
                ui.oct[l] != oc[l];
         bad += memcmp(&fm_buf[l][fm_pub[l]], &fp[l], sizeof(fm_patch_t)) != 0;
@@ -1062,6 +1064,8 @@ static int cmd_sessions(const char *dir)
         pn[l] = ui.pan[l];
         sd[l] = ui.send[l];
         oc[l] = ui.oct[l];
+        snd_ready(l, ENG_FM);                /* (as it will play: saved unmeasured, it is measured when played) */
+        snd_ready(l, ENG_ANIMA);
         fp[l] = fm_buf[l][fm_pub[l]];
         ad[l] = an_buf[l][an_pub[l]];
         lp[l] = loop[l];
@@ -3186,6 +3190,18 @@ static int cmd_ties(void)
         while (ui.engine[0] != e && guard++ < 20u) {
             host_enc[PANEL_ENC[EN_PRESET]] = 1;
             ui_input();
+        }
+        if (e == ENG_FM) {                   /* (sustained sounds: FM's DRONE, ANIMA's ORGAN -- a pluck or a bell
+                                              * held so is struck again once died away: looptie) */
+            sound_slot_free(&fm_pub[0], &fm_use[0]);
+            fm_generate(&fm_buf[0][fm_use[0] ^ 1u], FF_DRONE, 4242u, PATH_OPEN, GEN_NOW);
+            fm_measure(&fm_buf[0][fm_use[0] ^ 1u]);
+            fm_pub[0] = fm_use[0] ^ 1u;
+        } else if (e == ENG_ANIMA) {
+            sound_slot_free(&an_pub[0], &an_use[0]);
+            an_design(&an_buf[0][an_use[0] ^ 1u], 17, 4242u, PATH_OPEN, GEN_NOW);
+            an_measure(&an_buf[0][an_use[0] ^ 1u]);
+            an_pub[0] = an_use[0] ^ 1u;
         }
         run_blocks(40, 0);
         press_btn(B_REC);
@@ -5579,6 +5595,8 @@ static int cmd_setup(void)
         found |= (vox[k].gate && vox[k].layer == 2u && vox[k].note == 60u) ? 1u : 0u;
         found |= (vox[k].gate && vox[k].layer == 1u && vox[k].note == 64u) ? 2u : 0u;
     }
+    for (k = 0; k < cal_rt[2].nheld; k++)             /* (track 3 starts on CALIGULA: its organism holds the note) */
+        found |= cal_rt[2].note[k] == 60u ? 1u : 0u;
     if (found != 3u)
         printf("FAIL setup: the MIDI notes do not reach their tracks by channel (%u)\n", found), fail++;
     if (ui.level[0] != 0)
@@ -7954,6 +7972,214 @@ static int cmd_scaledraw(const char *dir)
     return fail ? 1 : 0;
 }
 
+/* notes held over the loop's end (as REC ends it). (1) The same note at the start and, again, held at the end: two
+ * notes -- the first struck at every round, the last let go at the end. (2) A pluck (DRUID) held from the first
+ * block to the last, a second note over it (as session 2 of a report): died away at the end, it is struck again
+ * at every round. (3) A drone (FM's DRONE) held so: still sounding, it goes on, one note, never struck again */
+static uint32_t lt_gated(uint32_t note)
+{
+    uint32_t k, n = 0;
+    for (k = 0; k < NVOICE; k++)
+        n += vox[k].gate && vox_owner(&vox[k]) == 0u && vox[k].src == SRC_LOOP && vox[k].note == note;
+    return n;
+}
+static void lt_empty(void)
+{
+    host_press |= 1u << PANEL_BTN[B_REC];
+    fm1_in.buttons |= 1u << PANEL_BTN[B_REC];
+    ui_input();
+    fm1_ms += 1500u;
+    ui_input();
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_REC]);
+    ui_input();
+    run_blocks(44100u * 10u / CTL, 0);
+}
+static int lt_engine(uint32_t e)
+{
+    uint32_t g = 0;
+    while (ui.engine[0] != e && g++ < NENG) {
+        host_enc[PANEL_ENC[EN_PRESET]] = ui.engine[0] < e ? 1 : -1;
+        ui_input();
+    }
+    run_blocks(100, 0);
+    return ui.engine[0] == e;
+}
+static int cmd_looptie(void)
+{
+    uint32_t fail = 0, a, c, r, len, sec = 44100u / CTL;
+    layers_init();
+    ui_init();
+    sounds_init();
+    press_btn(B_FX);
+    lt_engine(ENG_FM);
+    a = key_note_of(0, 0);                       /* (the notes keys 1 and 5 play on track 1) */
+    c = key_note_of(4, 0);
+    /* (1) A 0 .. 100, C 150 .. 250, A again from 300, held as REC ends it */
+    press_btn(B_REC);
+    press_key(0, 1);
+    run_blocks(100, 0);
+    press_key(0, 0);
+    run_blocks(50, 0);
+    press_key(4, 1);
+    run_blocks(100, 0);
+    press_key(4, 0);
+    run_blocks(50, 0);
+    press_key(0, 1);
+    run_blocks(100, 0);
+    press_btn(B_REC);
+    run_blocks(20, 0);
+    press_key(0, 0);
+    len = loop[0].trk[0].len;
+    for (r = 0; r < 3u; r++) {
+        loop_to(0, len - 1u);
+        run_blocks(1, 0);
+        if (lt_gated(a) && loop[0].trk[0].pos)
+            printf("FAIL looptie: round %u: the last A is held over the end, as one note with the first\n", r + 1u), fail++;
+        loop_to(0, 3u);
+        if (lt_gated(a) != 1u)
+            printf("FAIL looptie: round %u: the first A is not struck (%u)\n", r + 2u, lt_gated(a)), fail++;
+    }
+    lt_empty();
+    /* (2) a DRUID pluck held all through, a second note over it */
+    if (!lt_engine(ENG_DRUID))
+        printf("FAIL looptie: no DRUID\n"), fail++;
+    sound_slot_free(&dr_pub[0], &dr_use[0]);
+    dr_design(&dr_buf[0][dr_use[0] ^ 1u], 0, 4242u, PATH_OPEN, GEN_NOW);   /* (PLUCK) */
+    dr_measure(&dr_buf[0][dr_use[0] ^ 1u]);
+    dr_pub[0] = dr_use[0] ^ 1u;
+    run_blocks(10, 0);
+    press_btn(B_REC);
+    press_key(0, 1);
+    run_blocks(4u * sec, 0);
+    press_key(4, 1);
+    run_blocks(4u * sec, 0);
+    press_btn(B_REC);
+    run_blocks(sec, 0);
+    press_key(0, 0);
+    press_key(4, 0);
+    len = loop[0].trk[0].len;
+    for (r = 0; r < 3u; r++) {
+        uint32_t k, fresh = 0;
+        loop_to(0, 40u);
+        for (k = 0; k < NVOICE; k++)              /* (struck anew: loud again, not the faded string) */
+            fresh += vox[k].gate && vox_owner(&vox[k]) == 0u && vox[k].note == a && vox[k].lvl * 4u >= vox[k].pk &&
+                     blk_clock - vox[k].born < 60u;
+        if (fresh != 1u)
+            printf("FAIL looptie: round %u: the pluck held all through is not struck again (%u)\n", r + 2u, fresh), fail++;
+        loop_to(0, len / 2u);
+    }
+    lt_empty();
+    /* (3) FM's DRONE held all through, a second note over it: one note, never let go */
+    lt_engine(ENG_FM);
+    sound_slot_free(&fm_pub[0], &fm_use[0]);
+    fm_generate(&fm_buf[0][fm_use[0] ^ 1u], FF_DRONE, 4242u, PATH_OPEN, GEN_NOW);
+    fm_measure(&fm_buf[0][fm_use[0] ^ 1u]);
+    fm_pub[0] = fm_use[0] ^ 1u;
+    run_blocks(10, 0);
+    press_btn(B_REC);
+    press_key(0, 1);
+    run_blocks(2u * sec, 0);
+    press_key(4, 1);
+    run_blocks(sec, 0);
+    press_key(4, 0);
+    run_blocks(sec, 0);
+    press_btn(B_REC);
+    run_blocks(20, 0);
+    press_key(0, 0);
+    len = loop[0].trk[0].len;
+    for (r = 0; r < 3u; r++) {
+        uint32_t g = 0, blk;
+        for (blk = 0; blk < len + 10u; blk++) {
+            g += !lt_gated(a);
+            run_blocks(1, 0);
+        }
+        if (g)
+            printf("FAIL looptie: round %u: the drone is let go going round (%u blocks)\n", r + 1u, g), fail++;
+    }
+    (void)c;
+    printf("looptie: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
+/* a new session and the start measure only the sound each track plays (issue #5 on the FM-1: every engine's, 42,
+ * took seconds); another engine's is measured when the track first comes to it (< >), the same sound as measured at
+ * once; a session, the clipboard and a snapshot keep sounds unmeasured as they are, measured when played */
+static int cmd_fastfresh(void)
+{
+    uint32_t fail = 0, l, e, k;
+    clock_t c0;
+    double t_fresh, t_all;
+    static fm_patch_t f_ref;
+    layers_init();
+    ui_init();
+    sounds_init();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    for (l = 0; l < NLAYER; l++)
+        if (snd_raw[l] != (uint8_t)(((1u << NENG) - 1u) & ~(1u << ui.engine[l])))
+            printf("FAIL fastfresh: at start track %u has %02x unmeasured (engine %u)\n", l + 1u, snd_raw[l], ui.engine[l]), fail++;
+    c0 = clock();
+    ses_fresh(1);
+    t_fresh = (double)(clock() - c0) / CLOCKS_PER_SEC;
+    c0 = clock();
+    for (l = 0; l < NLAYER; l++)                   /* (what an empty session cost before: every engine's measured) */
+        for (e = 0; e < NENG; e++)
+            snd_ready(l, e);
+    t_all = (double)(clock() - c0) / CLOCKS_PER_SEC + t_fresh;
+    printf("fastfresh: an empty session %.3f s on the host, %.3f s with every sound measured (%.1f x)\n", t_fresh, t_all,
+           t_all / (t_fresh > 1e-6 ? t_fresh : 1e-6));
+    ses_fresh(1);
+    /* < >: the next engine measured as the track comes to it -- the sound measured at once from its seed */
+    press_btn(B_FX);
+    k = ui.engine[0];
+    host_enc[PANEL_ENC[EN_PRESET]] = k ? -1 : 1;
+    ui_input();
+    e = ui.engine[0];
+    if (e == k || (snd_raw[0] >> e & 1u))
+        printf("FAIL fastfresh: the engine come to is not measured (%u -> %u, %02x)\n", k, e, snd_raw[0]), fail++;
+    if (e == ENG_FM) {
+        f_ref = fm_buf[0][fm_pub[0]];
+        fm_generate(&f_ref, f_ref.family, f_ref.seed, f_ref.path, f_ref.gen);
+        fm_measure(&f_ref);
+        if (memcmp(&f_ref, &fm_buf[0][fm_pub[0]], sizeof f_ref))
+            printf("FAIL fastfresh: measured later, FM's sound is not the one measured at once\n"), fail++;
+    }
+    /* a session keeps track 2's unmeasured sounds unmeasured (level 0), and they sound when played */
+    k = snd_raw[1];
+    if (ses_save(1) != SES_OK || ses_load_slot(1) != SES_OK || snd_raw[1] != k)
+        printf("FAIL fastfresh: a session does not keep the sounds unmeasured (%02x, %02x)\n", k, snd_raw[1]), fail++;
+    clip_copy(1);
+    clip_paste(4);
+    if (snd_raw[4] != k)
+        printf("FAIL fastfresh: the clipboard does not carry them (%02x)\n", snd_raw[4]), fail++;
+    for (e = 0; e < NENG; e++)
+        if (k >> e & 1u)
+            break;
+    if (e < NENG) {                                  /* a snapshot: stored and recalled, the track moved to that engine */
+        uint32_t seed, word;
+        uint8_t kind;
+        snap_store(0);
+        sound_rec(1, e, &seed, &word, &kind);
+        if (word & 0xFFFFFu)
+            printf("FAIL fastfresh: an unmeasured sound reads as measured\n"), fail++;
+        ui.engine[1] = (uint8_t)e;                   /* (the snapshot's: track 2 on engine e, its sound unmeasured) */
+        snap_store(1);
+        ui.engine[1] = ENG_START[1];
+        snap_recall(0, 0);
+        snap_recall(1, 0);
+        for (k = 0; k < 120u; k++) {
+            fm1_ms += 16;
+            ui_input();
+            run_blocks(2, 0);
+        }
+        sound_rec(1, e, &seed, &word, &kind);
+        if (ui.engine[1] != e || (snd_raw[1] >> e & 1u) || !(word & 0xFFFFFu))
+            printf("FAIL fastfresh: a snapshot's unmeasured sound is not measured when played (%u, %02x)\n", ui.engine[1], snd_raw[1]), fail++;
+    }
+    printf("fastfresh: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 /* ------------------------------------------------------------- snapshots --- */
 /* REC held (1 s): the chosen track's looper emptied */
 static void host_hold_rec(void)
@@ -8582,6 +8808,10 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 2 && !strcmp(argv[1], "fastfresh"))
+        return cmd_fastfresh();
+    if (argc >= 2 && !strcmp(argv[1], "looptie"))
+        return cmd_looptie();
     if (argc >= 3 && !strcmp(argv[1], "scaledraw"))
         return cmd_scaledraw(argv[2]);
     if (argc >= 3 && !strcmp(argv[1], "snaps"))

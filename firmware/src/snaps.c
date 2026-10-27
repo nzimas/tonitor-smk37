@@ -441,6 +441,7 @@ static void snap_engine(uint32_t l, uint32_t e)
     if (ui.engine[l] == e)
         return;
     ui.engine[l] = (uint8_t)e;
+    snd_ready(l, e);                             /* (kept unmeasured: measured now, a moment) */
     ev_post(EV_ENGINE, l, 0, e);
     mac_apply(l);
 }

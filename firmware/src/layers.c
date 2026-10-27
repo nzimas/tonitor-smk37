@@ -261,29 +261,27 @@ static volatile uint32_t tele_trims;     /* tails the budget let go */
 #else
 #define TELE(b) ((void)0)
 #endif
-/* a note tied over the loop's end: held from its first block to its last (held when the recording ended: ended
- * with the last block, REC's; a key let go is never later than the one before it). Going round, it is neither let
- * go at the end nor struck again at the start: a drone stays one note */
+/* a note tied over the loop's end: one note held from its first block to its last (held when the recording ended:
+ * ended with the last block, REC's). Going round, it is neither let go at the end nor struck again at the start: a
+ * drone stays one note. The same note struck at the start, let go, and struck again to be held at the end is two
+ * notes, not one: the first is struck at every round (its own end comes first), the last let go at the end, its
+ * release ringing on into the next round */
 static int trk_tied(const looper_t *p, const loop_trk_t *t, uint32_t e)
 {
-    uint32_t i;
+    uint32_t i, n = LE_NOTE(e);
     if (LE_ON(e) ? LE_T(e) != 0u : LE_T(e) != t->len - 1u)
         return 0;
-    if (LE_ON(e))
-        for (i = t->n; i-- > 0u;) {               /* (its end: among the last events) */
+    if (LE_ON(e)) {
+        for (i = 0; i < t->n; i++) {              /* (its own end: the note's first end) */
             uint32_t f = p->ev[t->first + i];
-            if (LE_T(f) != t->len - 1u)
-                return 0;
-            if (!LE_ON(f) && LE_NOTE(f) == LE_NOTE(e))
-                return 1;
+            if (!LE_ON(f) && LE_NOTE(f) == n)
+                return LE_T(f) == t->len - 1u;
         }
-    else
-        for (i = 0; i < t->n; i++) {              /* (its start: among the first) */
+    } else
+        for (i = t->n; i-- > 0u;) {               /* (its own start: the note's last start) */
             uint32_t f = p->ev[t->first + i];
-            if (LE_T(f) != 0u)
-                return 0;
-            if (LE_ON(f) && LE_NOTE(f) == LE_NOTE(e))
-                return 1;
+            if (LE_ON(f) && LE_NOTE(f) == n)
+                return LE_T(f) == 0u;
         }
     return 0;
 }
@@ -1410,14 +1408,34 @@ static void lv_tick(uint32_t l)
 /* an event of loop t played: as recorded, or (backwards) turned round -- its start an end, its end a start. A note
  * tied over the loop's end is never let go there, nor struck again just after (forwards: its start is the loop's
  * first block, its end the last; backwards the other way round) */
+/* a note tied over the loop's end, going round: still sounding (a drone, a pad: it goes on, one note), or died
+ * away -- more than 18 dB under its loudest (a pluck, a bell, held to the end: it is struck again, as the loop's
+ * first note). An organism's (CALIGULA, RUSSOLO) goes on */
+static int tied_alive(uint32_t l, uint32_t note)
+{
+    uint32_t k;
+    if (eng_organism(lay[l].engine))
+        return 1;
+    for (k = 0; k < NVOICE; k++) {
+        const voice_t *v = &vox[k];
+        if (v->gate && v->sounding && !v->fade && !v->pend && vox_owner(v) == l && v->src == SRC_LOOP &&
+            v->note == note && v->lvl * 8u >= v->pk)
+            return 1;
+    }
+    return 0;
+}
 static void trk_play(uint32_t l, loop_trk_t *t, looper_t *p, uint32_t e, int as_on)
 {
     uint32_t raw = LE_NOTE(e), nt = loop_note(l, p, t, raw);
     int tied = trk_tied(p, t, e);
     if (as_on) {
-        if (t->wrap && tied && !p->vary && !(lfx[l] & LF_CLIMB))
-            return;                               /* (still sounding from the round before -- but CLIMB lets it go
-                                                   * at the pass: struck again, as it now maps) */
+        if (t->wrap && tied && !p->vary && !(lfx[l] & LF_CLIMB)) {
+            if (tied_alive(l, nt))
+                return;                           /* (still sounding from the round before: one note -- but CLIMB
+                                                   * lets it go at the pass: struck again, as it now maps) */
+            note_off(l, nt, SRC_LOOP);            /* (died away -- a pluck, a bell: let go, its tail fading on, and
+                                                   * struck anew) */
+        }
         (void)nt;
         loop_strike(l, p, t, raw, LE_VC(e));
         TELE(20);
@@ -2487,6 +2505,67 @@ static void layers_init(void)
     memset(fx_r, 0, sizeof fx_r);
 }
 
+/* the sounds drawn but not measured yet (bit e: engine e). Measuring renders seconds of the sound (a tenth to a
+ * third of a second each, here): at start and for an empty session only the engine each layer plays is measured;
+ * the others when the layer first comes to them (snd_ready). A session or a snapshot keeps them unmeasured (level
+ * 0) */
+static uint8_t snd_raw[NLAYER];
+/* layer l's sound on engine e measured -- drawn again from what made it first, its family too (the same sound, at
+ * its design's own level, which ANIMA's measure scales). snd_ready: if it was not yet, in place (the ISR renders it
+ * only once the layer is on engine e): before the layer is moved to e */
+static void snd_measure(uint32_t l, uint32_t e, uint32_t k)   /* (its buffer k) */
+{
+    snd_raw[l] &= (uint8_t)~(1u << e);
+    if (e == ENG_FM) {
+        fm_patch_t *d = &fm_buf[l][k];
+        fm_generate(d, d->family, d->seed, d->path, d->gen);
+        fm_measure(d);
+    } else if (e == ENG_ANIMA) {
+        an_design_t *d = &an_buf[l][k];
+        an_design(d, d->kind, d->seed, d->path, d->gen);
+        an_measure(d);
+    } else if (e == ENG_CAL) {
+        cal_design_t *d = &cal_buf[l][k];
+        cal_design(d, d->kind, d->seed, d->path, d->gen);
+        cal_measure(d);
+    } else if (e == ENG_RUS) {
+        rus_design_t *d = &rus_buf[l][k];
+        rus_design(d, d->kind, d->seed, d->path, d->gen);
+        rus_measure(d);
+    } else if (e == ENG_DRUID) {
+        dr_design_t *d = &dr_buf[l][k];
+        dr_design(d, d->kind, d->seed, d->path, d->gen);
+        dr_measure(d);
+    } else if (e == ENG_BAY) {
+        ba_design_t *d = &ba_buf[l][k];
+        ba_design(d, d->kind, d->seed, d->path, d->gen);
+        ba_measure(d);
+    } else if (e == ENG_OB) {
+        ob_design_t *d = &ob_buf[l][k];
+        ob_design(d, d->kind, d->seed, d->path, d->gen);
+        ob_measure(d);
+    } else {
+        hv_design_t *d = &hv_buf[l][k];
+        hv_design(d, d->kind, d->seed, d->path, d->gen);
+        hv_measure(d);
+    }
+}
+static void snd_ready(uint32_t l, uint32_t e)
+{
+    if (snd_raw[l] >> e & 1u)
+        snd_measure(l, e, e == ENG_FM ? fm_pub[l] : e == ENG_ANIMA ? an_pub[l] : e == ENG_CAL ? cal_pub[l]
+                          : e == ENG_RUS ? rus_pub[l] : e == ENG_DRUID ? dr_pub[l] : e == ENG_BAY ? ba_pub[l]
+                          : e == ENG_OB ? ob_pub[l] : hv_pub[l]);
+}
+/* (a sound given its level: measured, or -- level 0, kept so -- to be measured when played) */
+static void snd_level_set(uint32_t l, uint32_t e, int32_t level)
+{
+    if (level)
+        snd_raw[l] &= (uint8_t)~(1u << e);
+    else
+        snd_raw[l] |= (uint8_t)(1u << e);
+}
+
 /* the ISR has taken the last sound published for this layer and engine (or waits ~20 ms for it) */
 static int sound_slot_free(volatile uint8_t *pub, volatile uint8_t *use)
 {
@@ -2536,6 +2615,7 @@ static int new_fm(uint32_t l, uint32_t seed, uint32_t path)
     }
     RING_PUBLISH();
     fm_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_FM);   /* (measured) */
     return 1;
 }
 static int new_anima(uint32_t l, uint32_t seed, uint32_t path)
@@ -2553,6 +2633,7 @@ static int new_anima(uint32_t l, uint32_t seed, uint32_t path)
     an_measure(&an_buf[l][k]);
     RING_PUBLISH();
     an_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_ANIMA);   /* (measured) */
     return 1;
 }
 static int new_cal(uint32_t l, uint32_t seed, uint32_t path)
@@ -2570,6 +2651,7 @@ static int new_cal(uint32_t l, uint32_t seed, uint32_t path)
     cal_measure(&cal_buf[l][k]);
     RING_PUBLISH();
     cal_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_CAL);   /* (measured) */
     return 1;
 }
 /* layer l's sound on engine e drawn again from what made it (a preset): its seed, path and generation, the level
@@ -2586,6 +2668,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         fm_buf[l][k].gain = level;
         RING_PUBLISH();
         fm_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_FM, level);
     } else if (e == ENG_ANIMA) {
         if (!sound_slot_free(&an_pub[l], &an_use[l]))
             return 0;
@@ -2594,6 +2677,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         an_buf[l][k].out = level;
         RING_PUBLISH();
         an_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_ANIMA, level);
     } else if (e == ENG_CAL) {
         if (!sound_slot_free(&cal_pub[l], &cal_use[l]))
             return 0;
@@ -2602,6 +2686,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         cal_buf[l][k].out = level;
         RING_PUBLISH();
         cal_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_CAL, level);
     } else if (e == ENG_HIVE) {
         if (!sound_slot_free(&hv_pub[l], &hv_use[l]))
             return 0;
@@ -2610,6 +2695,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         hv_buf[l][k].out = level;
         RING_PUBLISH();
         hv_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_HIVE, level);
     } else if (e == ENG_BAY) {
         if (!sound_slot_free(&ba_pub[l], &ba_use[l]))
             return 0;
@@ -2618,6 +2704,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         ba_buf[l][k].out = level;
         RING_PUBLISH();
         ba_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_BAY, level);
     } else if (e == ENG_OB) {
         if (!sound_slot_free(&ob_pub[l], &ob_use[l]))
             return 0;
@@ -2626,6 +2713,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         ob_buf[l][k].out = level;
         RING_PUBLISH();
         ob_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_OB, level);
     } else if (e == ENG_DRUID) {
         if (!sound_slot_free(&dr_pub[l], &dr_use[l]))
             return 0;
@@ -2634,6 +2722,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         dr_buf[l][k].out = level;
         RING_PUBLISH();
         dr_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_DRUID, level);
     } else {
         if (!sound_slot_free(&rus_pub[l], &rus_use[l]))
             return 0;
@@ -2642,6 +2731,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         rus_buf[l][k].out = level;
         RING_PUBLISH();
         rus_pub[l] = (uint8_t)k;
+        snd_level_set(l, ENG_RUS, level);
     }
     return 1;
 }
@@ -2660,6 +2750,7 @@ static int new_rus(uint32_t l, uint32_t seed, uint32_t path)
     rus_measure(&rus_buf[l][k]);
     RING_PUBLISH();
     rus_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_RUS);   /* (measured) */
     return 1;
 }
 static int new_druid(uint32_t l, uint32_t seed, uint32_t path)
@@ -2677,6 +2768,7 @@ static int new_druid(uint32_t l, uint32_t seed, uint32_t path)
     dr_measure(&dr_buf[l][k]);
     RING_PUBLISH();
     dr_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_DRUID);   /* (measured) */
     return 1;
 }
 static int new_bay(uint32_t l, uint32_t seed, uint32_t path)
@@ -2694,6 +2786,7 @@ static int new_bay(uint32_t l, uint32_t seed, uint32_t path)
     ba_measure(&ba_buf[l][k]);
     RING_PUBLISH();
     ba_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_BAY);   /* (measured) */
     return 1;
 }
 static int new_hive(uint32_t l, uint32_t seed, uint32_t path)
@@ -2711,6 +2804,7 @@ static int new_hive(uint32_t l, uint32_t seed, uint32_t path)
     hv_measure(&hv_buf[l][k]);
     RING_PUBLISH();
     hv_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_HIVE);   /* (measured) */
     return 1;
 }
 static int new_ob(uint32_t l, uint32_t seed, uint32_t path)
@@ -2728,6 +2822,7 @@ static int new_ob(uint32_t l, uint32_t seed, uint32_t path)
     ob_measure(&ob_buf[l][k]);
     RING_PUBLISH();
     ob_pub[l] = (uint8_t)k;
+    snd_raw[l] &= (uint8_t)~(1u << ENG_OB);   /* (measured) */
     return 1;
 }
 /* the name of what layer l plays on engine e */

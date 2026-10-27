@@ -520,6 +520,7 @@ static void cb_tick(void)
     case DSET:                                       /* engine cb.e on track 1 alone: a sound drawn, 1 note then 4 */
         ui.sel = 0;
         ui.engine[0] = cb.e;
+        snd_ready(0, cb.e);
         ev_post(EV_ENGINE, 0, 0, cb.e);
         if (el > 400u) {
             if (!(cb.s & 1u))
@@ -568,6 +569,7 @@ static void cb_tick(void)
         for (l = 0; l < NLAYER; l++) {
             ev_post(EV_STOP, l, 0, 0);
             ui.engine[l] = C[cb.s].mixed ? ENG_START[l % 6u] : ENG_FM;
+            snd_ready(l, ui.engine[l]);
             ev_post(EV_ENGINE, l, 0, ui.engine[l]);
         }
         diag_nofx = C[cb.s].nofx;
@@ -636,7 +638,7 @@ static void fm1_main(void)
         smk_trim_read();
     layers_init();
     ui_init();
-    sounds_init();                                   /* a sound of each engine for every layer (~0.2 s) */
+    sounds_init();                                   /* a sound of each engine for every layer (measured: the one it plays) */
     scale_draw();                                    /* a scale and root at random (the host's tests: C major) */
     lx_post();
     /* CPU1: after a supply setup that held, on a boot after no failed one, and not barred since power-on. It starts

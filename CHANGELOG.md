@@ -2,6 +2,24 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 35
+
+27 October 2026
+
+Brought in from Tonitor for the FM-1 (its builds 58 and 61).
+
+Fixed
+- Starting up and starting a new (empty) session were slow: every track drew a sound for each of the eight
+  engines, 48 in all, and measured each one by rendering seconds of it. Now only the sound each track plays is
+  measured; another engine's is measured the first time the track moves to it (a moment, then), or a snapshot
+  moves it there. On the computer an empty session now takes about a fifth of the work. Sessions, snapshots and
+  copy and paste keep sounds not yet measured as they are; presets are always saved measured.
+- A loop's first note could be heard only in the first round. A note held from the loop's first moment to its last
+  was tied over the end as a drone, never struck again, so a plucked sound (DRUID's PLUCK) died away and stayed
+  silent. Now a tied note that has died away (more than 18 dB under its loudest) is let go at the end and struck
+  again at the start; one still sounding goes on as one note. The same note struck at the start and again, held,
+  at the end is no longer taken for one note.
+
 ## BUILD 34
 
 27 October 2026

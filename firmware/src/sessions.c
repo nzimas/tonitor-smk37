@@ -406,56 +406,56 @@ static void ses_emit(void)
                 ses_out(&fm_buf[l][fm_pub[l]], sizeof(fm_patch_t));
             else {
                 c2[0] = fm_buf[l][fm_pub[l]].seed;
-                c2[1] = ses_c2_fam(fm_buf[l][fm_pub[l]].gain, fm_buf[l][fm_pub[l]].gen, fm_buf[l][fm_pub[l]].path, fm_buf[l][fm_pub[l]].family);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_FM & 1u ? 0 : fm_buf[l][fm_pub[l]].gain, fm_buf[l][fm_pub[l]].gen, fm_buf[l][fm_pub[l]].path, fm_buf[l][fm_pub[l]].family);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_ANIMA)
                 ses_out(&an_buf[l][an_pub[l]], sizeof(an_design_t));
             else {
                 c2[0] = an_buf[l][an_pub[l]].seed;
-                c2[1] = ses_c2_fam(an_buf[l][an_pub[l]].out, an_buf[l][an_pub[l]].gen, an_buf[l][an_pub[l]].path, an_buf[l][an_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_ANIMA & 1u ? 0 : an_buf[l][an_pub[l]].out, an_buf[l][an_pub[l]].gen, an_buf[l][an_pub[l]].path, an_buf[l][an_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_CAL)
                 ses_out(&cal_buf[l][cal_pub[l]], sizeof(cal_design_t));
             else {
                 c2[0] = cal_buf[l][cal_pub[l]].seed;
-                c2[1] = ses_c2_fam(cal_buf[l][cal_pub[l]].out, cal_buf[l][cal_pub[l]].gen, cal_buf[l][cal_pub[l]].path, cal_buf[l][cal_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_CAL & 1u ? 0 : cal_buf[l][cal_pub[l]].out, cal_buf[l][cal_pub[l]].gen, cal_buf[l][cal_pub[l]].path, cal_buf[l][cal_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_RUS)                    /* (format 9) */
                 ses_out(&rus_buf[l][rus_pub[l]], sizeof(rus_design_t));
             else {
                 c2[0] = rus_buf[l][rus_pub[l]].seed;
-                c2[1] = ses_c2_fam(rus_buf[l][rus_pub[l]].out, rus_buf[l][rus_pub[l]].gen, rus_buf[l][rus_pub[l]].path, rus_buf[l][rus_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_RUS & 1u ? 0 : rus_buf[l][rus_pub[l]].out, rus_buf[l][rus_pub[l]].gen, rus_buf[l][rus_pub[l]].path, rus_buf[l][rus_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_DRUID)                  /* (format 17) */
                 ses_out(&dr_buf[l][dr_pub[l]], sizeof(dr_design_t));
             else {
                 c2[0] = dr_buf[l][dr_pub[l]].seed;
-                c2[1] = ses_c2_fam(dr_buf[l][dr_pub[l]].out, dr_buf[l][dr_pub[l]].gen, dr_buf[l][dr_pub[l]].path, dr_buf[l][dr_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_DRUID & 1u ? 0 : dr_buf[l][dr_pub[l]].out, dr_buf[l][dr_pub[l]].gen, dr_buf[l][dr_pub[l]].path, dr_buf[l][dr_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_BAY)                    /* (format 19) */
                 ses_out(&ba_buf[l][ba_pub[l]], sizeof(ba_design_t));
             else {
                 c2[0] = ba_buf[l][ba_pub[l]].seed;
-                c2[1] = ses_c2_fam(ba_buf[l][ba_pub[l]].out, ba_buf[l][ba_pub[l]].gen, ba_buf[l][ba_pub[l]].path, ba_buf[l][ba_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_BAY & 1u ? 0 : ba_buf[l][ba_pub[l]].out, ba_buf[l][ba_pub[l]].gen, ba_buf[l][ba_pub[l]].path, ba_buf[l][ba_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_HIVE)                   /* (format 22: in full -- a new size of it needs a new format) */
                 ses_out(&hv_buf[l][hv_pub[l]], sizeof(hv_design_t));
             else {
                 c2[0] = hv_buf[l][hv_pub[l]].seed;
-                c2[1] = ses_c2_fam(hv_buf[l][hv_pub[l]].out, hv_buf[l][hv_pub[l]].gen, hv_buf[l][hv_pub[l]].path, hv_buf[l][hv_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_HIVE & 1u ? 0 : hv_buf[l][hv_pub[l]].out, hv_buf[l][hv_pub[l]].gen, hv_buf[l][hv_pub[l]].path, hv_buf[l][hv_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
             if (y.engine == ENG_OB)                     /* (format 32) */
                 ses_out(&ob_buf[l][ob_pub[l]], sizeof(ob_design_t));
             else {
                 c2[0] = ob_buf[l][ob_pub[l]].seed;
-                c2[1] = ses_c2_fam(ob_buf[l][ob_pub[l]].out, ob_buf[l][ob_pub[l]].gen, ob_buf[l][ob_pub[l]].path, ob_buf[l][ob_pub[l]].kind);
+                c2[1] = ses_c2_fam(snd_raw[l] >> ENG_OB & 1u ? 0 : ob_buf[l][ob_pub[l]].out, ob_buf[l][ob_pub[l]].gen, ob_buf[l][ob_pub[l]].path, ob_buf[l][ob_pub[l]].kind);
                 ses_out(c2, sizeof c2);
             }
         }
@@ -793,6 +793,8 @@ static void sound_rec(uint32_t l, uint32_t e, uint32_t *seed, uint32_t *word, ui
         const hv_design_t *s_ = &hv_buf[l][hv_pub[l]];
         *seed = s_->seed, *word = ses_c2_word(s_->out, s_->gen, s_->path), *kind = s_->kind;
     }
+    if (snd_raw[l] >> e & 1u)
+        *word &= ~0xFFFFFu;                    /* (not measured yet: level 0, measured when played) */
 }
 /* layer l's sound on engine e into engine e's slot */
 static int pre_save(uint32_t l, uint32_t e, uint32_t slot)
@@ -829,6 +831,7 @@ static int pre_save(uint32_t l, uint32_t e, uint32_t slot)
     }
     memset(&rec, 0, sizeof rec);
     rec.used = 1;
+    snd_ready(l, e);                                    /* (a preset keeps its measured level) */
     sound_rec(l, e, &rec.seed, &rec.word, &rec.kind);
     memcpy(rec.mac, ui.mac[l][e], NMAC);
     pre_put_slot(k0 + slot - 1u, &rec);
@@ -922,7 +925,7 @@ static void ses_fresh(uint32_t num)
     bb_release(NLAYER);
     bl_release(NLAYER);
     for (l = 0; l < NLAYER; l++) {
-        uint32_t s = next_seed(), fk, ak, ck, rk, dk, bk, hk, ok_;
+        uint32_t s = next_seed(), fk, ak, ck, rk, dk, bk, hk, ok_, e;
         bb_defaults(l);
         bl_defaults(l);
         loop[l].mute = 0;
@@ -951,25 +954,21 @@ static void ses_fresh(uint32_t num)
         sound_slot_free(&ba_pub[l], &ba_use[l]);
         bk = ba_use[l] ^ 1u;
         dr_design(&dr_buf[l][dk], -1, s * 19u + 11u, PATH_OPEN, GEN_NOW);
-        dr_measure(&dr_buf[l][dk]);
         ba_design(&ba_buf[l][bk], -1, s * 23u + 13u, PATH_OPEN, GEN_NOW);
-        ba_measure(&ba_buf[l][bk]);
         sound_slot_free(&hv_pub[l], &hv_use[l]);
         hk = hv_use[l] ^ 1u;
         hv_design(&hv_buf[l][hk], -1, s * 29u + 17u, PATH_OPEN, GEN_NOW);
-        hv_measure(&hv_buf[l][hk]);
         sound_slot_free(&ob_pub[l], &ob_use[l]);
         ok_ = ob_use[l] ^ 1u;
         ob_design(&ob_buf[l][ok_], -1, s * 31u + 19u, PATH_OPEN, GEN_NOW);
-        ob_measure(&ob_buf[l][ok_]);
         fm_generate(&fm_buf[l][fk], -1, s, PATH_OPEN, GEN_NOW);    /* (as sounds_init draws them) */
-        fm_measure(&fm_buf[l][fk]);
         an_design(&an_buf[l][ak], -1, s * 7u + 3u, PATH_OPEN, GEN_NOW);
-        an_measure(&an_buf[l][ak]);
         cal_design(&cal_buf[l][ck], -1, s * 13u + 5u, PATH_OPEN, GEN_NOW);
-        cal_measure(&cal_buf[l][ck]);
         rus_design(&rus_buf[l][rk], -1, s * 17u + 9u, PATH_OPEN, GEN_NOW);
-        rus_measure(&rus_buf[l][rk]);
+        snd_raw[l] = (uint8_t)((1u << NENG) - 1u);    /* drawn; measured only the one it plays (the others when it */
+        e = ui.engine[l];                              /* comes to them) */
+        snd_measure(l, e, e == ENG_FM ? fk : e == ENG_ANIMA ? ak : e == ENG_CAL ? ck : e == ENG_RUS ? rk
+                          : e == ENG_DRUID ? dk : e == ENG_BAY ? bk : e == ENG_OB ? ok_ : hk);
         RING_PUBLISH();
         cal_pub[l] = (uint8_t)ck;
         rus_pub[l] = (uint8_t)rk;
@@ -1004,6 +1003,7 @@ typedef struct {                 /* the record's first part: the track's setting
     uint8_t dmode, rate, vary, ntrk, fx;
     uint16_t mute;
     uint32_t nev, gseed;
+    uint8_t raw;                 /* (its sounds not measured yet: snd_raw) */
     int8_t env[NENG][4];
     uint8_t env_on[NENG];
     int8_t mac[NENG][NMAC];
@@ -1074,6 +1074,7 @@ static void clip_copy(uint32_t l)
     r.vary = p->vary;
     r.fx = lfx[l];
     r.gseed = gran[l].seed;
+    r.raw = snd_raw[l];
     memcpy(r.mac, ui.mac[l], sizeof r.mac);
     memcpy(r.env, ui.env[l], sizeof r.env);
     memcpy(r.env_on, ui.env_on[l], sizeof r.env_on);
@@ -1202,6 +1203,7 @@ static void clip_paste(uint32_t l)
     ses_in(&hv_buf[l][hk], sizeof(hv_design_t));
     ses_in(&ob_buf[l][ok_], sizeof(ob_design_t));
     ses_in(&lay_mod[l], sizeof(mod_t));
+    snd_raw[l] = r.raw;
     RING_PUBLISH();
     cal_pub[l] = (uint8_t)ck;
     rus_pub[l] = (uint8_t)rk;
@@ -1502,6 +1504,10 @@ static int ses_load(uint32_t i)
                 ob_buf[l][ok_].out = ses_c2_level(&h, c2[1]);
             }
         }
+        snd_raw[l] = (uint8_t)(!fm_buf[l][fk].gain << ENG_FM | !an_buf[l][ak].out << ENG_ANIMA |   /* (saved unmeasured: */
+                               !cal_buf[l][ck].out << ENG_CAL | !rus_buf[l][rk].out << ENG_RUS |   /* level 0) */
+                               !dr_buf[l][dk].out << ENG_DRUID | !ba_buf[l][bk].out << ENG_BAY | !hv_buf[l][hk].out << ENG_HIVE |
+                               !ob_buf[l][ok_].out << ENG_OB);
         RING_PUBLISH();
         cal_pub[l] = (uint8_t)ck;
         rus_pub[l] = (uint8_t)rk;
