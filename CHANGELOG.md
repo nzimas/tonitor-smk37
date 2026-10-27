@@ -2,6 +2,22 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 38
+
+27 October 2026
+
+Added
+- Faders 1 to 3, live controls over the whole instrument, never saved (fader 4 stays the master level):
+  - Fader 1, MORPH: a morph by hand between the snapshot you are on (bottom) and the one framed on the SNAPSHOTS
+    page (top). Values that glide follow the fader; what has no in-between switches at the middle, in either
+    direction; a track whose sound differs passes through silence there. It takes hold only once it has been at
+    the bottom.
+  - Fader 2, SPACE: every track's reverb and delay sends, the reverb's decay and the delay's repeats raised
+    together, towards a wash at the top. The stored values are left as they are.
+  - Fader 3, the master filter: low-pass below the middle, off at the middle (with a small dead zone), high-pass
+    above, over the whole mix after the delay and the reverb. It glides smoothly.
+  - Each fader shows its dial while it moves: MORPH 1 TO 3 and how far, SPACE and its share, FILTER LP 1.2K.
+
 ## BUILD 37
 
 27 October 2026

@@ -630,8 +630,8 @@ static void snap_lerp(const snap_t *a, const snap_t *b, int32_t u, uint32_t skip
         ui.rvp[k] = (int8_t)snap_mix(a->rvp[k], b->rvp[k], u);
         ui.dlp[k] = (int8_t)snap_mix(a->dlp[k], b->dlp[k], u);
     }
-    rv_param(ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
-    dl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    rv_apply();
+    dl_apply();
     for (l = 0; l < NLAYER; l++) {
         const snap_trk_t *ta = &a->t[l], *tb = &b->t[l];
         int32_t lv = ta->level * 256 + (((tb->level - ta->level) * 256 * u) >> 15);
@@ -814,12 +814,105 @@ static int snap_store(uint32_t i)
     snap.loop_dirty = (uint8_t)((1u << NLAYER) - 1u);
     return 1;
 }
+/* fader 1 (ui.c faders_poll): a morph by hand between two snapshots -- at the bottom the one last stored or
+ * recalled (x), at the top the one framed on the SNAPSHOTS page (y; < > frame it). Moved up from the bottom it takes
+ * hold: what glides follows the fader between the two, what has no in-between (snap_discrete) is x's below the
+ * middle and y's above, either way; a track whose sound differs goes down to silence at the middle. At the top the
+ * machine is y, back at the bottom x. A recall, a session, or either emptied lets go: the fader to the bottom again
+ * to take hold */
+static struct {
+    uint8_t armed;               /* it has been at the bottom: it may take hold */
+    uint8_t on, x, y, top;       /* holding x .. y; above the middle (y's discrete state given) */
+    uint8_t chg;                 /* the tracks whose sound differs */
+    int32_t u;                   /* where it is, Q15 */
+} fmo;
+static int fmorph_on(void) { return fmo.on; }
+static uint32_t fmorph_pair(void) { return fmo.x | (uint32_t)fmo.y << 8; }
+static void fmorph_end(void)
+{
+    uint32_t l;
+    fmo.on = 0;
+    for (l = 0; l < NLAYER; l++)
+        lay_duck[l] = 0;
+}
+static void fmorph_set(int32_t f)                /* the fader, 0 .. 127 */
+{
+    uint32_t l;
+    int32_t u, top;
+    const snap_t *a, *b;
+    if (f <= 2) {                                /* the bottom: x exactly, and ready to take hold again */
+        if (fmo.on) {
+            if (fmo.top) {
+                morph_b = snap_s[fmo.x];
+                snap_discrete(&morph_b, fmo.chg);
+            }
+            snap_lerp(&snap_s[fmo.x], &snap_s[fmo.x], Q15, 0);
+            snap.cur = (int8_t)fmo.x;
+            fmorph_end();
+            ui.force = 1;
+        }
+        fmo.armed = 1;
+        return;
+    }
+    if (!fmo.on) {
+        int32_t x = snap.cur, y = ui.snap_ix;
+        if (!fmo.armed)
+            return;
+        fmo.armed = 0;                           /* (taken hold of, or not: the bottom again first) */
+        if (x < 0 || y == x || !snap_has((uint32_t)x) || !snap_has((uint32_t)y))
+            return;
+        morph_end();
+        memset(snap_pend, 0, sizeof snap_pend);
+        fmo.x = (uint8_t)x;
+        fmo.y = (uint8_t)y;
+        fmo.top = 0;
+        fmo.chg = 0;
+        fmo.u = -1;
+        for (l = 0; l < NLAYER; l++) {
+            const snap_trk_t *tx = &snap_s[x].t[l], *ty = &snap_s[y].t[l];
+            const snd_ent_t *e = &snd_tab[tx->snd[tx->engine]];
+            if (tx->engine != ty->engine || tx->snd[tx->engine] != ty->snd[ty->engine])
+                fmo.chg |= (uint8_t)(1u << l);
+            memcpy(morph_ma[l], e->mac, NMAC);   /* (what glides from: x's) */
+            memcpy(morph_ea[l], e->env, 4u);
+        }
+        fmo.on = 1;
+    }
+    u = f >= 125 ? Q15 : f * Q15 / 125;
+    if (u == fmo.u)
+        return;
+    fmo.u = u;
+    a = &snap_s[fmo.x];
+    b = &snap_s[fmo.y];
+    top = u >= Q15 / 2;
+    if (top != fmo.top) {                        /* across the middle: the other one's discrete state */
+        fmo.top = (uint8_t)top;
+        morph_b = top ? *b : *a;
+        snap_discrete(&morph_b, fmo.chg);
+    }
+    snap_lerp(a, b, u, fmo.chg);
+    for (l = 0; l < NLAYER; l++)                 /* a new sound: down from 1/4 to silence at 1/2, up by 3/4 */
+        if (fmo.chg >> l & 1u) {
+            int32_t d = u < Q15 / 4 || u >= Q15 * 3 / 4 ? 0 : u < Q15 / 2 ? (u - Q15 / 4) * 4 : (Q15 * 3 / 4 - u) * 4;
+            lay_duck[l] = (int16_t)clampi(d, 0, Q15 - 1);
+        }
+    if (u >= Q15) {
+        snap.cur = (int8_t)fmo.y;
+        for (l = 0; l < NLAYER; l++)
+            lay_duck[l] = 0;
+    }
+    ui.force = 1;
+}
 /* snapshot i recalled: over the morph time (half seconds), or at once */
 static void snap_recall(uint32_t i, uint32_t morph_half_s)
 {
     uint32_t l;
     if (i >= NSNAP || !((snap.used >> i) & 1u))
         return;
+    if (fmo.on) {                                /* (fader 1's morph let go: the bottom again to take hold) */
+        fmorph_end();
+        fmo.armed = 0;
+    }
     morph_end();
     memset(snap_pend, 0, sizeof snap_pend);
     morph_b = snap_s[i];                         /* (a copy: stored over on the way, it still goes where it went) */
@@ -853,6 +946,10 @@ static void snap_clear(uint32_t i)
 {
     if (i >= NSNAP)
         return;
+    if (fmo.on && (i == fmo.x || i == fmo.y)) {
+        fmorph_end();
+        fmo.armed = 0;
+    }
     snap.used &= (uint16_t)~(1u << i);
     if (snap.cur == (int8_t)i)
         snap.cur = -1;
@@ -863,6 +960,8 @@ static int snap_current(void) { return snap.cur; }
 /* a session loaded or begun: none */
 static void snap_reset(void)
 {
+    fmorph_end();
+    fmo.armed = 0;
     morph_end();
     memset(snap_pend, 0, sizeof snap_pend);
     snap.used = 0;

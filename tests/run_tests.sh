@@ -34,6 +34,7 @@ build/host scaledraw build/screens
 build/host looptie
 build/host fastfresh
 build/host playflash
+build/host faders
 build/host delay build/screens
 build/host glow
 build/host samefam

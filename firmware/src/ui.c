@@ -201,6 +201,9 @@ static struct {
     uint32_t morph_until;        /* .. its dial shown until then */
     int32_t shown_snap, shown_morph;
     uint32_t ssv_t0;             /* SHIFT + SAVE pressed at: held 0.8 s is GLOBAL SETUP, shorter the SESSIONS page */
+    uint8_t fd_dial;             /* the fader moved last (1 .. 3), its dial shown until fd_until */
+    uint32_t fd_until;
+    int32_t shown_fd;
     uint8_t ssv_down, ssv_long;
     uint8_t set_page;            /* GLOBAL SETUP up (setup.c) */
     uint8_t mod_page, mod_ix;    /* the MOD page up (SEQ's third); its entry: LFO 1, LFO 2, MOD A .. D */
@@ -507,6 +510,16 @@ static int32_t level_gain(int32_t lv_q8)
     int32_t db16 = ((lv_q8 - LEVEL_UNITY * 256) * 16328) >> 8;   /* x 0.24914, Q16 */
     return lv_q8 <= 0 ? 0 : (int32_t)(exp2_q16(db16) >> 2);
 }
+/* the faders (faders_poll): live, on top of what is stored, never saved -- fader 2 SPACE (0 .. 100), fader 3 the
+ * master filter (layers.c mflt_v), fader 1 a morph between two snapshots (snaps.c) */
+static uint8_t fd_space;
+static int32_t space_up(int32_t v, int32_t top)  /* a value raised toward top by SPACE */
+{
+    return v < top ? v + (top - v) * fd_space / 100 : v;
+}
+/* the reverb's and the delay's values to them: as set, SPACE on top (a longer decay, more repeats) */
+static void rv_apply(void) { rv_param(ui.rvp[0], space_up(ui.rvp[1], 95), ui.rvp[2], ui.rvp[3]); }
+static void dl_apply(void) { dl_param(ui.dlp[0], space_up(ui.dlp[1], 85), ui.dlp[2], ui.dlp[3]); }
 static void level_pan_apply(uint32_t l)
 {
     int32_t ph;
@@ -514,8 +527,8 @@ static void level_pan_apply(uint32_t l)
     ph = (int32_t)((uint32_t)(ui.pan[l] + PAN_MAX) * (0x40000000u / (2u * PAN_MAX)));   /* 0 .. a quarter turn */
     lay_pl[l] = sin_ph((uint32_t)ph + 0x40000000u);
     lay_pr[l] = sin_ph((uint32_t)ph);
-    lay_send[l] = ui.send[l] * 32767 / 100;
-    lay_dsend[l] = ui.dsend[l] * 32767 / 100;
+    lay_send[l] = space_up(ui.send[l], 100) * 32767 / 100;   /* (SPACE: every send raised together) */
+    lay_dsend[l] = space_up(ui.dsend[l], 100) * 32767 / 100;
     lay_dist[l] = ui.dist[l];
     lay_lvl[l] = ui.level[l];
     lay_pan[l] = ui.pan[l];
@@ -565,6 +578,9 @@ static int snap_has(uint32_t i);
 static int snap_current(void);
 static int snap_morph_target(void);
 static void morph_poll(void);
+static void fmorph_set(int32_t f);
+static int fmorph_on(void);
+static uint32_t fmorph_pair(void);              /* (its two snapshots: x, y << 8) */
 static void mac_apply(uint32_t l);
 static int pre_kind(uint32_t e, uint32_t slot);   /* the kind of sound in engine e's slot, -1 if none */
 static int pre_save(uint32_t l, uint32_t e, uint32_t slot);
@@ -966,6 +982,46 @@ static uint32_t snap_pads(uint32_t press)
     }
     return press & ~(0xFFu << SMK_PADBTN0);
 }
+/* faders 1 .. 3 (fader 4 is the master: main.c): read each pass, acted on as they move -- 1 the morph by hand
+ * (snaps.c fmorph_set), 2 SPACE, 3 the master filter (middle off, a dead zone either side of it). Their dial over
+ * the screen while one moves and 1.2 s after */
+#ifdef HOST
+static uint8_t host_fader[3] = {0, 0, 64};      /* (the host tests set them: fader 3 in the middle, its filter off) */
+#define FADER(i) ((int32_t)host_fader[i])
+#define FADERS_READY 1
+#else
+#define FADER(i) ((int32_t)fm1_in.fader[i])
+#define FADERS_READY (fm1_in.frames >= 300u)    /* (the readings settled) */
+#endif
+static void faders_poll(void)
+{
+    static int16_t was[3] = {-1, -1, -1};
+    uint32_t i;
+    if (!FADERS_READY)
+        return;
+    for (i = 0; i < 3u; i++) {
+        int32_t f = FADER(i);
+        if (f == was[i])
+            continue;
+        if (was[i] >= 0) {                       /* (moved: its dial -- not at start, where they just are) */
+            ui.fd_dial = (uint8_t)(i + 1u);
+            ui.fd_until = fm1_ms + 1200u;
+        }
+        was[i] = (int16_t)f;
+        if (i == 1u) {                           /* SPACE: every send, the reverb's decay, the delay's repeats */
+            uint32_t l;
+            fd_space = (uint8_t)(f * 100 / 127);
+            for (l = 0; l < NLAYER; l++)
+                level_pan_apply(l);
+            rv_apply();
+            dl_apply();
+        } else if (i == 2u) {                    /* the master filter: 64 the middle, off within 4 of it */
+            int32_t d = f - 64;
+            mflt_v = (int8_t)(d > 4 ? (d - 4) * MF_MAX / 59 : d < -4 ? (d + 4) * MF_MAX / 60 : 0);
+        }
+    }
+    fmorph_set(FADER(0));                        /* (each pass: it takes hold only from the bottom) */
+}
 static void ui_input(void)
 {
     uint32_t rel, press = fm1_input_edges(&rel), keys[2], ch[2], fk, fch, k, l;
@@ -978,6 +1034,7 @@ static void ui_input(void)
         was_on = (uint8_t)audio_worker_online;
     }
     morph_poll();                                /* (a snapshot's morph, a step on) */
+    faders_poll();                               /* (faders 1 .. 3: the morph by hand, SPACE, the master filter) */
     bb_tick();                                   /* (the balls: their time, their notes) */
     bl_tick();                                   /* (BRICKLAYER's steps) */
     rx_tick();                                   /* (REACT: listening, and the parts' notes) */
@@ -1204,9 +1261,9 @@ static void ui_input(void)
             if (s) {
                 pv[j] = (int8_t)clampi(pv[j] + 2 * s, 0, 100);
                 if (ui.fx)
-                    dl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+                    dl_apply();
                 else
-                    rv_param(ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+                    rv_apply();
                 ui.rv_touched = (int8_t)j;
                 ui.rv_touch_until = fm1_ms + 1500u;
             }
@@ -2882,6 +2939,64 @@ static void draw_snap_page(void)
                 cv_frame(x, 6, 30, 82, 2, C_WHITE);
         }
 }
+/* a fader moving: its dial over the screen -- MORPH 1 TO 3 and how far (or what it waits for), SPACE and its share,
+ * FILTER and the master filter's mode and cutoff (LP 1.2K, HP 400, OFF) */
+static void draw_fader_dial(void)
+{
+    char v[16], w[16];
+    int32_t pct = 0, key;
+    const char *t = ui.fd_dial == 1u ? "MORPH" : ui.fd_dial == 2u ? "SPACE" : "FILTER";
+    w[0] = 0;
+    if (ui.fd_dial == 1u) {
+        pct = FADER(0) * 100 / 127;
+        if (fmorph_on()) {
+            fmt_int(v, (int32_t)(fmorph_pair() & 255u) + 1);
+            str_cpy(v + str_len(v), " TO ", 5);
+            fmt_int(v + str_len(v), (int32_t)(fmorph_pair() >> 8) + 1);
+            fmt_int(w, pct);
+            str_cpy(w + str_len(w), " %", 3);
+        } else {
+            str_cpy(v, FADER(0) <= 2 ? "READY" : "DOWN", sizeof v);   /* (it takes hold from the bottom) */
+            str_cpy(w, FADER(0) <= 2 ? "" : "FIRST", sizeof w);
+        }
+    } else if (ui.fd_dial == 2u) {
+        pct = fd_space;
+        fmt_int(v, fd_space);
+        str_cpy(v + str_len(v), " %", 3);
+    } else {
+        int32_t m = mflt_v;
+        pct = (FADER(2) * 100) / 127;
+        if (!m)
+            str_cpy(v, "OFF", sizeof v);
+        else {
+            int32_t hz = (int32_t)exp2_q16(mflt_oct(m) - (16 << 16));
+            str_cpy(v, m < 0 ? "LP " : "HP ", 4);
+            if (hz >= 1000) {
+                fmt_int(v + 3, hz / 1000);
+                str_cpy(v + str_len(v), ".", 2);
+                fmt_int(v + str_len(v), hz / 100 % 10);
+                str_cpy(v + str_len(v), "K", 2);
+            } else
+                fmt_int(v + 3, hz);
+        }
+    }
+    key = (int32_t)ui.fd_dial << 24 ^ pct << 8 ^ (int32_t)str_len(v) ^ (fmorph_on() ? 1 << 20 : 0) ^ (int32_t)v[0] << 12 ^
+          (int32_t)v[str_len(v) - 1u] << 16;
+    if (!ui.force && ui.shown_fd == key)
+        return;
+    ui.shown_fd = key;
+    CV_AREA(0, 0, 240, 50, C_BLACK)
+        cv_text_c((50 - FONT_M.h) / 2, &FONT_M, t, C_SNAP);
+    CV_AREA(0, 50, 240, 112, C_BLACK)
+        cv_text_fit((112 - band_font(v)->h) / 2, band_font(v), v, C_WHITE);
+    CV_AREA(0, 162, 240, 40, C_BLACK)
+        if (w[0])
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, w, C_GREY);
+    CV_AREA(0, 202, 240, 38, C_BLACK) {
+        cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+        cv_rect(12, 8, pct * 216 / 100, 22, C_SNAP);
+    }
+}
 /* the first page knob on the SNAPSHOTS page: the morph time over the page while it turns and 1.5 s after -- MORPH,
  * the time large (4.5, or OFF: at once), SECONDS, a bar of its reach (0 .. 30 s) */
 static void draw_morph_dial(void)
@@ -2945,6 +3060,14 @@ static void ui_draw(void)
         if (ui.force || (uint32_t)(fm1_ms - ui.mod_drawn_at) >= 40u)
             draw_mod_page();
         ui.shown_page = 11;
+        ui.force = 0;
+        return;
+    }
+    if (ui.fd_dial && (int32_t)(ui.fd_until - fm1_ms) > 0) {   /* (a fader moving: its dial) */
+        if (ui.shown_page != 16)
+            ui.force = 1;
+        draw_fader_dial();
+        ui.shown_page = 16;
         ui.force = 0;
         return;
     }
@@ -3088,10 +3211,10 @@ static void ui_init(void)
     }
     for (l = 0; l < 4u; l++)
         ui.rvp[l] = RV_DEF[l];
-    rv_param(ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    rv_apply();
     for (l = 0; l < 4u; l++)
         ui.dlp[l] = DL_DEF[l];
-    dl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    dl_apply();
     ui.rv_touched = -1;
     memset(&bb, 0, sizeof bb);
     for (l = 0; l < NLAYER; l++)

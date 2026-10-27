@@ -90,6 +90,9 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | **SHIFT + SEQ** | the chosen track's **modulation thrown anew** (MOD RANDOM). See Modulation. |
 | **pitch wheel** | bends the chosen track ±2 semitones. |
 | **mod wheel** | on the chosen track: a vibrato (5.5 Hz, up to 0.4 semitone) and the first macro pushed up. |
+| **fader 1** | **MORPH** by hand, from the snapshot you are on (bottom) to the one framed on the SNAPSHOTS page (top). See The faders. |
+| **fader 2** | **SPACE**: every track's reverb and delay sends, the reverb's decay and the delay's repeats, raised together. |
+| **fader 3** | the **master filter**: low-pass below the middle, off at the middle, high-pass above. |
 | **fader 4** | the **master level**. |
 | **OCTAVE− at power-on** | the **RESCUE** mode. **OCTAVE− and OCTAVE+ held 5 s**: **UBOOT**. See Starting, rescue and UBOOT. |
 | MIDI in (USB) | notes play the tracks by channel; CCs set level, pan, macros, filter and sends. See Global setup and MIDI. |
@@ -580,6 +583,36 @@ themselves: the pitch wheel's rest is taken at power-on.
 
 **Fader 4** (the rightmost) is the master level. It sets what reaches the headphones and the outputs, not the
 USB audio (see USB audio).
+
+### The faders
+
+Faders 1 to 3 are live controls over the whole instrument. They act on top of what is stored and are never saved:
+sessions, snapshots and presets keep what they kept before, and the faders act on them wherever they stand. While a
+fader moves, and a moment after, the screen shows its dial.
+
+**Fader 1, MORPH.** A morph by hand between two snapshots. The bottom is the snapshot you are on (the one last
+stored or recalled); the top is the one framed on the SNAPSHOTS page (move the frame with **<** and **>**; pressing a
+pad recalls it). Start with the fader at the bottom (the dial says READY), then push it up: levels, pans, sends,
+filters, macros and the other values that glide follow the fader between the two snapshots; what has no in-between
+(scale, root, octaves, loops, latched notes, sequencers, engines) is the bottom one's below the middle and the top
+one's above it, in either direction; a track whose sound differs goes down to silence at the middle and comes back.
+At the top the machine is the top snapshot; back at the bottom it is the bottom one again. Recalling a snapshot,
+loading a session or emptying either snapshot lets go of the fader: bring it to the bottom to take hold again (the
+dial says DOWN FIRST until you do).
+
+**Fader 2, SPACE.** At the bottom, everything as set. Pushing it up raises every track's reverb and delay sends
+together, lengthens the reverb's decay and adds repeats to the delay, towards a wash at the top. Pulling it back
+brings the mix back to dry. The values you set on the DELAY and REVERB pages and each track's sends stay as they
+are.
+
+**Fader 3, the master filter.** One filter over the whole mix, after the delay and the reverb, before the master
+level (and in the USB audio's STEREO too). The middle is off, with a small zone either side so the fader finds it
+easily. Below, a low-pass comes down from 20 kHz to about 60 Hz; above, a high-pass goes up from 20 Hz to about
+8 kHz; a little resonant towards the ends. It glides as the track filter does. Its dial reads LP 1.2K, HP 400 or
+OFF.
+
+The faders act from where they are at power-on: fader 2 up means SPACE is already on, fader 3 away from the middle
+means the master filter is already on.
 
 ### The screen
 

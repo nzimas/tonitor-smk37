@@ -2451,6 +2451,57 @@ static int32_t usb_blk[UAC_NBLK * CTL];           /* (the block for USB audio: t
                                                   * each track, mono: after its level, before its pan and the master
                                                   * delay and reverb) */
 #endif
+/* the master filter (fader 3, ui.c faders_poll): over the whole mix, after the delay's and the reverb's returns,
+ * before the MASTER fader (and so in USB audio's stereo too). mflt_v -MF_MAX .. MF_MAX, 0 off: left a low-pass
+ * coming down from 20 kHz to ~60 Hz, right a high-pass going up from 20 Hz to ~8 kHz, a little resonant (Q 0.7 ..
+ * 2) the further from the middle; it fades in over the first steps, and glides as the track filter does (~23 ms,
+ * the block in quarters while it moves) */
+#define MF_MAX 64
+static volatile int8_t mflt_v;
+static struct { svf_t f[2]; int32_t oct, q, amt; uint8_t hp; } mflt;
+static int32_t mflt_oct(int32_t v)               /* log2 Hz, Q16 */
+{
+    if (v < 0)                                   /* 20 kHz (14.29) down 8.4 octaves */
+        return 936005 + ((550502 * v) >> 6);
+    return 283116 + ((560988 * v) >> 6);        /* 20 Hz (4.32) up 8.6 octaves */
+}
+static void mflt_block(int32_t *l_, int32_t *r_)
+{
+    int32_t v = mflt_v, a = v < 0 ? -v : v, amt1 = a >= 4 ? Q15 : a * (Q15 / 4);
+    int32_t q1 = 2896 + a * (8192 - 2896) / MF_MAX, o0, o1, q0, nsub, j, a0, da;
+    uint32_t i;
+    svf_c c;
+    if (v)
+        mflt.hp = (uint8_t)(v > 0);
+    if (!amt1 && !mflt.amt)
+        return;
+    if (!mflt.amt) {                             /* coming in: from where the fader is */
+        mflt.oct = mflt_oct(v ? v : (mflt.hp ? 1 : -1));
+        mflt.q = q1;
+        memset(mflt.f, 0, sizeof mflt.f);
+    }
+    o0 = mflt.oct;
+    q0 = mflt.q;
+    if (v)
+        mflt.oct += (mflt_oct(v) - mflt.oct) >> 5;
+    mflt.q += (q1 - mflt.q) >> 5;
+    o1 = mflt.oct;
+    a0 = mflt.amt;
+    da = (amt1 - a0) / CTL;
+    nsub = absi(o1 - o0) > 256 || absi(mflt.q - q0) > 16 ? 4 : 1;
+    for (j = 0; j < nsub; j++) {
+        uint32_t e = (uint32_t)(j + 1) * (CTL / (uint32_t)nsub);
+        svf_coef(&c, (int32_t)exp2_q16(o0 + (o1 - o0) * (j + 1) / nsub - (16 << 16)), q0 + (mflt.q - q0) * (j + 1) / nsub);
+        for (i = (uint32_t)j * (CTL / (uint32_t)nsub); i < e; i++) {
+            int32_t fl = svf_run(&mflt.f[0], &c, l_[i], mflt.hp ? 3 : 1), fr = svf_run(&mflt.f[1], &c, r_[i], mflt.hp ? 3 : 1);
+            a0 += da;
+            l_[i] += mulq15(fl - l_[i], a0);
+            r_[i] += mulq15(fr - r_[i], a0);
+        }
+    }
+    mflt.amt = amt1;
+}
+
 /* one block: the events, the loops, the work (two cores), the layers, the effects' returns, the master (Q15 stereo,
  * interleaved) */
 static void mix_block(int32_t *out)
@@ -2478,6 +2529,9 @@ static void mix_block(int32_t *out)
     for (i = 0; i < CTL; i++) {
         l_[i] += fx_l[i];                         /* the delay's and the reverb's returns (on the last block's sends) */
         r_[i] += fx_r[i];
+    }
+    mflt_block(l_, r_);                           /* (fader 3: the master filter) */
+    for (i = 0; i < CTL; i++) {
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
         usb_blk[UAC_NBLK * i] = ceiling(l_[i]);
         usb_blk[UAC_NBLK * i + 1u] = ceiling(r_[i]);

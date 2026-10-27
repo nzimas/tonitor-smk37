@@ -1619,6 +1619,8 @@ static int cmd_crush(const char *dir)
     uint32_t fail = 0, i, b, k;
     char path[512];
     static int32_t ref[1378 * 2 * CTL];
+    faders_poll();                                /* (the faders' first reading applies the reverb's values: before
+                                                   * the reverb is muted here) */
     for (i = 0; i < 3u; i++) {
         uint32_t diff = 0, runs = 0, changes = 0, n = 0;
         int32_t vals[64], nv = 0, prev = 0x7FFFFFFF;
@@ -8615,6 +8617,164 @@ static int cmd_snaps(const char *dir)
     return fail ? 1 : 0;
 }
 
+/* faders 1 .. 3: the master filter cuts as it should and glides; SPACE raises every send, the decay and the repeats,
+ * and leaves the stored values be; the morph by hand takes hold only from the bottom, glides between two snapshots,
+ * switches what has no in-between at the middle either way, and gives each exactly at its end */
+static double mf_db(int32_t v, uint32_t hz)          /* the master filter at v on a sine: its level against none, dB */
+{
+    static int32_t l_[CTL], r_[CTL];
+    uint32_t b, i, ph = 0, inc = (uint32_t)(hz * 97391.55);
+    double e[2] = {0, 0};
+    int k;
+    for (k = 0; k < 2; k++) {
+        mflt_v = (int8_t)(k ? v : 0);
+        memset(&mflt, 0, sizeof mflt);
+        for (b = 0; b < 1000u; b++) {
+            for (i = 0; i < CTL; i++) {
+                ph += inc;
+                l_[i] = r_[i] = sin_ph(ph) >> 2;
+            }
+            mflt_block(l_, r_);
+            for (i = 0; i < CTL && b > 300u; i++)
+                e[k] += (double)l_[i] * l_[i];
+        }
+    }
+    mflt_v = 0;
+    return 10 * __builtin_log10(e[1] / e[0]);
+}
+static int cmd_faders(void)
+{
+    uint32_t fail = 0, l, b;
+    double lp_lo = mf_db(-40, 100), lp_hi = mf_db(-40, 6000), hp_lo = mf_db(40, 100), hp_hi = mf_db(40, 8000);
+    printf("faders: master LP -40: 100 Hz %.1f dB, 6 kHz %.1f dB; HP +40: 100 Hz %.1f dB, 8 kHz %.1f dB\n", lp_lo, lp_hi,
+           hp_lo, hp_hi);
+    if (lp_lo < -3.0 || lp_hi > -20.0 || hp_lo > -20.0 || hp_hi < -3.0)
+        printf("FAIL faders: the master filter does not cut as it should\n"), fail++;
+    layers_init();
+    ui_init();
+    sounds_init();
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    host_fader[0] = host_fader[1] = 0;
+    host_fader[2] = 64;
+    ui_input();
+    if (mflt_v)
+        printf("FAIL faders: the master filter is not off at the middle (%d)\n", mflt_v), fail++;
+    host_fader[2] = 66;                              /* (within the dead zone) */
+    ui_input();
+    if (mflt_v)
+        printf("FAIL faders: the master filter is not off near the middle\n"), fail++;
+    host_fader[2] = 0;
+    ui_input();
+    if (mflt_v != -MF_MAX || ui.fd_dial != 3u)
+        printf("FAIL faders: fader 3 down is not the low-pass's end (%d)\n", mflt_v), fail++;
+    {   /* the glide: small moves, never a jump */
+        static int32_t l_[CTL], r_[CTL];
+        int32_t was, big = 0;
+        mflt_v = -30;
+        for (b = 0; b < 300u; b++)
+            mflt_block(l_, r_);
+        was = mflt.oct;
+        mflt_v = -10;
+        for (b = 0; b < 200u; b++) {
+            mflt_block(l_, r_);
+            big = absi(mflt.oct - was) > big ? absi(mflt.oct - was) : big;
+            was = mflt.oct;
+        }
+        if (big > 65536 / 8)
+            printf("FAIL faders: the master filter jumps (%.3f octave a block)\n", big / 65536.0), fail++;
+    }
+    host_fader[2] = 64;
+    ui_input();
+    ui.send[0] = 20;
+    ui.dsend[0] = 10;
+    level_pan_apply(0);
+    host_fader[1] = 127;                             /* SPACE all the way */
+    ui_input();
+    if (lay_send[0] != 32767 || lay_dsend[0] != 32767 || ui.send[0] != 20 || ui.dsend[0] != 10)
+        printf("FAIL faders: SPACE does not raise the sends, or changes the stored ones (%d)\n", lay_send[0]), fail++;
+    ui.fd_until = 0;
+    host_fader[1] = 0;
+    ui_input();
+    if (lay_send[0] != 20 * 32767 / 100)
+        printf("FAIL faders: SPACE down does not give the sends back (%d)\n", lay_send[0]), fail++;
+    /* the morph by hand: snapshot 1 (level 10, scale 0), snapshot 2 (level 20, scale 4) */
+    for (l = 0; l < NLAYER; l++) {
+        ui.level[l] = 10;
+        level_pan_apply(l);
+    }
+    ui.scale = 0;
+    snap_store(0);
+    machine_get(&snap_m1);
+    for (l = 0; l < NLAYER; l++) {
+        ui.level[l] = 20;
+        level_pan_apply(l);
+    }
+    ui.scale = 4;
+    new_cal(2, 0xBEEFu, PATH_OPEN);                  /* (track 3 another sound: through silence at the middle) */
+    snap_store(1);
+    machine_get(&snap_m2);
+    host_fader[0] = 60;                              /* (the fader up when snapshot 1 is recalled) */
+    snap_recall(0, 0);
+    snap_settle();
+    ui.snap_ix = 1;                                  /* (snapshot 2 framed: the top) */
+    host_fader[0] = 70;                              /* moved, not from the bottom: nothing */
+    ui_input();
+    if (fmorph_on())
+        printf("FAIL faders: the morph takes hold without starting at the bottom\n"), fail++;
+    host_fader[0] = 0;
+    ui_input();
+    for (b = 1; b <= 127u; b += 6u) {
+        host_fader[0] = (uint8_t)b;
+        ui_input();
+        run_blocks(2, 0);
+        for (l = 0; l < NLAYER; l++)
+            if (ui.level[l] < 10 || ui.level[l] > 20)
+                printf("FAIL faders: the morph goes beyond the two (track %u, %d)\n", l + 1u, ui.level[l]), fail++;
+        if ((b >= 2u * 125u / 4u) != (ui.scale == 4u) && b != 1u)
+            printf("FAIL faders: the scale is not switched at the middle (fader %u, scale %u)\n", b, ui.scale), fail++;
+        if (b > 40u && b < 85u && !lay_duck[2])
+            printf("FAIL faders: the new sound does not go through silence (fader %u)\n", b), fail++;
+        if (lay_duck[0])
+            printf("FAIL faders: a track whose sound stays goes down\n"), fail++;
+    }
+    host_fader[0] = 80;                              /* (its dial on the way) */
+    ui_input();
+    ui.force = 1;
+    ui_draw();
+    ppm("build/screens/screen-50-fader-morph.ppm");
+    host_fader[0] = 127;
+    ui_input();
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("fader 1 at the top", &snap_now, &snap_m2);
+    if (snap_current() != 1)
+        printf("FAIL faders: at the top, snapshot 2 is not the current one\n"), fail++;
+    for (b = 127; b > 7u; b -= 7u) {                 /* and back down */
+        host_fader[0] = (uint8_t)b;
+        ui_input();
+        run_blocks(2, 0);
+    }
+    host_fader[0] = 0;
+    ui_input();
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("fader 1 back at the bottom", &snap_now, &snap_m1);
+    if (snap_current() != 0 || fmorph_on())
+        printf("FAIL faders: at the bottom, snapshot 1 is not the current one, or the morph holds on\n"), fail++;
+    host_fader[2] = 30;                              /* (the master filter's dial) */
+    ui_input();
+    ui.force = 1;
+    ui_draw();
+    ppm("build/screens/screen-51-fader-filter.ppm");
+    host_fader[2] = 64;
+    ui_input();
+    printf("faders: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 /* OBRADOR: the eighth engine, chosen with PRESETS; each family sounds (the output in range), a chord's voices end
  * once let go; its eight macros named and felt; the pitch bend moves it; a session keeps its sound in full (the track
  * on it) and as its seed (not); a preset and the clipboard keep it; a preset record of before OBRADOR (HIVE alone in
@@ -8897,6 +9057,8 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 2 && !strcmp(argv[1], "faders"))
+        return cmd_faders();
     if (argc >= 2 && !strcmp(argv[1], "playflash"))
         return cmd_playflash();
     if (argc >= 2 && !strcmp(argv[1], "fastfresh"))

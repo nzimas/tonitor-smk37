@@ -913,8 +913,8 @@ static void ses_fresh(uint32_t num)
         ui.rvp[k] = RV_DEF[k];
         ui.dlp[k] = DL_DEF[k];
     }
-    rv_param(ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
-    dl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    rv_apply();
+    dl_apply();
     memset(ui.dsend, 0, sizeof ui.dsend);
     memset(ui.chord_on, 0, sizeof ui.chord_on);
     memset(ui.chord_form, 0, sizeof ui.chord_form);
@@ -1297,7 +1297,7 @@ static int ses_load(uint32_t i)
     ui.sel = (uint8_t)(g[0] < NLAYER ? g[0] : 0);
     for (k = 0; k < 4u; k++)
         ui.rvp[k] = (int8_t)clampi(g[1u + k], 0, 100);
-    rv_param(ui.rvp[0], ui.rvp[1], ui.rvp[2], ui.rvp[3]);
+    rv_apply();
     ui.scale = (uint8_t)(g[5] < NSCALE ? g[5] : 0);  /* (sessions before the scales: C major) */
     ui.root = (uint8_t)(g[6] < 12u ? g[6] : 0);
     ui.lx = (int8_t)(h.format >= 10u ? clampi((int8_t)g[7], -14, 14) : 0);
@@ -1599,7 +1599,7 @@ static int ses_load(uint32_t i)
         for (l = 0; l < NLAYER; l++)
             ui.dsend[l] = (int8_t)clampi(ui.dsend[l], 0, 100);
     }
-    dl_param(ui.dlp[0], ui.dlp[1], ui.dlp[2], ui.dlp[3]);
+    dl_apply();
     for (l = 0; l < NLAYER; l++)
         level_pan_apply(l);
     memset(ui.chord_on, 0, sizeof ui.chord_on);         /* chords (before format 14: off, latches single notes) */
