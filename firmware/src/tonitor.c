@@ -12,7 +12,7 @@
 #define TONITOR_ID "SMK-37 Pro_732"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 38"
+#define TONITOR_VERSION "BUILD 39"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY
@@ -68,6 +68,7 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "reverb.c"
 #include "layers.c"
 #include "ui.c"
+#include "gest.c"
 #include "snaps.c"
 #include "sessions.c"
 #include "setup.c"

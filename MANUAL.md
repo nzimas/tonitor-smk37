@@ -77,7 +77,7 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | **REC held** (1 s) | **empty** the chosen track's looper: the whole screen flashes LOOP n / EMPTY. |
 | **SHIFT + REC** | the chosen track's loops **VARY**, on or off (VAR at the top right while on). See VARY. |
 | **PLAY** | pressed and let go: stop the chosen track's loops, or play them again, each from its start. PLAY is lit while they play. On BALLSY's or BRICKLAYER's page, PLAY starts and stops that sequencer; while the chosen track's sequencer plays, PLAY stops it from any page. |
-| **PLAY held** (0.6 s) | the chosen track's **loops on the bottom row of pads**, to take each out or bring it back (OVERDUBS); held again, the pads freed (PADS FREE). While PLAY is held, the screen shows the loops and the keys take them in and out too. |
+| **PLAY held** (0.6 s) | the chosen track's **loops on the bottom row of pads**, to take each out or bring it back (OVERDUBS), and its three **gesture layers** on pads 14–16; held again, the pads freed (PADS FREE). While PLAY is held, the screen shows the loops and the keys take them in and out too. |
 | **SHIFT + PLAY** | from any track: if any loop or sequencer plays, every loop and sequencer of every track stops (ALL STOPPED; the loops are kept). If none plays, every loop and every sequencer that is on starts, together, from their starts (ALL PLAYING). |
 | **SCALE** | the **SCALE page** (SCALE lit): K1 the root, K2 the scale. SCALE again, or a track pad, goes back. See Scales. |
 | **SCALE held** (0.8 s) | a **new scale and root**, drawn at random; the SCALE page shows them for 1.5 s. See Scales. |
@@ -263,7 +263,7 @@ Voices and load). Sessions keep the latches.
 
 ### The loopers
 
-Every track has its own looper of up to **eight loops**, and they are all **free**: no tempo, no grid, no
+Every track has its own looper of up to **five loops** (the first and four overdubs), and they are all **free**: no tempo, no grid, no
 quantising, not even between a track's own loops. Each overdub is a loop of its own, as long as you made it,
 going round in its own length over the others, so they drift in and out of phase. Each plays back what was
 played, to 0.73 ms, with each note's velocity (in 16 steps).
@@ -275,7 +275,8 @@ played, to 0.73 ms, with each note's velocity (in 16 steps).
 - Press **REC** again to **end** it: the loop is exactly as long as from that first note to this press. It plays
   at once, round and round (LOOP n). If the track's loops were stopped, they all start again with it.
 - **Press REC again while it plays to overdub**: the same again, a new loop over the others.
-- The ninth is refused: the screen says **8 LOOPS**.
+- The sixth is refused: the screen says **5 LOOPS**. (Pads 6 to 8 of the OVERDUBS page are the gesture layers:
+  see Gesture layers.)
 - **REC held** (1 s) empties the track's looper, all its loops (LOOP n / EMPTY). Emptying returns the loops to
   forwards, normal speed and VARY off, and takes away the track's own move along the scale.
 
@@ -297,6 +298,31 @@ out), and the keys from the lowest one up do the same as the pads: the lowest wh
 key loop 2, and so on. The pads stay up after you let go of PLAY; hold PLAY again to free them. With the loops
 stopped, this chooses which will play: take out all but one, press PLAY, and only that one starts; then bring
 the others in, one by one. Every loop is in when recorded. Sessions keep which loops are out.
+
+### Gesture layers
+
+Besides its notes, each track can record its **knobs**: three **gesture layers**, G1 to G3, on the last three pads
+of the OVERDUBS page (pads 14, 15, 16; hold PLAY to bring the page up). A gesture layer keeps every turn of the
+track's knobs while it records: the **filter**, the **granulator**, the **crush**, the **distortion**, the **delay**
+and **reverb sends**, the **level**, the **pan** and the **eight macros** (with MACRO on) of the sound it plays.
+Then it plays them back, over and over.
+
+- Press an **empty** gesture pad (dark): it **records** at once (the pad blinks red; G1 REC). Turn the knobs.
+- Press it **again** to end it: the layer is as long as from your first press to this one, and it plays at once
+  (G1). One layer records at a time.
+- Press a **recorded** pad to switch the layer **off** (dim) or back **on** (lit, sky blue).
+- **Hold** a recorded pad (0.8 s) to **empty** it.
+
+A gesture layer has **its own length**, not the loops': it goes round in that length while the loops go round in
+theirs, so it drifts against them. A filter sweep you made over the end of a phrase comes back, next time, over
+another part of it, and further along each time. That is the point: the gestures are not tied to the notes, and
+they bring the unexpected, even to you. Three layers of different lengths drift against each other too.
+
+A layer plays while the track's loops play (it starts from its beginning when you start them), or all the time on
+a track with no loops. What it plays moves the knobs' values as your hand would: you can turn a knob between its
+events, and the layer takes it over again at its next one. The layers of all the tracks share one store of about
+a thousand moves; when it is full the screen says GESTURES FULL (empty a layer to make room). Sessions keep them;
+snapshots and copying a track do not (yet).
 
 **Moving the loops along the scale.** Hold **SHIFT** and press **OCTAVE+** or **OCTAVE−**: every loop of every
 track moves one step of the chosen scale up or down, so each loop keeps its shape within the scale. Latched

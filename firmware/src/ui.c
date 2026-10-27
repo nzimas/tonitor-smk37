@@ -578,6 +578,14 @@ static int snap_has(uint32_t i);
 static int snap_current(void);
 static int snap_morph_target(void);
 static void morph_poll(void);
+/* gest.c (after this file): the gesture layers */
+enum { GP_FLT, GP_GR, GP_CR, GP_DIST, GP_DSEND, GP_SEND, GP_LEVEL, GP_PAN, GP_MAC0 };
+static void gest_rec(uint32_t l, uint32_t p, int32_t v);
+static void gest_pad_down(uint32_t k);
+static void gest_tick(void);
+static int gest_has(uint32_t l, uint32_t k);
+static int gest_rec_on(uint32_t l, uint32_t k);
+static int gest_is_on(uint32_t l, uint32_t k);
 static void fmorph_set(int32_t f);
 static int fmorph_on(void);
 static uint32_t fmorph_pair(void);              /* (its two snapshots: x, y << 8) */
@@ -1035,6 +1043,7 @@ static void ui_input(void)
     }
     morph_poll();                                /* (a snapshot's morph, a step on) */
     faders_poll();                               /* (faders 1 .. 3: the morph by hand, SPACE, the master filter) */
+    gest_tick();                                 /* (the gesture layers: recording, playing) */
     bb_tick();                                   /* (the balls: their time, their notes) */
     bl_tick();                                   /* (BRICKLAYER's steps) */
     rx_tick();                                   /* (REACT: listening, and the parts' notes) */
@@ -1277,6 +1286,7 @@ static void ui_input(void)
                 int8_t *m = &ui.mac[ui.sel][ui.engine[ui.sel]][j];
                 *m = (int8_t)clampi(*m + 2 * s, -MAC_MAX, MAC_MAX);
                 mac_apply(ui.sel);
+                gest_rec(ui.sel, GP_MAC0 + j, *m);
                 ui.dial = (uint8_t)(DIAL_MAC + j);
                 ui.dial_until = fm1_ms + 1000u;
             }
@@ -1290,6 +1300,7 @@ static void ui_input(void)
             flt_at = fm1_ms;
             ui.flt[ui.sel] = (int8_t)clampi(ui.flt[ui.sel] + st, -FLT_MAX, FLT_MAX);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_FLT, ui.flt[ui.sel]);
             ui.dial = DIAL_FLT;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1297,6 +1308,7 @@ static void ui_input(void)
         if (s) {
             ui.gr[ui.sel] = (int8_t)clampi(ui.gr[ui.sel] + 2 * s, -FLT_MAX, FLT_MAX);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_GR, ui.gr[ui.sel]);
             ui.dial = DIAL_GR;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1304,6 +1316,7 @@ static void ui_input(void)
         if (s) {
             ui.cr[ui.sel] = (int8_t)clampi(ui.cr[ui.sel] + 2 * s, -FLT_MAX, FLT_MAX);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_CR, ui.cr[ui.sel]);
             ui.dial = DIAL_CR;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1311,6 +1324,7 @@ static void ui_input(void)
         if (s) {
             ui.dist[ui.sel] = (int8_t)clampi(ui.dist[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_DIST, ui.dist[ui.sel]);
             ui.dial = DIAL_DIST;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1318,6 +1332,7 @@ static void ui_input(void)
         if (s) {
             ui.dsend[ui.sel] = (int8_t)clampi(ui.dsend[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_DSEND, ui.dsend[ui.sel]);
             ui.dial = DIAL_DSEND;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1325,6 +1340,7 @@ static void ui_input(void)
         if (s) {
             ui.send[ui.sel] = (int8_t)clampi(ui.send[ui.sel] + 2 * s, 0, 100);
             level_pan_apply(ui.sel);
+            gest_rec(ui.sel, GP_SEND, ui.send[ui.sel]);
             ui.dial = DIAL_SEND;
             ui.dial_until = fm1_ms + 1000u;
         }
@@ -1359,7 +1375,7 @@ static void ui_input(void)
             fmt_int(m + 5, p->ntrk + 1);
             say(m, 1200);
         } else if (p->rec == LR_IDLE && p->ntrk >= LOOP_USE)
-            say("8 LOOPS", 1500);                /* full (a pad each): not armed */
+            say("5 LOOPS", 1500);                /* full (a pad each, 1 .. 5): not armed */
         else if (p->rec == LR_IDLE && p->nev >= LOOP_N - 32u)
             say("LOOPER FULL", 1500);            /* (its notes, and the snapshots' loops: not armed) */
     }
@@ -1459,6 +1475,7 @@ static void ui_input(void)
         int32_t lv = clampi(ui.level[ui.sel] + s, 0, LEVEL_MAX);
         ui.level[ui.sel] = (int8_t)lv;
         level_pan_apply(ui.sel);
+        gest_rec(ui.sel, GP_LEVEL, lv);
         if (lv == 0)
             str_cpy(m + 4, "OFF", 8);
         else {
@@ -1473,6 +1490,7 @@ static void ui_input(void)
         int32_t pn = clampi(ui.pan[ui.sel] + s, -PAN_MAX, PAN_MAX), pc = (pn < 0 ? -pn : pn) * 100 / PAN_MAX;
         ui.pan[ui.sel] = (int8_t)pn;
         level_pan_apply(ui.sel);
+        gest_rec(ui.sel, GP_PAN, pn);
         if (!pn)
             str_cpy(m + 4, "C", 8);
         else {
@@ -1593,6 +1611,8 @@ static void ui_input(void)
                     ui.chord_form[ui.sel] = (uint8_t)j;
                     say(CH_NAME[j], 900);
                     ui.force = 1;                /* (its name under CHO) */
+                } else if (ui.pad_page == PP_OVD && j >= LOOP_USE) {   /* the gesture layers (pads 6 .. 8: gest.c) */
+                    gest_pad_down(j - LOOP_USE);
                 } else if (ui.pad_page == PP_OVD) {   /* the overdubs: loop j in or out */
                     const looper_t *lp = &loop[ui.sel];
                     if (j < lp->ntrk) {
@@ -1908,6 +1928,7 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_SHADOW RGB(150, 180, 255)     /* (SHADOW's: a pale blue) */
 #define C_ARP RGB(200, 255, 80)         /* (ARP's: a lime) */
 static const uint16_t RXM_COL[RXM_N] = {C_REACT, C_SHADOW, C_ARP};
+#define C_GEST RGB(80, 200, 255)         /* (the gesture layers, pads 14 .. 16: a sky blue) */
 #define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
@@ -1941,6 +1962,15 @@ static void pads_show(void)
                 pad_rgb(p, RGB(255, 0, 0), (int32_t)(fm1_ms - rx.red_until) < 0 ? 256u : 0u);
             else if (j < NLAYER)
                 pad_rgb(p, RXM_COL[rx.mode], (rx.mask >> j) & 1u ? 256u : PAD_DIM);
+            else
+                padled_set(p, 0, 0, 0);
+        } else if (p >= 8u + LOOP_USE && ui.pad_page == PP_OVD) {   /* the gesture layers: on lit, off dim, empty
+                                                                  * dark, recording blinking red */
+            uint32_t k = p - 8u - LOOP_USE;
+            if (gest_rec_on(ui.sel, k))
+                pad_rgb(p, RGB(255, 0, 0), (fm1_ms / 250u) & 1u ? 256u : PAD_DIM);
+            else if (gest_has(ui.sel, k))
+                pad_rgb(p, C_GEST, gest_is_on(ui.sel, k) ? 160u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
         } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
@@ -2829,42 +2859,59 @@ static void draw_pre_page(void)
     }
 }
 
-/* PLAY held: the chosen layer's loops, 1 .. 10 as the white keys have them -- in, the layer's colour; out, a grey
- * frame; none yet, nothing */
+/* PLAY held: the chosen layer's loops, 1 .. 5 as the pads have them -- in, the layer's colour; out, a grey frame;
+ * none yet, nothing -- and under them its gesture layers G1 .. G3 (pads 6 .. 8): on, sky blue; off, a grey frame;
+ * empty, a dark one; recording, red */
 static void draw_ovd_page(void)
 {
     const looper_t *p = &loop[ui.sel];
-    int32_t key = p->ntrk | p->mute << 4 | (int32_t)ui.sel << 16;
+    int32_t key = p->ntrk | p->mute << 4 | (int32_t)ui.sel << 16, gk = 0;
     uint32_t r, c;
     char t[12] = "LOOPS ";
+    for (c = 0; c < 3u; c++)
+        gk |= (gest_rec_on(ui.sel, c) ? 3 : gest_has(ui.sel, c) ? 1 + gest_is_on(ui.sel, c) : 0) << (2u * c);
+    key ^= gk << 24;
     if (!ui.force && ui.shown_ovd == key)
         return;
     ui.shown_ovd = key;
     t[6] = (char)('1' + ui.sel);
     t[7] = 0;
     cv_begin(240, 52, C_BLACK);
-    cv_text_c((52 - FONT_M.h) / 2, &FONT_M, p->ntrk ? t : "NO LOOPS", LAYER_COL[ui.sel]);
+    cv_text_c((52 - FONT_M.h) / 2, &FONT_M, p->ntrk || gk ? t : "NO LOOPS", LAYER_COL[ui.sel]);
     cv_blit(0, 0);
-    for (r = 0; r < 2u; r++)
-        CV_AREA(0, 52 + 94 * r, 240, 94, C_BLACK)
-        for (c = 0; c < 5u; c++) {
-            uint32_t k = r * 5u + c;
-            int32_t x = 4 + (int32_t)c * 47;
-            char n[4];
-            const font_t *f = k < 9u ? &FONT_M : &FONT_S;
-            if (k >= p->ntrk)
-                continue;
-            fmt_int(n, (int32_t)k + 1);
-            if (!((p->mute >> k) & 1u)) {
-                cv_rect(x, 6, 43, 82, LAYER_COL[ui.sel]);
-                cv_bg_set(LAYER_COL[ui.sel]);
-                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_BLACK);
-                cv_bg_set(C_BLACK);
-            } else {
-                cv_frame(x, 6, 43, 82, 3, C_GREY);
-                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_GREY);
-            }
+    CV_AREA(0, 52, 240, 94, C_BLACK)
+    for (c = 0; c < LOOP_USE; c++) {
+        int32_t x = 4 + (int32_t)c * 47;
+        char n[4];
+        if (c >= p->ntrk)
+            continue;
+        fmt_int(n, (int32_t)c + 1);
+        if (!((p->mute >> c) & 1u)) {
+            cv_rect(x, 6, 43, 82, LAYER_COL[ui.sel]);
+            cv_bg_set(LAYER_COL[ui.sel]);
+            cv_text(x + (43 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_BLACK);
+            cv_bg_set(C_BLACK);
+        } else {
+            cv_frame(x, 6, 43, 82, 3, C_GREY);
+            cv_text(x + (43 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_GREY);
         }
+    }
+    CV_AREA(0, 146, 240, 94, C_BLACK)
+    for (r = 0; r < 3u; r++) {
+        int32_t x = 4 + (int32_t)r * 79, st = gk >> (2u * r) & 3;
+        char n[4] = "G1";
+        uint16_t fill = st == 3 ? RGB(255, 30, 30) : C_GEST;
+        n[1] = (char)('1' + r);
+        if (st == 2 || st == 3) {
+            cv_rect(x, 6, 74, 82, fill);
+            cv_bg_set(fill);
+            cv_text(x + (74 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_BLACK);
+            cv_bg_set(C_BLACK);
+        } else {
+            cv_frame(x, 6, 74, 82, 3, st ? C_GREY : RGB(50, 50, 50));
+            cv_text(x + (74 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, st ? C_GREY : RGB(70, 70, 70));
+        }
+    }
 }
 
 static void draw_ses_page(void)

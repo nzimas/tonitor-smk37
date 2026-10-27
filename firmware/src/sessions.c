@@ -23,7 +23,7 @@
 #define SES_SECT 4096u
 #define SES_NSECT ((SES_HI - SES_LO) / SES_SECT)
 #define SES_MAGIC 0x31534341u    /* "ACS1" */
-#define SES_FORMAT 32u           /* 32: OBRADOR (an eighth sound, after HIVE in each track's; eight engines' macros and envelopes); each sound kept as its seed keeps its family (above its path); the 16 snapshots (snaps.c), the loops they hold, the morph time, PLAY ALONG, at the end; each loop's start; 31: the latched notes' velocities, at the end; 30: BRICKLAYER's STUTTER, CLIMB DOWN, CLIMB UP, at the end; 29: eight macros an engine (the SMK-37's knobs); 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
+#define SES_FORMAT 33u           /* 33: the gesture layers (gest.c), at the end; 32: OBRADOR (an eighth sound, after HIVE in each track's; eight engines' macros and envelopes); each sound kept as its seed keeps its family (above its path); the 16 snapshots (snaps.c), the loops they hold, the morph time, PLAY ALONG, at the end; each loop's start; 31: the latched notes' velocities, at the end; 30: BRICKLAYER's STUTTER, CLIMB DOWN, CLIMB UP, at the end; 29: eight macros an engine (the SMK-37's knobs); 28: the loops' STUTTER, CLIMB DOWN, CLIMB UP (27's options let go), at the end; 26: the loops' velocity (layers.c LE); 25: the SMK-37's 37 keys (their latches; earlier ones' let go); 24: each track's modulation (two LFOs, four slots: mod.c), at the end; 23: whether each track's BALLSY and BRICKLAYER play (PLAY), at the end; 22: HIVE's sound as reworked (twelve kinds; its design larger); 21: HIVE (a seventh sound; seven engines' macros and envelopes); 20: each track's BRICKLAYER (on, its notes, length, rate, harmony, instability), at the end; 19: BAYAREA (a sixth sound; six engines' macros and envelopes); 18: each track's balls (on, how many, speed, octaves, instability), at the end; 17: DRUID (a fifth sound, five engines' macros and envelopes); 16: each track's distortion, at the end; 15: each track's own envelope on each engine, at the end; 14: each track's chord mode and form, and the chords latched, at the end; 13: the delay's parameters and each track's send to it, at the end; 12: each looper's direction and speed (in loop_state); 11: each track's own transposition; 10: the loops' transposition (and each loop's own at its recording); 9: RUSSOLO (a fourth sound, four engines' macros); 8: the granulator's character,
                                   * the latched notes; 7: the loops held out; 6: the macros; 5: the generations; 4: the paths; 3: a CALIGULA design a layer; 2: up to ten loops
                                   * a layer (1: one) */
 #define SES_MAX 40u              /* records in the list (one a sector at most) */
@@ -517,6 +517,7 @@ static void ses_emit(void)
         ses_out(r, sizeof r);
     }
     snap_emit();                                        /* (format 32: the snapshots and their tables) */
+    gest_emit();                                        /* (format 33: the gesture layers) */
 }
 static void ses_head_fill(ses_head_t *h, uint32_t num, uint32_t format, uint32_t len, uint16_t crc)
 {
@@ -898,6 +899,7 @@ static void ses_fresh(uint32_t num)
     }
     ses_events_drain();
     snap_reset();                                       /* (no snapshots yet) */
+    gest_reset();                                       /* (no gesture layers) */
     memset(lay_mod, 0, sizeof lay_mod);
     for (l = 0; l < NLAYER; l++) {                      /* (the loops' STUTTER, CLIMB DOWN, CLIMB UP off) */
         lfx[l] = 0;
@@ -1782,6 +1784,10 @@ static int ses_load(uint32_t i)
             rx.ak[k] = (int8_t)clampi(rx.ak[k], 0, 100);
         snap_load();                                    /* the snapshots (before format 32: none) */
     }
+    if (h.format >= 33u)                                /* the gesture layers (before format 33: none) */
+        gest_load();
+    else
+        gest_reset();
     for (l = 0; l < NLAYER; l++) {
         mac_apply(l);
         level_pan_apply(l);

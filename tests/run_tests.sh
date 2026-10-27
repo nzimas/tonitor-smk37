@@ -35,6 +35,7 @@ build/host looptie
 build/host fastfresh
 build/host playflash
 build/host faders
+build/host gestures
 build/host delay build/screens
 build/host glow
 build/host samefam

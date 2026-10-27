@@ -167,6 +167,7 @@ static uint8_t fm1_led_dim[32];               /* (ui.c: the right-hand buttons d
 static void smo_on(uint32_t on) { (void)on; }  /* (the TRS jack: smk_midi_out.h) */
 static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uint8_t)!!on; }
 #include "ui.c"
+#include "gest.c"
 #include "snaps.c"
 /* the FM-1's black-key functions and SHIFT, as the tests press them: KEY_SHIFT is KNOB BANK; KEY_x the function FN_x
  * (no control on the SMK-37 yet: ui.c fn_keys reads host_fn) */
@@ -701,7 +702,7 @@ static int cmd_flows(void)
         if (loop[4].trk[0].pos != (p0 + 1u) % loop[4].trk[0].len && loop[4].trk[0].pos != (p0 + 2u) % loop[4].trk[0].len)
             printf("FAIL flows: the first loop jumped when the overdub ended\n"), fail++;
     }
-    for (i = 0; i < 8u; i++) {               /* up to eight loops (a pad each); the ninth is refused */
+    for (i = 0; i < LOOP_USE; i++) {         /* up to five loops (pads 1 .. 5); the sixth is refused */
         press_btn(B_REC);
         press_key(i, 1);
         run_blocks(20, 0);
@@ -712,8 +713,8 @@ static int cmd_flows(void)
     }
     press_btn(B_REC);
     run_blocks(2, 0);
-    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "8 LOOPS"))
-        printf("FAIL flows: not eight loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
+    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "5 LOOPS"))
+        printf("FAIL flows: not five loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
     run_blocks(3000, 0);
     press_btn(B_PLAY);                        /* stopped */
     run_blocks(10, 0);
@@ -8775,6 +8776,107 @@ static int cmd_faders(void)
     return fail ? 1 : 0;
 }
 
+/* the gesture layers (pads 6 .. 8 of the OVERDUBS page): an empty pad records the chosen track's knobs, pressed again
+ * it ends (its length); it plays them back over and over at that length, freely (no loops) or as the loops play;
+ * a pad pressed on and off, held emptied; one emptied, the others' events close up and still play; a session keeps
+ * them; five note loops at most (pads 1 .. 5) */
+static void gtap(uint32_t p, uint32_t ms)              /* a bottom pad (8 .. 15) down for ms */
+{
+    host_pads |= 1u << p;
+    smk_pad_on[p] = 1;
+    ui_input();
+    fm1_ms += ms;
+    ui_input();
+    smk_pad_on[p] = 0;
+    ui_input();
+}
+static void gknob(uint32_t ms, int32_t s)            /* ms on, then K3 (the filter) s clicks, slowly */
+{
+    fm1_ms += ms;
+    host_enc[PANEL_ENC[EN_K1]] = s;
+    ui_input();
+}
+static int8_t gflt_at(uint32_t from, uint32_t ms)    /* the filter ms after from (passes 10 ms apart) */
+{
+    while ((uint32_t)(fm1_ms - from) < ms) {
+        fm1_ms += 10u;
+        ui_input();
+    }
+    return ui.flt[0];
+}
+static int cmd_gestures(void)
+{
+    uint32_t fail = 0, t0;
+    int8_t a, b, c;
+    layers_init();
+    ui_init();
+    sounds_init();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    press_btn(B_FX);
+    ui.pad_page = PP_OVD;
+    gtap(8u + 5u, 20);                               /* G1: recording, from now */
+    t0 = fm1_ms;
+    if (!gest_rec_on(0, 0))
+        printf("FAIL gestures: an empty gesture pad does not record\n"), fail++;
+    gknob(200, -10);                                 /* (at ~200 ms the filter to -20, at ~500 -60) */
+    gknob(300, -20);
+    fm1_ms = t0 + 1000u;
+    gtap(8u + 5u, 20);                               /* its end: ~1 s long */
+    if (gest_rec_on(0, 0) || !gest_has(0, 0) || !gest_is_on(0, 0) || gl[0][0].len < 990u || gl[0][0].len > 1030u ||
+        gl[0][0].n != 2u)
+        printf("FAIL gestures: G1 not recorded as played (%u ms, %u events)\n", gl[0][0].len, gl[0][0].n), fail++;
+    ui.flt[0] = 0;                                   /* (the knob back by hand) */
+    t0 = fm1_ms;
+    gl[0][0].pos = 0;
+    gl[0][0].ix = 0;
+    a = gflt_at(t0, 300);
+    b = gflt_at(t0, 600);
+    ui.flt[0] = 0;
+    c = gflt_at(t0, 1000u + 300u);                   /* (round again: the first event again) */
+    if (a != -20 || b != -60 || c != -20)          /* (ten clicks at once: two steps each) */
+        printf("FAIL gestures: G1 does not play back (%d %d %d)\n", a, b, c), fail++;
+    gtap(8u + 5u, 50);                               /* off */
+    ui.flt[0] = 5;
+    if (gest_is_on(0, 0) || gflt_at(fm1_ms, 1500) != 5)
+        printf("FAIL gestures: G1 off still plays\n"), fail++;
+    gtap(8u + 5u, 50);                               /* on again */
+    /* G1 on track 2 too; then track 1's emptied: track 2's events close up and still play */
+    press_btn(B_SEL);
+    gtap(8u + 5u, 20);
+    t0 = fm1_ms;
+    fm1_ms += 100u;
+    host_enc[PANEL_ENC[EN_SELECT]] = -3;             /* (its level) */
+    ui_input();
+    fm1_ms = t0 + 400u;
+    gtap(8u + 5u, 20);
+    press_btn(B_FX);
+    gtap(8u + 5u, 900);                              /* track 1's G1 held: emptied */
+    if (gest_has(0, 0) || !gest_has(1, 0) || gl[1][0].first != 0u || gev_used != gl[1][0].n)
+        printf("FAIL gestures: emptying G1 of track 1 does not close the store up (%u %u)\n", gl[1][0].first, gev_used), fail++;
+    ui.level[1] = LEVEL_UNITY;
+    if (gflt_at(fm1_ms, 600) , ui.level[1] != LEVEL_UNITY - 3)
+        printf("FAIL gestures: track 2's layer does not play after the store closed up (%d)\n", ui.level[1]), fail++;
+    /* a session keeps them; a new one has none */
+    if (ses_save(1) != SES_OK)
+        printf("FAIL gestures: not saved\n"), fail++;
+    ses_fresh(2);
+    if (gest_has(1, 0))
+        printf("FAIL gestures: a new session has gesture layers\n"), fail++;
+    if (ses_load_slot(1) != SES_OK || !gest_has(1, 0) || gl[1][0].n != 1u || gl[1][0].len < 390u || !gest_is_on(1, 0))
+        printf("FAIL gestures: the session does not bring them back\n"), fail++;
+    ui.ovd = 1;
+    press_btn(B_SEL);
+    fm1_ms += 2000u;                                 /* (past any flash) */
+    ui.force = 1;
+    ui_draw();
+    ppm("build/screens/screen-52-gestures.ppm");
+    ui.ovd = 0;
+    printf("gestures: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 /* OBRADOR: the eighth engine, chosen with PRESETS; each family sounds (the output in range), a chord's voices end
  * once let go; its eight macros named and felt; the pitch bend moves it; a session keeps its sound in full (the track
  * on it) and as its seed (not); a preset and the clipboard keep it; a preset record of before OBRADOR (HIVE alone in
@@ -9057,6 +9159,8 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 2 && !strcmp(argv[1], "gestures"))
+        return cmd_gestures();
     if (argc >= 2 && !strcmp(argv[1], "faders"))
         return cmd_faders();
     if (argc >= 2 && !strcmp(argv[1], "playflash"))

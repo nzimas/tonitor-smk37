@@ -2,6 +2,24 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 39
+
+27 October 2026
+
+Added
+- Gesture layers: three a track, G1 to G3, on pads 14 to 16 of the OVERDUBS page (PLAY held). An empty pad
+  pressed records the track's knobs as they are turned (the filter, granulator, crush, distortion, delay and
+  reverb sends, level, pan and the eight macros); pressed again it ends, its length the time between the two
+  presses, and it plays them back, round and round, at that length. A recorded pad pressed switches the layer off
+  or on; held 0.8 s, empties it. A layer's own length drifts against the loops', so its gestures fall on other parts
+  of the loop at every round: by design. A layer plays while the track's loops play, or freely on a track without
+  loops. The layers share a store of 1024 moves (GESTURES FULL). Sessions (format 33) keep them; earlier sessions
+  load with none.
+
+Changed
+- A track records up to five loops (the first and four overdubs: pads 9 to 13), eight before. A session with more
+  still loads and plays them all; pads 14 to 16 are the gesture layers.
+
 ## BUILD 38
 
 27 October 2026
