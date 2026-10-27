@@ -8,7 +8,7 @@ track on the top row of pads and play it on the keys. The other tracks go on sou
 notes, loops and sequencers keep playing while you choose and play another track.
 
 The tracks start on FM, ANIMA, CALIGULA, HIVE, DRUID and BAYAREA (tracks 1 to 6), with a new sound each, on the
-OPEN path, in C MAJOR. Each track has a colour: 1 yellow, 2 cyan, 3 pink, 4 green, 5 orange, 6 lilac.
+OPEN path, in a scale and root drawn at random. Each track has a colour: 1 yellow, 2 cyan, 3 pink, 4 green, 5 orange, 6 lilac.
 
 ### The panel
 
@@ -80,6 +80,7 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | **PLAY held** (0.6 s) | the chosen track's **loops on the bottom row of pads**, to take each out or bring it back (OVERDUBS); held again, the pads freed (PADS FREE). While PLAY is held, the screen shows the loops and the keys take them in and out too. |
 | **SHIFT + PLAY** | from any track: if any loop or sequencer plays, every loop and sequencer of every track stops (ALL STOPPED; the loops are kept). If none plays, every loop and every sequencer that is on starts, together, from their starts (ALL PLAYING). |
 | **SCALE** | the **SCALE page** (SCALE lit): K1 the root, K2 the scale. SCALE again, or a track pad, goes back. See Scales. |
+| **SCALE held** (0.8 s) | a **new scale and root**, drawn at random; the SCALE page shows them for 1.5 s. See Scales. |
 | **SHIFT + SCALE** | the **PRESETS** page of the chosen track's engine. See Presets. |
 | **SAVE** | the **SNAPSHOTS** page (SAVE lit): the 16 pads are the session's snapshots. See Snapshots. |
 | **SAVE held** (0.8 s) | **save** the session (on the SNAPSHOTS page: store the snapshot framed). See Sessions. |
@@ -614,10 +615,14 @@ half the room for voices.
 
 ### Scales
 
-One scale and root for the whole keyboard, saved with the session; C MAJOR at the start. Press **SCALE** to open
-the SCALE page: **K1** chooses the root (C to B, round the octave), **K2** the scale. The page shows SCALE, the
+One scale and root for the whole keyboard, saved with the session. At start, and in a new (empty) session, both are
+drawn at random. Press **SCALE** to open the SCALE page: **K1** chooses the root (C to B, round the octave), **K2** the scale. The page shows SCALE, the
 root very large, and the scale's name under it; what you just turned is drawn black on white for a moment. SCALE
 again, or a track pad, goes back.
+
+Hold **SCALE** (0.8 s) to draw a new scale and root at random, as at start, from any page. The SCALE page shows them
+for 1.5 s, then the page that was up comes back. The loops and latched notes follow the new scale, as when you turn
+K1 or K2.
 
 The root sits on the lowest key and the scale climbs from there across all 37 keys, black keys included (see The
 keys for where each scale starts).
@@ -747,7 +752,7 @@ with EMPTY under it when it does not; the session loaded says LOADED. Press **SA
 - on a slot holding a session, it **loads** (LOADING, then LOADED and the number);
 - on an empty slot, it starts a **new session** there (NEW and the number): a clean slate, as when the keyboard
   is switched on. The loops and latches go, every track is on its starting engine with new sounds and its
-  settings at their defaults, and the scale, the delay, the reverb and the moves along the scale too. The
+  settings at their defaults, a scale and root drawn at random, and the delay, the reverb and the moves along the scale too. The
   session you were in stays saved as it was, and the next save goes to the new slot.
 
 Either way the page closes. A track pad, or SHIFT + SAVE again, closes it without either.

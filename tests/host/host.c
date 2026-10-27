@@ -87,6 +87,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 
 #include "dsp.h"
 #include "gfx.c"
+#include "logo.c"
 #include "fm.c"
 #include "anima.c"
 #include "cal.c"
@@ -444,6 +445,9 @@ static void ppm(const char *path)
 static void cmd_screens(const char *dir)
 {
     char path[512];
+    splash_draw("BUILD 34");                     /* the splash: the logo */
+    snprintf(path, sizeof path, "%s/screen-00-splash.ppm", dir);
+    ppm(path);
     layers_init();
     ui_init();
     sounds_init();
@@ -1136,7 +1140,7 @@ static int cmd_sessions(const char *dir)
                    || lay[l].engine != ui.engine[l] || ui.level[l] != LEVEL_UNITY || ui.pan[l] != PAN_DEF[l]
                    || ui.send[l] != SEND_DEF || ui.oct[l] || ui.flt[l] || ui.gr[l] || ui.cr[l] || ui.path[l] != PATH_OPEN
                    || layer_sounding(l);
-        if (bad || ui.scale || ui.root || ui.lx || ui.rvp[0] != RV_DEF[0] || ui.edit || ui.sel || fm_buf[0][fm_pub[0]].seed == fseed)
+        if (bad || ui.lx || ui.rvp[0] != RV_DEF[0] || ui.edit || ui.sel || fm_buf[0][fm_pub[0]].seed == fseed)
             printf("FAIL sessions: an empty slot chosen does not start from a clean slate (%u layers)\n", bad), fail++;
     }
     save_btn(900);
@@ -7891,6 +7895,65 @@ static int cmd_russolo(const char *dir)
     return fail ? 1 : 0;
 }
 
+/* SCALE held 0.8 s: a scale and root drawn at random, the SCALE page shown 1.5 s over the page that was up, then
+ * that page again; SCALE let go soon: the SCALE page up and down, nothing drawn. An empty session draws them too */
+static void scale_hold(uint32_t ms)
+{
+    host_press |= 1u << PANEL_BTN[B_ARP];
+    fm1_in.buttons |= 1u << PANEL_BTN[B_ARP];
+    ui_input();
+    fm1_ms += ms;
+    ui_input();
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_ARP]);
+    ui_input();
+}
+static int cmd_scaledraw(const char *dir)
+{
+    uint32_t fail = 0, i, seen = 0, changed = 0;
+    char path[512];
+    layers_init();
+    ui_init();
+    sounds_init();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    scale_hold(50);
+    if (!ui.sc_page || ui.sc_peek)
+        printf("FAIL scaledraw: SCALE let go soon does not open the SCALE page\n"), fail++;
+    scale_hold(50);
+    if (ui.sc_page)
+        printf("FAIL scaledraw: SCALE again does not close it\n"), fail++;
+    press_btn(B_SEQ);                            /* (the DELAY page up: shown again after) */
+    for (i = 0; i < 12u; i++) {
+        uint32_t was = ui.scale * 12u + ui.root;
+        scale_hold(900);
+        changed += ui.scale * 12u + ui.root != was;
+        seen |= 1u << ui.scale;
+        if (!ui.sc_peek || ui.sc_page || !ui.rv_page)
+            printf("FAIL scaledraw: SCALE held does not show the SCALE page a moment over the page up\n"), fail++;
+        if (lx_want_mask != scale_mask())
+            printf("FAIL scaledraw: the loops do not follow the new scale\n"), fail++;
+        if (!i) {
+            ui_draw();
+            snprintf(path, sizeof path, "%s/screen-48-scale-drawn.ppm", dir);
+            ppm(path);
+        }
+        fm1_ms += 1600u;
+        ui_draw();
+        if (ui.sc_peek)
+            printf("FAIL scaledraw: the SCALE page stays after 1.5 s\n"), fail++;
+    }
+    if (changed < 10u || !(seen & (seen - 1u)))
+        printf("FAIL scaledraw: SCALE held draws the same scale and root again and again (%u changed)\n", changed), fail++;
+    for (i = 0, seen = 0; i < 12u; i++) {
+        ses_fresh(1);
+        seen |= 1u << ui.scale;
+    }
+    if (!(seen & (seen - 1u)))
+        printf("FAIL scaledraw: an empty session always starts on the same scale\n"), fail++;
+    printf("scaledraw: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 /* ------------------------------------------------------------- snapshots --- */
 /* REC held (1 s): the chosen track's looper emptied */
 static void host_hold_rec(void)
@@ -8519,6 +8582,8 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 3 && !strcmp(argv[1], "scaledraw"))
+        return cmd_scaledraw(argv[2]);
     if (argc >= 3 && !strcmp(argv[1], "snaps"))
         return cmd_snaps(argv[2]);
     if (argc >= 2 && !strcmp(argv[1], "obrador"))

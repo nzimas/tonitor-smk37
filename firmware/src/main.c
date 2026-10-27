@@ -328,9 +328,7 @@ static int ses_flash_prog(uint32_t off, const void *p, uint32_t n)
 /* ------------------------------------------------------------ the loop --- */
 static void splash(void)
 {
-    lcd_fill(0, 0, 240, 240, C_BLACK);
-    draw_text_box(0, 88, 240, &FONT_M, "TONITOR", C_WHITE, 1);   /* (the large size is wider than the screen) */
-    draw_text_box(0, 136, 240, &FONT_S, TONITOR_VERSION, C_GREY, 1);
+    splash_draw(TONITOR_VERSION);                    /* (the logo: logo.c) */
 }
 
 static void enter_uboot(const char *why)
@@ -639,6 +637,8 @@ static void fm1_main(void)
     layers_init();
     ui_init();
     sounds_init();                                   /* a sound of each engine for every layer (~0.2 s) */
+    scale_draw();                                    /* a scale and root at random (the host's tests: C major) */
+    lx_post();
     /* CPU1: after a supply setup that held, on a boot after no failed one, and not barred since power-on. It starts
      * through the mask ROM before it reaches our RAM loop: the PC limit only after (Melodee) */
     if (fm1_core1_boot_allowed(fm1_power_ready, bootguard.failed))

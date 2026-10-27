@@ -12,7 +12,7 @@
 #define TONITOR_ID "SMK-37 Pro_732"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 33"
+#define TONITOR_VERSION "BUILD 34"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY
@@ -51,6 +51,7 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "lcd.c"
 #include "dsp.h"
 #include "gfx.c"
+#include "logo.c"
 #include "fm.c"
 #include "anima.c"
 #include "cal.c"

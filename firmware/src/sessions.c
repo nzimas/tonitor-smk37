@@ -902,8 +902,7 @@ static void ses_fresh(uint32_t num)
     }
     ui.sel = 0;
     ui.edit = 0;
-    ui.scale = 0;
-    ui.root = 0;
+    scale_draw();                                       /* (a scale and root at random, as at start) */
     ui.lx = 0;
     memset(ui.lxt, 0, sizeof ui.lxt);
     lx_post();

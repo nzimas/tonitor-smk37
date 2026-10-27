@@ -2,6 +2,22 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 34
+
+27 October 2026
+
+Brought in from Tonitor for the FM-1 (its builds 59, 65 and 66), fitted to the SMK-37's panel.
+
+Added
+- SCALE held 0.8 s draws a new scale and root at random. The SCALE page shows them for 1.5 s, over any page, then
+  the page that was up returns; the loops follow the new scale. SCALE pressed and let go still opens and closes the
+  SCALE page (on release now). On the FM-1 this is SHIFT + black key 1.
+
+Changed
+- At start, and in a new (empty) session, the scale and root are drawn at random (until now C major).
+- The splash screen shows the Tonitor logo: the ring mark in the middle, in the six tracks' colours, the lettering
+  under it, the build below. It is drawn from the logo's shapes at start, with smoothed edges, not kept as an image.
+
 ## BUILD 33
 
 27 October 2026

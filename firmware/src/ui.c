@@ -216,6 +216,11 @@ static struct {
     uint8_t save_down, save_long;
     uint32_t arp_t0;             /* ARP pressed at, on the PRESETS page: held 0.8 s saves, shorter loads */
     uint8_t arp_down, arp_long;
+    uint32_t sc_t0;              /* SCALE pressed at (no SHIFT, no PRESETS page): held 0.8 s draws a scale and root,
+                                  * shorter opens or closes the SCALE page */
+    uint8_t sc_down, sc_long;
+    uint8_t sc_peek;             /* the SCALE page shown a moment, until sc_peek_until (a scale and root drawn) */
+    uint32_t sc_peek_until;
     uint8_t trk_down, trk_done;  /* a track's button held (its number + 1) since trk_t0: copy, or paste */
     uint32_t trk_t0;
     int8_t shown_ses;            /* (the page as last drawn) */
@@ -733,6 +738,13 @@ static void ses_page_toggle(void)
     ui.force = 1;
 }
 
+static uint32_t next_seed(void);
+/* a scale and a root drawn at random: the machine at start, an empty session, and SCALE held */
+static void scale_draw(void)
+{
+    ui.scale = (uint8_t)((next_seed() >> 8) % NSCALE);
+    ui.root = (uint8_t)((next_seed() >> 8) % 12u);
+}
 static uint32_t next_seed(void)
 {
 #if TELEMETRY
@@ -1055,13 +1067,31 @@ static void ui_input(void)
         ui.arp_t0 = fm1_ms;
         ui.arp_down = 1;
         ui.arp_long = 0;
-    } else if (btn_bit(press, B_ARP)) {
-        ui.sc_page = (uint8_t)!ui.sc_page;
-        ui.rv_page = 0;
-        ui.env_page = ui.bb_page = ui.bl_page = 0;
-        ui.ses_page = ui.snap_page = 0;
-        ui.pre_page = ui.set_page = ui.mod_page = 0;
-        ui.force = 1;
+    } else if (btn_bit(press, B_ARP)) {          /* SCALE: let go soon, the SCALE page up or down; held, a new scale */
+        ui.sc_t0 = fm1_ms;
+        ui.sc_down = 1;
+        ui.sc_long = 0;
+    }
+    if (ui.sc_down) {
+        if (!btn_bit(fm1_in.buttons, B_ARP)) {
+            ui.sc_down = 0;
+            if (!ui.sc_long) {
+                ui.sc_page = (uint8_t)!ui.sc_page;
+                ui.rv_page = 0;
+                ui.env_page = ui.bb_page = ui.bl_page = 0;
+                ui.ses_page = ui.snap_page = 0;
+                ui.pre_page = ui.set_page = ui.mod_page = 0;
+                ui.force = 1;
+            }
+        } else if (!ui.sc_long && (uint32_t)(fm1_ms - ui.sc_t0) >= 800u) {
+            ui.sc_long = 1;                      /* held: a scale and root at random, as at start */
+            scale_draw();
+            oct_fit();                           /* (the keybed's range: each track's octave still in it) */
+            lx_post();                           /* (the loops moved walk the new scale) */
+            ui.sc_peek = 1;                      /* (the SCALE page shown a moment, over any page) */
+            ui.sc_peek_until = fm1_ms + 1500u;
+            ui.force = 1;
+        }
     }
     if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page; held, GLOBAL SETUP; in
                                                      * it, back */
@@ -2868,6 +2898,20 @@ static void ui_draw(void)
     int32_t px;
     if (draw_flash())
         return;
+    if (ui.sc_peek && (int32_t)(ui.sc_peek_until - fm1_ms) > 0) {   /* a new scale and root (SCALE held) */
+        if (ui.shown_page != 3)
+            ui.force = 1;
+        draw_sc_page();
+        ui.shown_page = 3;
+        ui.shown_ses = 0;
+        ui.force = 0;
+        return;
+    }
+    if (ui.sc_peek) {                            /* (shown: back to the page as it was) */
+        ui.sc_peek = 0;
+        ui.shown_page = 0xFF;
+        ui.force = 1;
+    }
     if (ui.set_page) {                           /* GLOBAL SETUP (setup.c) */
         if (ui.shown_page != 10)
             ui.force = 1;
