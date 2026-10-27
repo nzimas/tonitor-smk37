@@ -101,7 +101,9 @@ enum { FN_AMB, FN_EXP, FN_ENV, FN_EDIT, FN_CHORD, FN_REV, FN_PEND, FN_RAND, FN_H
 #define BTN_BRICKS 10u
 #define BTN_LOOP 7u                      /* LOOP: the second button of the top row: pressed, the loops' options on the
                                           * bottom row of pads (pressed again: the pads freed) */
-enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS, PP_OVD, PP_REACT };   /* the bottom row of pads: free, the chords, the loops' play
+#define BTN_GEST 11u                     /* GESTURES: the sixth button of the top row: pressed, the chosen track's eight
+                                          * gesture loops on the bottom row of pads (gest.c; again: the pads freed) */
+enum { PP_NONE, PP_CHORD, PP_LOOP, PP_BRICKS, PP_OVD, PP_REACT, PP_GEST };   /* the bottom row of pads: free, the chords, the loops' play
                                                  * options, BRICKLAYER's (BRICKLAYER held: as the loops', its own colour), the
                                                  * loops themselves (PLAY held: each in or out), REACT's tracks (react.c) */
 /* the loops' page: pads 9 .. 11 (8 .. 10) the direction, REVERSE PENDULUM RANDOM (none lit: forward); 12 .. 14 STUTTER,
@@ -579,15 +581,15 @@ static int snap_current(void);
 static int snap_morph_target(void);
 static void morph_poll(void);
 /* gest.c (after this file): the gesture layers */
-enum { GP_FLT, GP_GR, GP_CR, GP_DIST, GP_DSEND, GP_SEND, GP_LEVEL, GP_PAN, GP_MAC0 };
+enum { GP_FLT, GP_GR, GP_CR, GP_DIST, GP_DSEND, GP_SEND, GP_LEVEL, GP_PAN, GP_MAC0, GP_SPACE = GP_MAC0 + 8, GP_MFLT };
 static void gest_rec(uint32_t l, uint32_t p, int32_t v);
 static void gest_pad_down(uint32_t k);
 static void gest_tick(void);
 static int gest_has(uint32_t l, uint32_t k);
 static int gest_rec_on(uint32_t l, uint32_t k);
 static int gest_is_on(uint32_t l, uint32_t k);
-static int gest_rec_press(uint32_t l, int loops_full);
 static int gest_armed(uint32_t l);
+static int gest_armed_on(uint32_t l, uint32_t k);
 static int gest_rec_track(uint32_t l);
 static void fmorph_set(int32_t f);
 static int fmorph_on(void);
@@ -1026,9 +1028,11 @@ static void faders_poll(void)
                 level_pan_apply(l);
             rv_apply();
             dl_apply();
+            gest_rec(ui.sel, GP_SPACE, fd_space);   /* (a gesture loop recording keeps it) */
         } else if (i == 2u) {                    /* the master filter: 64 the middle, off within 4 of it */
             int32_t d = f - 64;
             mflt_v = (int8_t)(d > 4 ? (d - 4) * MF_MAX / 59 : d < -4 ? (d + 4) * MF_MAX / 60 : 0);
+            gest_rec(ui.sel, GP_MFLT, mflt_v);
         }
     }
     fmorph_set(FADER(0));                        /* (each pass: it takes hold only from the bottom) */
@@ -1367,15 +1371,7 @@ static void ui_input(void)
         say(v ? "VARY" : "VARY OFF", 1200);
         ui.vary_shown = (uint8_t)(v + 1u);
         ui.force = 1;
-    } else if (btn_bit(press, B_REC) &&
-               (k = (uint32_t)gest_rec_press(ui.sel, loop[ui.sel].rec == LR_IDLE &&
-                                                         (loop[ui.sel].ntrk >= LOOP_USE || loop[ui.sel].nev >= LOOP_N - 32u))) != 0u) {
-        ui.rec_t0 = fm1_ms;                      /* (a take of the knobs ended: held on, it empties nothing; REC armed
-                                                  * for one, the loops full: held, it empties them, as ever) */
-        ui.rec_down = 1;
-        ui.rec_done = (uint8_t)(k == 1u);
-    } else if (btn_bit(press, B_REC)) {          /* the looper: at once (the loop ends exactly here) -- or, armed and a
-                                                  * knob turned before any note, a take of the knobs (gest.c) */
+    } else if (btn_bit(press, B_REC)) {          /* the looper: at once (the loop ends exactly here) */
         const looper_t *p = &loop[ui.sel];
         char m[12] = "LOOP ";
         ev_post(EV_LOOP_REC, ui.sel, 0, 0);
@@ -1386,7 +1382,7 @@ static void ui_input(void)
             fmt_int(m + 5, p->ntrk + 1);
             say(m, 1200);
         } else if (p->rec == LR_IDLE && p->ntrk >= LOOP_USE)
-            say("5 LOOPS", 1500);                /* full (a pad each, 1 .. 5): not armed */
+            say("8 LOOPS", 1500);                /* full (a pad each): not armed */
         else if (p->rec == LR_IDLE && p->nev >= LOOP_N - 32u)
             say("LOOPER FULL", 1500);            /* (its notes, and the snapshots' loops: not armed) */
     }
@@ -1411,7 +1407,6 @@ static void ui_input(void)
         ui.rec_down = 0;
     if (ui.rec_down && !ui.rec_done && (uint32_t)(fm1_ms - ui.rec_t0) >= 1000u) {   /* held: emptied */
         ev_post(EV_LOOP_EMPTY, ui.sel, 0, 0);    /* (the events the snapshots hold stay) */
-        gest_rec_press(ui.sel, 0);               /* (armed for a take of the knobs: no more) */
         snap_loop_emptied(ui.sel);
         ui.lxt[ui.sel] = 0;                      /* (emptied: its own transposition gone too) */
         lx_post();
@@ -1623,8 +1618,8 @@ static void ui_input(void)
                     ui.chord_form[ui.sel] = (uint8_t)j;
                     say(CH_NAME[j], 900);
                     ui.force = 1;                /* (its name under CHO) */
-                } else if (ui.pad_page == PP_OVD && j >= LOOP_USE) {   /* the gesture layers (pads 6 .. 8: gest.c) */
-                    gest_pad_down(j - LOOP_USE);
+                } else if (ui.pad_page == PP_GEST) {   /* the gesture loops (gest.c): held armed, pressed on/off */
+                    gest_pad_down(j);
                 } else if (ui.pad_page == PP_OVD) {   /* the overdubs: loop j in or out */
                     const looper_t *lp = &loop[ui.sel];
                     if (j < lp->ntrk) {
@@ -1649,6 +1644,10 @@ static void ui_input(void)
                     fk |= 1u << LOOP_PAD_FN[j];
                 }
             }
+    }
+    if ((press >> BTN_GEST) & 1u) {              /* GESTURES: the gesture loops on the pads, or off them */
+        ui.pad_page = (uint8_t)(ui.pad_page == PP_GEST ? PP_NONE : PP_GEST);
+        say(ui.pad_page == PP_GEST ? "GESTURES" : "PADS FREE", 900);
     }
     if ((press >> BTN_LOOP) & 1u) {              /* LOOP: the loops' options on the pads, or off them */
         ui.pad_page = (uint8_t)(ui.pad_page == PP_LOOP ? PP_NONE : PP_LOOP);
@@ -1940,7 +1939,7 @@ static void fn_dim(uint32_t f, int on) { fn_glow = on ? fn_glow | 1u << f : fn_g
 #define C_SHADOW RGB(150, 180, 255)     /* (SHADOW's: a pale blue) */
 #define C_ARP RGB(200, 255, 80)         /* (ARP's: a lime) */
 static const uint16_t RXM_COL[RXM_N] = {C_REACT, C_SHADOW, C_ARP};
-#define C_GEST RGB(80, 200, 255)         /* (the gesture layers, pads 14 .. 16: a sky blue) */
+#define C_GEST RGB(80, 200, 255)         /* (the gesture loops, on the GESTURES pads: a sky blue) */
 #define C_OVD RGB(255, 110, 90)          /* (the overdubs: a soft red, at half brightness while in) */
 static void pad_rgb(uint32_t pad, uint16_t c, uint32_t lv)     /* lv: 0 .. 256 */
 {
@@ -1976,13 +1975,15 @@ static void pads_show(void)
                 pad_rgb(p, RXM_COL[rx.mode], (rx.mask >> j) & 1u ? 256u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
-        } else if (p >= 8u + LOOP_USE && ui.pad_page == PP_OVD) {   /* the gesture layers: on lit, off dim, empty
-                                                                  * dark, recording blinking red */
-            uint32_t k = p - 8u - LOOP_USE;
+        } else if (p >= 8u && ui.pad_page == PP_GEST) {   /* the gesture loops: on lit, off dim, empty dark; armed
+                                                   * blinking red, recording red */
+            uint32_t k = p - 8u;
             if (gest_rec_on(ui.sel, k))
-                pad_rgb(p, RGB(255, 0, 0), (fm1_ms / 250u) & 1u ? 256u : PAD_DIM);
+                pad_rgb(p, RGB(255, 0, 0), 256u);
+            else if (gest_armed_on(ui.sel, k))
+                pad_rgb(p, RGB(255, 30, 0), (fm1_ms / 250u) & 1u ? 256u : PAD_DIM);
             else if (gest_has(ui.sel, k))
-                pad_rgb(p, C_GEST, gest_is_on(ui.sel, k) ? 160u : PAD_DIM);
+                pad_rgb(p, C_GEST, gest_is_on(ui.sel, k) ? 192u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
         } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
@@ -2025,8 +2026,7 @@ static void ui_leds(void)
         if (ui.bl_page && bl.on[ui.sel])         /* (BRICKLAYER's page: REC lit while entry is on) */
             fm1_led_key(PANEL_BTN[B_REC], bl.rec[ui.sel]);
         else
-            fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || gest_rec_track(ui.sel) ||
-                                              ((p->rec == LR_ARMED || gest_armed(ui.sel)) && (fm1_ms / 250u) & 1u));
+            fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
         if (rx.on && !seq_page())                /* (REACT, SHADOW or ARP on: PLAY flashes with each of the guide's notes) */
             fm1_led_key(PANEL_BTN[B_PLAY], rx.flash && fm1_ms + 1u - rx.flash < 70u);
         else
@@ -2048,6 +2048,7 @@ static void ui_leds(void)
     fm1_led_key(SMK_BTN_KNOB_BANK, shift_held());   /* (SHIFT: lit while held) */
     fm1_led_key(BTN_CHORD, ui.chord_on[ui.sel]);   /* (CHORD: lit while chord mode is on) */
     fm1_led_key(BTN_LOOP, ui.pad_page == PP_LOOP);   /* (LOOP: lit while its options are on the pads) */
+    fm1_led_key(BTN_GEST, ui.pad_page == PP_GEST);   /* (GESTURES: lit while the gesture loops are on the pads) */
     fm1_led_key(BTN_MACRO, ui.edit);             /* (MACRO: lit while on) */
     fm1_led_key(SMK_BTN_FADER_BANK, ui.env_page || (rx.on && (fm1_ms / 500u) & 1u));   /* (FADER BANK: lit while the
                                                   * ENVELOPE page is up; REACT on, a slow blink) */
@@ -2872,59 +2873,42 @@ static void draw_pre_page(void)
     }
 }
 
-/* PLAY held: the chosen layer's loops, 1 .. 5 as the pads have them -- in, the layer's colour; out, a grey frame;
- * none yet, nothing -- and under them its gesture layers G1 .. G3 (pads 6 .. 8): on, sky blue; off, a grey frame;
- * empty, a dark one; recording, red */
+/* PLAY held: the chosen layer's loops, 1 .. 10 as the white keys have them -- in, the layer's colour; out, a grey
+ * frame; none yet, nothing */
 static void draw_ovd_page(void)
 {
     const looper_t *p = &loop[ui.sel];
-    int32_t key = p->ntrk | p->mute << 4 | (int32_t)ui.sel << 16, gk = 0;
+    int32_t key = p->ntrk | p->mute << 4 | (int32_t)ui.sel << 16;
     uint32_t r, c;
     char t[12] = "LOOPS ";
-    for (c = 0; c < 3u; c++)
-        gk |= (gest_rec_on(ui.sel, c) ? 3 : gest_has(ui.sel, c) ? 1 + gest_is_on(ui.sel, c) : 0) << (2u * c);
-    key ^= gk << 24;
     if (!ui.force && ui.shown_ovd == key)
         return;
     ui.shown_ovd = key;
     t[6] = (char)('1' + ui.sel);
     t[7] = 0;
     cv_begin(240, 52, C_BLACK);
-    cv_text_c((52 - FONT_M.h) / 2, &FONT_M, p->ntrk || gk ? t : "NO LOOPS", LAYER_COL[ui.sel]);
+    cv_text_c((52 - FONT_M.h) / 2, &FONT_M, p->ntrk ? t : "NO LOOPS", LAYER_COL[ui.sel]);
     cv_blit(0, 0);
-    CV_AREA(0, 52, 240, 94, C_BLACK)
-    for (c = 0; c < LOOP_USE; c++) {
-        int32_t x = 4 + (int32_t)c * 47;
-        char n[4];
-        if (c >= p->ntrk)
-            continue;
-        fmt_int(n, (int32_t)c + 1);
-        if (!((p->mute >> c) & 1u)) {
-            cv_rect(x, 6, 43, 82, LAYER_COL[ui.sel]);
-            cv_bg_set(LAYER_COL[ui.sel]);
-            cv_text(x + (43 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_BLACK);
-            cv_bg_set(C_BLACK);
-        } else {
-            cv_frame(x, 6, 43, 82, 3, C_GREY);
-            cv_text(x + (43 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_GREY);
+    for (r = 0; r < 2u; r++)
+        CV_AREA(0, 52 + 94 * r, 240, 94, C_BLACK)
+        for (c = 0; c < 5u; c++) {
+            uint32_t k = r * 5u + c;
+            int32_t x = 4 + (int32_t)c * 47;
+            char n[4];
+            const font_t *f = k < 9u ? &FONT_M : &FONT_S;
+            if (k >= p->ntrk)
+                continue;
+            fmt_int(n, (int32_t)k + 1);
+            if (!((p->mute >> k) & 1u)) {
+                cv_rect(x, 6, 43, 82, LAYER_COL[ui.sel]);
+                cv_bg_set(LAYER_COL[ui.sel]);
+                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_BLACK);
+                cv_bg_set(C_BLACK);
+            } else {
+                cv_frame(x, 6, 43, 82, 3, C_GREY);
+                cv_text(x + (43 - text_w(f, n)) / 2, 6 + (82 - f->h) / 2, f, n, C_GREY);
+            }
         }
-    }
-    CV_AREA(0, 146, 240, 94, C_BLACK)
-    for (r = 0; r < 3u; r++) {
-        int32_t x = 4 + (int32_t)r * 79, st = gk >> (2u * r) & 3;
-        char n[4] = "G1";
-        uint16_t fill = st == 3 ? RGB(255, 30, 30) : C_GEST;
-        n[1] = (char)('1' + r);
-        if (st == 2 || st == 3) {
-            cv_rect(x, 6, 74, 82, fill);
-            cv_bg_set(fill);
-            cv_text(x + (74 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, C_BLACK);
-            cv_bg_set(C_BLACK);
-        } else {
-            cv_frame(x, 6, 74, 82, 3, st ? C_GREY : RGB(50, 50, 50));
-            cv_text(x + (74 - text_w(&FONT_M, n)) / 2, 6 + (82 - FONT_M.h) / 2, &FONT_M, n, st ? C_GREY : RGB(70, 70, 70));
-        }
-    }
 }
 
 static void draw_ses_page(void)
@@ -3224,11 +3208,11 @@ static void ui_draw(void)
     }
     if (!msg && gest_rec_track(ui.sel)) {        /* a take of the knobs: G2 REC, as a loop's */
         str_cpy(lp, "G1 REC", sizeof lp);
-        lp[1] = (char)('0' + gest_rec_track(ui.sel));
+        lp[1] = (char)('0' + gest_rec_track(ui.sel));   /* (G1 .. G8) */
         c = lp;
         msg = 2;
-    } else if (!msg && gest_armed(ui.sel)) {
-        str_cpy(lp, "ARMED G", sizeof lp);
+    } else if (!msg && gest_armed(ui.sel)) {    /* (a gesture loop armed: the first move records) */
+        str_cpy(lp, "ARMED", sizeof lp);
         c = lp;
         msg = (fm1_ms / 250u) & 1u ? 2 : 3;
     }

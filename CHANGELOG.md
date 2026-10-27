@@ -2,6 +2,20 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 41
+
+27 October 2026
+
+Changed
+- Gestures are now **gesture loops**, apart from the note loops altogether: eight a track, on the bottom row of pads
+  when the sixth button of the top row is pressed (GESTURES; lit while up). A pad held 0.8 s is armed (blinking red,
+  ARMED); the first move of a knob or fader records from there; the pad pressed ends it and it loops at once, at
+  its own length, whatever else plays. A recorded pad pressed switches it off or on (from its beginning); an armed
+  one pressed lets it go. Besides the track's knobs (filter, granulator, crush, distortion, sends, level, pan, the
+  eight macros), faders 2 and 3 (SPACE, the master filter) are recorded too. Sessions (format 34) keep them;
+  the gesture layers of build 39 load into the first three.
+- The note loops are as before build 39: eight a track on the OVERDUBS page, REC arming them alone.
+
 ## BUILD 40
 
 27 October 2026

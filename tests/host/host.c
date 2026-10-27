@@ -702,7 +702,7 @@ static int cmd_flows(void)
         if (loop[4].trk[0].pos != (p0 + 1u) % loop[4].trk[0].len && loop[4].trk[0].pos != (p0 + 2u) % loop[4].trk[0].len)
             printf("FAIL flows: the first loop jumped when the overdub ended\n"), fail++;
     }
-    for (i = 0; i < LOOP_USE; i++) {         /* up to five loops (pads 1 .. 5); the sixth is refused */
+    for (i = 0; i < 8u; i++) {               /* up to eight loops (a pad each); the ninth is refused */
         press_btn(B_REC);
         press_key(i, 1);
         run_blocks(20, 0);
@@ -713,9 +713,8 @@ static int cmd_flows(void)
     }
     press_btn(B_REC);
     run_blocks(2, 0);
-    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "ARMED G"))   /* (the loops full: REC
-                                                                                        * arms a take of the knobs) */
-        printf("FAIL flows: not five loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
+    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "8 LOOPS"))
+        printf("FAIL flows: not eight loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
     run_blocks(3000, 0);
     press_btn(B_PLAY);                        /* stopped */
     run_blocks(10, 0);
@@ -8777,10 +8776,11 @@ static int cmd_faders(void)
     return fail ? 1 : 0;
 }
 
-/* the gesture layers (pads 6 .. 8 of the OVERDUBS page): an empty pad records the chosen track's knobs, pressed again
- * it ends (its length); it plays them back over and over at that length, freely (no loops) or as the loops play;
- * a pad pressed on and off, held emptied; one emptied, the others' events close up and still play; a session keeps
- * them; five note loops at most (pads 1 .. 5) */
+/* the gesture loops (the sixth top button's pads, eight a track): a pad held arms it (an empty one pressed: nothing);
+ * the first move of a knob or fader 2 / 3 records, the pad pressed ends it (its length from that first move) and it
+ * loops; played back over and over at its own length, the note loops nothing to it; pressed on and off; an armed pad
+ * pressed: armed no more; a recorded one held: emptied and armed again; one emptied, the others' events close up and
+ * still play; a session keeps them */
 static void gtap(uint32_t p, uint32_t ms)              /* a bottom pad (8 .. 15) down for ms */
 {
     host_pads |= 1u << p;
@@ -8816,91 +8816,96 @@ static int cmd_gestures(void)
     ses_scan(1);
     ses_fresh(1);
     press_btn(B_FX);
-    ui.pad_page = PP_OVD;
-    gtap(8u + 5u, 20);                               /* G1: recording, from now */
+    host_press |= 1u << BTN_GEST;                    /* the sixth top button: the GESTURES pads */
+    ui_input();
+    ui_leds();
+    if (ui.pad_page != PP_GEST || !host_led[BTN_GEST])
+        printf("FAIL gestures: the sixth button does not bring the gesture loops on the pads\n"), fail++;
+    gtap(8u, 50);                                    /* an empty pad pressed: nothing */
+    if (gest_armed(0) || gest_has(0, 0) || !str_eq(ui.msg, "HOLD TO ARM"))
+        printf("FAIL gestures: an empty pad pressed does something (%s)\n", ui.msg), fail++;
+    gtap(8u, 900);                                   /* held: armed */
+    if (!gest_armed_on(0, 0) || gest_rec_on(0, 0))
+        printf("FAIL gestures: a pad held does not arm it\n"), fail++;
+    ui_leds();
+    fm1_ms += 3000u;                                 /* (nothing moved: still armed, not recording) */
+    ui_input();
+    if (!gest_armed_on(0, 0))
+        printf("FAIL gestures: armed, it starts without a move\n"), fail++;
+    gknob(0, -5);                                    /* the first move: recording, from now (the filter -10) */
     t0 = fm1_ms;
     if (!gest_rec_on(0, 0))
-        printf("FAIL gestures: an empty gesture pad does not record\n"), fail++;
-    gknob(200, -10);                                 /* (at ~200 ms the filter to -20, at ~500 -60) */
-    gknob(300, -20);
+        printf("FAIL gestures: the first move does not start the recording\n"), fail++;
+    gknob(300, -10);                                 /* (at ~300 ms the filter to -30) */
+    fm1_ms += 100u;
+    host_fader[1] = 64;                              /* (at ~400 ms fader 2: SPACE 50) */
+    ui_input();
     fm1_ms = t0 + 1000u;
-    gtap(8u + 5u, 20);                               /* its end: ~1 s long */
-    if (gest_rec_on(0, 0) || !gest_has(0, 0) || !gest_is_on(0, 0) || gl[0][0].len < 990u || gl[0][0].len > 1030u ||
-        gl[0][0].n != 2u)
+    gtap(8u, 20);                                    /* the end: ~1 s, and it loops */
+    if (gest_rec_on(0, 0) || !gest_has(0, 0) || !gest_is_on(0, 0) || gl[0][0].len < 990u || gl[0][0].len > 1040u ||
+        gl[0][0].n != 3u)
         printf("FAIL gestures: G1 not recorded as played (%u ms, %u events)\n", gl[0][0].len, gl[0][0].n), fail++;
-    ui.flt[0] = 0;                                   /* (the knob back by hand) */
+    ui.flt[0] = 0;                                   /* (by hand: the knob, the fader back) */
+    host_fader[1] = 0;
+    ui_input();
     t0 = fm1_ms;
     gl[0][0].pos = 0;
     gl[0][0].ix = 0;
-    a = gflt_at(t0, 300);
-    b = gflt_at(t0, 600);
+    a = gflt_at(t0, 150);
+    b = gflt_at(t0, 450);
+    if (fd_space != 50u)
+        printf("FAIL gestures: fader 2 (SPACE) is not played back (%u)\n", fd_space), fail++;
     ui.flt[0] = 0;
-    c = gflt_at(t0, 1000u + 300u);                   /* (round again: the first event again) */
-    if (a != -20 || b != -60 || c != -20)          /* (ten clicks at once: two steps each) */
+    c = gflt_at(t0, 1000u + 150u);                   /* (round again: the first move again) */
+    if (a != -10 || b != -30 || c != -10)
         printf("FAIL gestures: G1 does not play back (%d %d %d)\n", a, b, c), fail++;
-    gtap(8u + 5u, 50);                               /* off */
+    /* the note loops nothing to it: a loop recorded and stopped, it plays on */
+    press_btn(B_REC);
+    press_key(0, 1);
+    run_blocks(100, 0);
+    press_key(0, 0);
+    press_btn(B_REC);
+    run_blocks(10, 0);
+    press_btn(B_PLAY);
+    run_blocks(10, 0);
+    ui.flt[0] = 0;
+    gl[0][0].pos = 0;
+    gl[0][0].ix = 0;
+    if (loop[0].play || loop[0].ntrk != 1u || gflt_at(fm1_ms, 150) != -10)
+        printf("FAIL gestures: with the loops stopped it does not play\n"), fail++;
+    gtap(8u, 50);                                    /* off */
     ui.flt[0] = 5;
     if (gest_is_on(0, 0) || gflt_at(fm1_ms, 1500) != 5)
         printf("FAIL gestures: G1 off still plays\n"), fail++;
-    gtap(8u + 5u, 50);                               /* on again */
-    /* G1 on track 2 too; then track 1's emptied: track 2's events close up and still play */
+    gtap(8u, 50);                                    /* on again */
+    gtap(8u + 7u, 900);                              /* pad 8 armed, then pressed: armed no more */
+    gtap(8u + 7u, 20);
+    if (gest_armed(0) || gest_has(0, 7))
+        printf("FAIL gestures: an armed pad pressed is still armed\n"), fail++;
+    /* G1 on track 2 too; then track 1's held (emptied, armed) and let go: track 2's events close up, still play */
     press_btn(B_SEL);
-    gtap(8u + 5u, 20);
-    t0 = fm1_ms;
-    fm1_ms += 100u;
+    gtap(8u, 900);
     host_enc[PANEL_ENC[EN_SELECT]] = -3;             /* (its level) */
     ui_input();
+    t0 = fm1_ms;
     fm1_ms = t0 + 400u;
-    gtap(8u + 5u, 20);
+    gtap(8u, 20);
     press_btn(B_FX);
-    gtap(8u + 5u, 900);                              /* track 1's G1 held: emptied */
+    gtap(8u, 900);
+    gtap(8u, 20);
     if (gest_has(0, 0) || !gest_has(1, 0) || gl[1][0].first != 0u || gev_used != gl[1][0].n)
         printf("FAIL gestures: emptying G1 of track 1 does not close the store up (%u %u)\n", gl[1][0].first, gev_used), fail++;
-    ui.level[1] = LEVEL_UNITY;
+    ui.level[1] = 5;
     if (gflt_at(fm1_ms, 600) , ui.level[1] != LEVEL_UNITY - 3)
-        printf("FAIL gestures: track 2's layer does not play after the store closed up (%d)\n", ui.level[1]), fail++;
-    /* REC armed (track 3, a loop on it), then a knob turned before any note: a take of the knobs, into G1, the loop
-     * disarmed; REC again ends it. No loops recorded */
-    press_btn(B_ENV);
-    press_btn(B_REC);
-    press_key(0, 1);
-    run_blocks(200, 0);
-    press_key(0, 0);
-    press_btn(B_REC);                                /* (loop 1) */
-    run_blocks(20, 0);
-    press_btn(B_REC);                                /* armed again */
-    run_blocks(4, 0);
-    if (loop[2].rec != LR_ARMED)
-        printf("FAIL gestures: REC does not arm\n"), fail++;
-    t0 = fm1_ms;
-    gknob(100, 3);
-    run_blocks(4, 0);
-    if (!gest_rec_on(2, 0) || loop[2].rec != LR_IDLE)
-        printf("FAIL gestures: a knob turned while armed does not start a take of the knobs (%d)\n", loop[2].rec), fail++;
-    if (!host_led[PANEL_BTN[B_REC]] && (ui_leds(), !host_led[PANEL_BTN[B_REC]]))
-        printf("FAIL gestures: REC is not lit while the knobs record\n"), fail++;
-    gknob(300, -6);
-    fm1_ms += 500u;
-    press_btn(B_REC);
-    run_blocks(4, 0);
-    if (gest_rec_on(2, 0) || !gest_has(2, 0) || !gest_is_on(2, 0) || gl[2][0].n != 2u || loop[2].ntrk != 1u ||
-        loop[2].rec != LR_IDLE)
-        printf("FAIL gestures: REC does not end the take of the knobs (%u events, %u loops)\n", gl[2][0].n, loop[2].ntrk), fail++;
+        printf("FAIL gestures: track 2's loop does not play after the store closed up (%d)\n", ui.level[1]), fail++;
     /* a session keeps them; a new one has none */
     if (ses_save(1) != SES_OK)
         printf("FAIL gestures: not saved\n"), fail++;
     ses_fresh(2);
     if (gest_has(1, 0))
-        printf("FAIL gestures: a new session has gesture layers\n"), fail++;
+        printf("FAIL gestures: a new session has gesture loops\n"), fail++;
     if (ses_load_slot(1) != SES_OK || !gest_has(1, 0) || gl[1][0].n != 1u || gl[1][0].len < 390u || !gest_is_on(1, 0))
         printf("FAIL gestures: the session does not bring them back\n"), fail++;
-    ui.ovd = 1;
-    press_btn(B_SEL);
-    fm1_ms += 2000u;                                 /* (past any flash) */
-    ui.force = 1;
-    ui_draw();
-    ppm("build/screens/screen-52-gestures.ppm");
-    ui.ovd = 0;
     printf("gestures: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }

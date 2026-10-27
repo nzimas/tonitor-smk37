@@ -199,8 +199,7 @@ static layer_t lay[NLAYER];
 /* ------------------------------------------------------------ looper --- */
 #define LOOP_N 1024u             /* note events a track's loops hold between them (~500 notes) */
 #define LOOP_TRK 10u             /* loops a layer (as kept; the SMK-37 records up to LOOP_USE: a pad each) */
-#define LOOP_USE 5u              /* (the main loop and four overdubs, pads 1 .. 5 of the OVERDUBS page; 6 .. 8 the
-                                  * gesture layers, gest.c) */
+#define LOOP_USE 8u
 enum { LR_IDLE, LR_ARMED, LR_REC };
 /* an event: t (24 bits, blocks from the loop's start), the note (7 bits), on (bit 31) */
 /* a loop event: its time (blocks of loop time, 20 bits: a loop at most LE_TMAX blocks, 12.7 minutes), its velocity

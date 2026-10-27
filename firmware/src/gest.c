@@ -1,32 +1,31 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * TONITOR: the gesture layers -- three a track, the OVERDUBS page's pads 6 .. 8 (after the note loops' five). A gesture
- * layer is the track's knobs as they were turned, kept as events: the filter, the granulator, the crush, the
- * distortion, the delay and reverb sends, the level, the pan and the eight macros of the sound it plays. It plays them
- * back over and over at its own length, whatever the loops' -- so it drifts against them, and a sweep made over one
- * part of the loop comes back over another: by design, not by accident.
+ * TONITOR: the gesture loops -- eight a track, apart from the note loops altogether. The sixth button of the top row
+ * puts them on the bottom row of pads (GESTURES; again: the pads freed). A gesture loop is the knobs and faders as
+ * they were moved, kept as events, played back round and round at its own length, whatever else plays -- held notes,
+ * loops, sequencers: it knows nothing of them, and drifts against them.
  *
- *   an empty gesture pad pressed      recording, at once: every turn of those knobs on that track kept, from now
- *   the same pad again                its end: the layer's length (from the first press), on and playing
- *   REC armed, then a knob turned     (before any note) recording into the first empty layer, from that turn; REC
- *                                     again ends it -- as a loop is recorded, but of the knobs (loops full: REC
- *                                     arms for this alone)
- *   a recorded pad pressed            on or off
- *   a recorded pad held 0.8 s         emptied
+ *   a pad held 0.8 s          armed (it blinks red; ARMED): what was in it, emptied
+ *   then a knob or a fader    recording, from that move (red): every move of what follows kept
+ *   the pad pressed           the end: as long as from that first move to now; it loops at once, on
+ *   a recorded pad pressed    on or off (on: from its beginning)
+ *   an armed pad pressed      armed no more
  *
- * A layer plays while its track's loops play, or freely on a track with no loops; it starts from its beginning as the
- * loops are started. What it plays sets the knobs' values (as the hand would; the hand may turn them between its
- * events). One layer records at a time. The events of all the layers share one store (GEV_N); one emptied, the others
- * close up. Sessions keep them (sessions.c, format 33); snapshots and the clipboard do not. All in the main loop */
+ * What a gesture loop keeps: the chosen track's filter, granulator, crush, distortion, delay and reverb sends, level,
+ * pan and the eight macros of the sound it plays (the track it was armed on); and faders 2 and 3, SPACE and the
+ * master filter. What it plays sets those values (as the hand would: the hand may move them between its events, and
+ * a fader's own position is left behind until it moves again). One gesture loop is armed or records at a time. The
+ * events of all of them share one store (GEV_N); one emptied, the others close up. Sessions keep them (sessions.c,
+ * format 34); snapshots and the clipboard do not. All in the main loop */
 
-#define GL_N 3u                  /* gesture layers a track (the OVERDUBS page's pads 6 .. 8) */
-#define GEV_N 1024u              /* the events of every layer between them (4 KiB, the pool -- all it has room for) */
-#define GP_N (GP_MAC0 + 8u)      /* the controls (GP_*: ui.c) */
-/* an event: its time from the layer's start (ms, 20 bits: up to 17 minutes), the control (4 bits), its value (8) */
-#define GE(t, p, v) (((uint32_t)(t) & 0xFFFFFu) | (uint32_t)(p) << 20 | (uint32_t)(uint8_t)(int8_t)(v) << 24)
-#define GE_T(e) ((e) & 0xFFFFFu)
-#define GE_P(e) ((e) >> 20 & 15u)
+#define GL_N 8u                  /* gesture loops a track (the bottom row's eight pads) */
+#define GEV_N 1024u              /* the events of all of them between them (4 KiB, the pool -- all it has room for) */
+#define GP_N (GP_MFLT + 1u)      /* the controls (GP_*: ui.c) */
+/* an event: its time from the loop's start (ms, 19 bits: up to 8.7 minutes), the control (5 bits), its value (8) */
+#define GE(t, p, v) (((uint32_t)(t) & 0x7FFFFu) | (uint32_t)(p) << 19 | (uint32_t)(uint8_t)(int8_t)(v) << 24)
+#define GE_T(e) ((e) & 0x7FFFFu)
+#define GE_P(e) ((e) >> 19 & 31u)
 #define GE_V(e) ((int8_t)(uint8_t)((e) >> 24))
-#define GL_TMAX 0xFFFFFu
+#define GL_TMAX 0x7FFFFu
 typedef struct {
     uint16_t first, n;           /* its events in gev[] */
     uint32_t len;                /* ms (0: empty) */
@@ -38,26 +37,28 @@ static uint32_t gev[GEV_N] POOL;
 static glayer_t gl[NLAYER][GL_N];
 static uint32_t gev_used;
 static struct {
-    uint8_t on, l, k, full;      /* recording: track l's layer k (its events the last in gev[]) */
+    uint8_t armed, on, l, k, full;   /* track l's loop k armed, or recording (its events the last in gev[]) */
     uint32_t t0;
 } grec;
 static struct {
-    int8_t k;                    /* a recorded pad down (its layer, -1 none), since t0 */
+    int8_t k;                    /* a pad down (its loop, -1 none), since t0; held: done */
     uint8_t l, done;
     uint32_t t0;
 } gpad = {-1, 0, 0, 0};
 static uint32_t gtick_at;
-static uint8_t garm;                     /* REC armed for a gesture alone (the loops full): its track + 1 */
-static uint8_t gplay_was[NLAYER];
 
 static int gest_has(uint32_t l, uint32_t k) { return gl[l][k].len != 0u; }
 static int gest_rec_on(uint32_t l, uint32_t k) { return grec.on && grec.l == l && grec.k == k; }
+static int gest_armed_on(uint32_t l, uint32_t k) { return grec.armed && grec.l == l && grec.k == k; }
 static int gest_is_on(uint32_t l, uint32_t k) { return gl[l][k].on; }
+static int gest_rec_track(uint32_t l) { return grec.on && grec.l == l ? (int)grec.k + 1 : 0; }
+static int gest_armed(uint32_t l) { return grec.armed && grec.l == l; }
 
-/* a control's value given back to the track: the knob's value, then to the ISR */
+/* a control's value given back: the track's knob value (or a fader's), then to the ISR */
 static void gest_apply(uint32_t l, uint32_t p, int32_t v)
 {
-    if (p >= GP_MAC0) {
+    uint32_t i;
+    if (p >= GP_MAC0 && p < GP_MAC0 + NMAC) {
         ui.mac[l][ui.engine[l]][p - GP_MAC0] = (int8_t)clampi(v, -MAC_MAX, MAC_MAX);
         mac_apply(l);
         return;
@@ -70,51 +71,40 @@ static void gest_apply(uint32_t l, uint32_t p, int32_t v)
     case GP_DSEND: ui.dsend[l] = (int8_t)clampi(v, 0, 100); break;
     case GP_SEND: ui.send[l] = (int8_t)clampi(v, 0, 100); break;
     case GP_LEVEL: ui.level[l] = (int8_t)clampi(v, 0, LEVEL_MAX); break;
-    default: ui.pan[l] = (int8_t)clampi(v, -PAN_MAX, PAN_MAX); break;
+    case GP_PAN: ui.pan[l] = (int8_t)clampi(v, -PAN_MAX, PAN_MAX); break;
+    case GP_SPACE:                               /* (fader 2: every track's sends, the decay, the repeats) */
+        fd_space = (uint8_t)clampi(v, 0, 100);
+        for (i = 0; i < NLAYER; i++)
+            level_pan_apply(i);
+        rv_apply();
+        dl_apply();
+        return;
+    default:                                     /* (fader 3: the master filter) */
+        mflt_v = (int8_t)clampi(v, -MF_MAX, MF_MAX);
+        return;
     }
     level_pan_apply(l);
 }
 
-/* track l's layer k recording, from now */
-static void gest_start(uint32_t l, uint32_t k)
-{
-    char m[16] = "G";
-    glayer_t *g = &gl[l][k];
-    memset(g, 0, sizeof *g);
-    g->first = (uint16_t)gev_used;
-    grec.on = 1;
-    grec.l = (uint8_t)l;
-    grec.k = (uint8_t)k;
-    grec.full = 0;
-    grec.t0 = fm1_ms;
-    garm = 0;
-    m[1] = (char)('1' + k);
-    str_cpy(m + 2, " REC", 5);
-    say(m, 1500);
-    ui.force = 1;
-}
-/* the knobs (ui.c): control p of track l turned to v -- kept if that layer records (turns 15 ms apart or less: the
- * last one's value). REC armed and no note played yet: this turn starts a take of the knobs, in the first empty
- * layer (the loop's arming let go) */
+/* the knobs and the faders (ui.c): control p turned to v (of track l; the faders' -- l any -- are kept by whichever
+ * loop records). The first move after arming starts the recording; moves 15 ms apart or less: the last one's value */
 static void gest_rec(uint32_t l, uint32_t p, int32_t v)
 {
     glayer_t *g;
     uint32_t t;
-    if (!grec.on && l == ui.sel && (loop[l].rec == LR_ARMED || garm == l + 1u)) {
-        uint32_t k;
-        for (k = 0; k < GL_N && gl[l][k].len; k++)
-            ;
-        if (k == GL_N) {
-            say("3 GESTURES", 1500);             /* (every layer taken: empty one first) */
-            return;
-        }
-        if (loop[l].rec == LR_ARMED)
-            ev_post(EV_LOOP_REC, l, 0, 0);       /* (the loop's arming let go: this take is of the knobs) */
-        gest_start(l, k);
+    int global = p >= GP_SPACE;
+    if (grec.armed && (global || l == grec.l)) {   /* the first move: recording, from now */
+        grec.armed = 0;
+        grec.on = 1;
+        grec.t0 = fm1_ms;
+        grec.full = 0;
+        gl[grec.l][grec.k].first = (uint16_t)gev_used;
+        gl[grec.l][grec.k].n = 0;
+        ui.force = 1;
     }
-    if (!grec.on || grec.l != l)
+    if (!grec.on || (!global && grec.l != l))
         return;
-    g = &gl[l][grec.k];
+    g = &gl[grec.l][grec.k];
     t = fm1_ms - grec.t0;
     if (t > GL_TMAX)
         return;
@@ -131,28 +121,11 @@ static void gest_rec(uint32_t l, uint32_t p, int32_t v)
     gev[gev_used++] = GE(t, p, v);
     g->n++;
 }
-static void gest_rec_end(void)
-{
-    glayer_t *g = &gl[grec.l][grec.k];
-    uint32_t t = fm1_ms - grec.t0;
-    char m[16] = "G";
-    g->len = t < 100u ? 100u : t > GL_TMAX ? GL_TMAX : t;
-    g->on = 1;
-    g->ix = 0;
-    g->pos = 0;
-    grec.on = 0;
-    m[1] = (char)('1' + grec.k);
-    m[2] = 0;
-    say(m, 1200);
-    ui.force = 1;
-}
-/* track l's layer k emptied: its events out of the store, the others' moved up */
+/* track l's loop k emptied: its events out of the store, the others' moved up */
 static void gest_empty(uint32_t l, uint32_t k)
 {
     glayer_t *g = &gl[l][k];
     uint32_t f = g->first, n = g->n, i, j;
-    if (gest_rec_on(l, k))
-        grec.on = 0;
     if (n) {
         for (i = f; i + n < gev_used; i++)
             gev[i] = gev[i + n];
@@ -164,77 +137,81 @@ static void gest_empty(uint32_t l, uint32_t k)
     }
     memset(g, 0, sizeof *g);
 }
-/* REC pressed on track l (ui.c): a take of the knobs ended (1); or, the loops full, REC armed for one (2), or that
- * let go (3); or nothing of the gestures' (0: the looper's) */
-static int gest_rec_press(uint32_t l, int loops_full)
+static void gest_rec_end(void)                  /* the recording ended: it loops, on */
 {
-    if (grec.on) {
-        gest_rec_end();
-        return 1;
-    }
-    if (garm) {                                  /* (armed for a gesture alone: let go) */
-        garm = 0;
-        say("REC OFF", 900);
-        return 3;
-    }
-    if (loops_full) {
-        garm = (uint8_t)(l + 1u);
-        say("ARMED G", 1200);
-        return 2;
-    }
-    return 0;
+    glayer_t *g = &gl[grec.l][grec.k];
+    uint32_t t = fm1_ms - grec.t0;
+    char m[8] = "G";
+    g->len = t < 100u ? 100u : t > GL_TMAX ? GL_TMAX : t;
+    g->on = 1;
+    g->ix = 0;
+    g->pos = 0;
+    grec.on = 0;
+    fmt_int(m + 1, grec.k + 1);
+    say(m, 1200);
+    ui.force = 1;
 }
-static int gest_armed(uint32_t l) { return garm == l + 1u; }
-static int gest_rec_track(uint32_t l) { return grec.on && grec.l == l ? (int)grec.k + 1 : 0; }
+/* track l's loop k armed: anything armed or recording before, let go (or ended); what was in it, emptied */
+static void gest_arm(uint32_t l, uint32_t k)
+{
+    if (grec.on)
+        gest_rec_end();
+    grec.armed = 0;
+    if (gl[l][k].len || gl[l][k].n)
+        gest_empty(l, k);
+    grec.armed = 1;
+    grec.l = (uint8_t)l;
+    grec.k = (uint8_t)k;
+    say("ARMED", 1200);
+    ui.force = 1;
+}
 static void gest_reset(void)                    /* (a session loaded or begun: none) */
 {
-    garm = 0;
     memset(gl, 0, sizeof gl);
     gev_used = 0;
-    grec.on = 0;
+    grec.on = grec.armed = 0;
     gpad.k = -1;
 }
 
-/* the OVERDUBS page: gesture pad k (0 .. 2) of the chosen track pressed */
+/* the GESTURES page: pad k (0 .. 7) of the chosen track pressed */
 static void gest_pad_down(uint32_t k)
 {
-    uint32_t l = ui.sel;
     if (k >= GL_N)
         return;
-    if (grec.on) {                               /* recording: ended (another pad: that one, then press again) */
-        gest_rec_end();
-        return;
-    }
-    if (!gest_has(l, k)) {                       /* empty: recording, from now */
-        gest_start(l, k);
-        return;
-    }
-    gpad.k = (int8_t)k;                          /* recorded: on or off when let go soon, emptied when held */
-    gpad.l = (uint8_t)l;
+    gpad.k = (int8_t)k;
+    gpad.l = (uint8_t)ui.sel;
     gpad.done = 0;
     gpad.t0 = fm1_ms;
 }
 
-/* the main loop, every pass: a recorded pad held or let go; each layer a step on, its events given as they come */
+/* the main loop, every pass: a pad held or let go; each gesture loop a step on, its events given as they come */
 static void gest_tick(void)
 {
     uint32_t now = fm1_ms, dt = now - gtick_at, l, k;
     gtick_at = now;
     if (gpad.k >= 0) {
-        char m[16] = "G";
-        m[1] = (char)('1' + gpad.k);
-        m[2] = 0;
-        if (smk_pad_on[8u + 5u + (uint32_t)gpad.k] && !gpad.done && (uint32_t)(now - gpad.t0) >= 800u) {
-            gpad.done = 1;
-            gest_empty(gpad.l, (uint32_t)gpad.k);
-            flash(m, "EMPTY", LAYER_COL[gpad.l]);
-            ui.force = 1;
-        } else if (!smk_pad_on[8u + 5u + (uint32_t)gpad.k]) {
-            if (!gpad.done && gest_has(gpad.l, (uint32_t)gpad.k)) {
-                glayer_t *g = &gl[gpad.l][gpad.k];
-                g->on = (uint8_t)!g->on;
-                str_cpy(m + 2, g->on ? " ON" : " OFF", 5);
-                say(m, 900);
+        uint32_t pk = (uint32_t)gpad.k, pl = gpad.l;
+        if (smk_pad_on[8u + pk] && !gpad.done && (uint32_t)(now - gpad.t0) >= 800u) {
+            gpad.done = 1;                       /* held: armed */
+            gest_arm(pl, pk);
+        } else if (!smk_pad_on[8u + pk]) {
+            if (!gpad.done) {                    /* let go soon */
+                char m[12] = "G";
+                fmt_int(m + 1, (int32_t)pk + 1);
+                if (gest_rec_on(pl, pk))
+                    gest_rec_end();              /* recording: its end, and it loops */
+                else if (gest_armed_on(pl, pk)) {
+                    grec.armed = 0;              /* armed, nothing yet: no more */
+                    say("NOT ARMED", 900);
+                } else if (gest_has(pl, pk)) {
+                    glayer_t *g = &gl[pl][pk];
+                    g->on = (uint8_t)!g->on;
+                    g->pos = 0;                  /* (on: from its beginning) */
+                    g->ix = 0;
+                    str_cpy(m + str_len(m), g->on ? " ON" : " OFF", 5);
+                    say(m, 900);
+                } else
+                    say("HOLD TO ARM", 1200);
                 ui.force = 1;
             }
             gpad.k = -1;
@@ -242,19 +219,10 @@ static void gest_tick(void)
     }
     if (dt > 200u)
         dt = 200u;                               /* (a long pass -- a save: not a leap) */
-    for (l = 0; l < NLAYER; l++) {
-        const looper_t *lp = &loop[l];
-        int run = !lp->ntrk || lp->play, start = run && lp->ntrk && !gplay_was[l];
-        gplay_was[l] = (uint8_t)(lp->ntrk && lp->play);
+    for (l = 0; l < NLAYER; l++)
         for (k = 0; k < GL_N; k++) {
             glayer_t *g = &gl[l][k];
-            if (!g->len || !g->n || gest_rec_on(l, k))
-                continue;
-            if (start) {                         /* (the loops started: from its beginning) */
-                g->pos = 0;
-                g->ix = 0;
-            }
-            if (!g->on || !run)
+            if (!g->len || !g->n || !g->on || gest_rec_on(l, k))
                 continue;
             g->pos += dt;
             while (1) {
@@ -269,33 +237,32 @@ static void gest_tick(void)
                 g->ix = 0;
             }
         }
-    }
 }
 
 /* ------------------------------------------------------ the session's --- */
 static void ses_out(const void *src, uint32_t n);   /* (sessions.c) */
 static void ses_in(void *dst, uint32_t n);
-/* each track's layers: on, length, how many events, then the events (format 33) */
+/* each track's gesture loops: length, how many events and on, then the events (format 34; 33: three a track, the
+ * controls 4 bits) */
 static void gest_emit(void)
 {
     uint32_t l, k;
     for (l = 0; l < NLAYER; l++)
         for (k = 0; k < GL_N; k++) {
             const glayer_t *g = &gl[l][k];
-            uint32_t h[2];
-            uint32_t n = gest_rec_on(l, k) ? 0u : g->n;   /* (one being recorded: not kept) */
+            uint32_t h[2], n = gest_rec_on(l, k) ? 0u : g->n;   /* (one being recorded: not kept) */
             h[0] = gest_rec_on(l, k) ? 0u : g->len;
             h[1] = n | (uint32_t)g->on << 16;
             ses_out(h, sizeof h);
             ses_out(gev + g->first, n * 4u);
         }
 }
-static void gest_load(void)
+static void gest_load(uint32_t format)
 {
-    uint32_t l, k, i;
+    uint32_t l, k, i, nk = format >= 34u ? GL_N : 3u;
     gest_reset();
     for (l = 0; l < NLAYER; l++)
-        for (k = 0; k < GL_N; k++) {
+        for (k = 0; k < nk; k++) {
             glayer_t *g = &gl[l][k];
             uint32_t h[2], n;
             ses_in(h, sizeof h);
@@ -304,6 +271,8 @@ static void gest_load(void)
             for (i = 0; i < n; i++) {
                 uint32_t e;
                 ses_in(&e, 4u);
+                if (format < 34u)                /* (format 33: 20-bit times, 4-bit controls) */
+                    e = GE(e & 0xFFFFFu, e >> 20 & 15u, (int8_t)(uint8_t)(e >> 24));
                 if (h[0] && gev_used < GEV_N && GE_P(e) < GP_N) {
                     gev[gev_used++] = e;
                     g->n++;

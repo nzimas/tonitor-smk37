@@ -34,8 +34,9 @@ sequencers and three modes in which the other tracks play along with the one you
   (an analog polysynth after the Oberheim SEM). Every
   sound is generated from a seed, in families, and can lean towards an ambient or an experimental path.
 - **Every key plays**: the 37 keys follow the chosen scale and root contiguously, black keys included.
-- **Loopers** (up to five loops a track, with direction, speed, stutter and climb, and three **gesture layers** that
-  record the knobs and drift against the loops at their own lengths), **BALLSY** (a physics
+- **Loopers** (up to eight loops a track, with direction, speed, stutter and climb), **gesture loops** (eight a
+  track: the knobs and faders recorded and played back at their own lengths, drifting against everything else),
+  **BALLSY** (a physics
   sequencer), **BRICKLAYER** (a step sequencer built a note at a time), chords and latched notes.
 - **Snapshots**: 16 a session, one on each pad, each the whole machine at a moment (sounds, settings, latches,
   sequencers, loops), recalled at once or morphed into over up to 30 s.
