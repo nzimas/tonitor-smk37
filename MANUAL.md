@@ -583,7 +583,8 @@ filter sweep made over the end of a phrase comes back, next time, over another p
 time. That is the point: the gestures are not tied to the notes, and they bring the unexpected, even to you.
 
 Press the **sixth button of the top row** (GESTURES; lit while it is up): the chosen track's eight gesture loops
-are on the bottom row of pads, 9 to 16. Press it again to free the pads.
+are on the bottom row of pads, 9 to 16, all glowing faintly sky blue even while empty, so you know the pads are
+theirs. Press it again to free the pads.
 
 - **Hold a pad** (0.8 s) to **arm** it: it blinks red and the band says **ARMED**. Whatever it held is emptied.
 - **Move a knob or a fader**: the recording starts with that move (the pad turns red; the band says G1 REC).

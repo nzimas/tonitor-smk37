@@ -1975,17 +1975,18 @@ static void pads_show(void)
                 pad_rgb(p, RXM_COL[rx.mode], (rx.mask >> j) & 1u ? 256u : PAD_DIM);
             else
                 padled_set(p, 0, 0, 0);
-        } else if (p >= 8u && ui.pad_page == PP_GEST) {   /* the gesture loops: on lit, off dim, empty dark; armed
-                                                   * blinking red, recording red */
+        } else if (p >= 8u && ui.pad_page == PP_GEST) {   /* the gesture loops: on lit, off half-lit, empty a faint
+                                                   * glow (the page is up, even with none yet); armed blinking red,
+                                                   * recording red */
             uint32_t k = p - 8u;
             if (gest_rec_on(ui.sel, k))
                 pad_rgb(p, RGB(255, 0, 0), 256u);
             else if (gest_armed_on(ui.sel, k))
                 pad_rgb(p, RGB(255, 30, 0), (fm1_ms / 250u) & 1u ? 256u : PAD_DIM);
             else if (gest_has(ui.sel, k))
-                pad_rgb(p, C_GEST, gest_is_on(ui.sel, k) ? 192u : PAD_DIM);
+                pad_rgb(p, C_GEST, gest_is_on(ui.sel, k) ? 192u : 56u);
             else
-                padled_set(p, 0, 0, 0);
+                pad_rgb(p, C_GEST, PAD_DIM);
         } else if (p >= 8u && ui.pad_page == PP_OVD) {   /* the loops: in lit (half), out dim, none dark */
             const looper_t *lp = &loop[ui.sel];
             uint32_t j = p - 8u;

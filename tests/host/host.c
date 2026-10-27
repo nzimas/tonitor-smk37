@@ -8821,6 +8821,9 @@ static int cmd_gestures(void)
     ui_leds();
     if (ui.pad_page != PP_GEST || !host_led[BTN_GEST])
         printf("FAIL gestures: the sixth button does not bring the gesture loops on the pads\n"), fail++;
+    pads_show();
+    if (!padled_rgb[8] || !padled_rgb[15] || (padled_rgb[8] & 0xFFu) < (padled_rgb[8] >> 8 & 0xFFu))
+        printf("FAIL gestures: the empty gesture pads are dark, or not sky blue (%06x)\n", padled_rgb[8]), fail++;
     gtap(8u, 50);                                    /* an empty pad pressed: nothing */
     if (gest_armed(0) || gest_has(0, 0) || !str_eq(ui.msg, "HOLD TO ARM"))
         printf("FAIL gestures: an empty pad pressed does something (%s)\n", ui.msg), fail++;

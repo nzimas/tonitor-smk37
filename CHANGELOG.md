@@ -2,6 +2,14 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 42
+
+27 October 2026
+
+Changed
+- The GESTURES pads glow faintly sky blue while the page is up, the empty ones too, so the pads show they are the
+  gesture loops' before any is recorded. A recorded loop that is off is half-lit; on, lit.
+
 ## BUILD 41
 
 27 October 2026
