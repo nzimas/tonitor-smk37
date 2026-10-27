@@ -2115,6 +2115,9 @@ static void blk_render(void)
     an_cache_fill();                             /* (a wavetable missed this block, copied in now: no core rendering) */
 }
 
+#if defined(FELUCCA_UAC) && FELUCCA_UAC && UAC_NBLK > 2u
+static int32_t usb_trk[NLAYER][CTL];             /* (USB audio: each track's block, mono, after its level) */
+#endif
 static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin, int32_t *dlin)
 {
     layer_t *y = &lay[l];
@@ -2325,6 +2328,9 @@ static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin,
             a = absi(x);
             if (a > pk)
                 pk = a;
+#if defined(FELUCCA_UAC) && FELUCCA_UAC && UAC_NBLK > 2u
+            usb_trk[l][i] = x;                    /* (USB audio: the track alone, mono) */
+#endif
             mixl[i] += mulq15(x, pl);
             mixr[i] += mulq15(x, pr);
             rvin[i] += mulq15(x, sd);
@@ -2423,8 +2429,10 @@ static void budget_guard(void)
 }
 
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
-static int32_t usb_blk[2 * CTL];                 /* (the block for USB audio: the master before the MASTER knob, at
-                                                  * unity -- a recording does not follow the headphones' level) */
+static int32_t usb_blk[UAC_NBLK * CTL];           /* (the block for USB audio: the master before the MASTER knob, at
+                                                  * unity -- a recording does not follow the headphones' level; then
+                                                  * each track, mono: after its level, before its pan and the master
+                                                  * delay and reverb) */
 #endif
 /* one block: the events, the loops, the work (two cores), the layers, the effects' returns, the master (Q15 stereo,
  * interleaved) */
@@ -2445,14 +2453,21 @@ static void mix_block(int32_t *out)
     blk_render();
     for (i = 0; i < CTL; i++)
         l_[i] = r_[i] = rvin[i] = dlin[i] = 0;
+#if defined(FELUCCA_UAC) && FELUCCA_UAC && UAC_NBLK > 2u
+    memset(usb_trk, 0, sizeof usb_trk);           /* (a silent track: silence) */
+#endif
     for (l = 0; l < NLAYER; l++)
         layer_block(l, l_, r_, rvin, dlin);
     for (i = 0; i < CTL; i++) {
         l_[i] += fx_l[i];                         /* the delay's and the reverb's returns (on the last block's sends) */
         r_[i] += fx_r[i];
 #if defined(FELUCCA_UAC) && FELUCCA_UAC
-        usb_blk[2u * i] = ceiling(l_[i]);
-        usb_blk[2u * i + 1u] = ceiling(r_[i]);
+        usb_blk[UAC_NBLK * i] = ceiling(l_[i]);
+        usb_blk[UAC_NBLK * i + 1u] = ceiling(r_[i]);
+#if UAC_NBLK > 2u
+        for (l = 0; l < NLAYER && l + 2u < UAC_NBLK; l++)
+            usb_blk[UAC_NBLK * i + 2u + l] = ceiling(usb_trk[l][i]);
+#endif
 #endif
         out[2u * i] = ceiling(mulq12(l_[i], master_q12));
         out[2u * i + 1u] = ceiling(mulq12(r_[i], master_q12));

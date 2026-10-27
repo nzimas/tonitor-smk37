@@ -12,7 +12,7 @@
 #define TONITOR_ID "SMK-37 Pro_732"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 35"
+#define TONITOR_VERSION "BUILD 36"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY
@@ -23,6 +23,8 @@
 #define FELUCCA_CDC 0
 #define FELUCCA_UAC 1            /* USB audio out to the host: the master, stereo, 16-bit, 44.1 kHz (0.52, as BIGORNA's build
                                   * 49; usb.c) */
+#define UAC_NBLK 8u              /* (USB audio's block: the mix L R, then tracks 1 .. 6 mono -- layers.c usb_trk) */
+#define UAC_NMAX 6u              /* (.. sent: the mix, or the six tracks -- GLOBAL SETUP's AUDIO; usb.c) */
 #define FELUCCA_UAC_48K 0        /* (no 48 kHz: the resampler costs ~7 % of the CPU, and 44.1 is what is rendered) */
 #define HALF_FRAMES 256u         /* an I2S half buffer: 5.8 ms (main.c renders it; usb.c's audio ring is sized on it) */
 #define FM1_CORE1 1              /* CPU1 renders half the voices and the effects (hal/fm1_multicore.h; after BIGORNA

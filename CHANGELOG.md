@@ -2,6 +2,31 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 36
+
+27 October 2026
+
+Brought in from Tonitor for the FM-1 (its builds 55, 61, 62 and 68).
+
+Added
+- GLOBAL SETUP has an AUDIO section: USB, OUT: STEREO (the master, as before) or TRACKS (tracks 1 to 6, each on its
+  own mono channel, after its level, before its pan and the master delay and reverb), to record the tracks apart.
+  Changed, the keyboard leaves the USB a moment and comes back as the new device. Settings kept by earlier builds
+  load as they were, at STEREO.
+- While REACT, SHADOW or ARP is on, PLAY flashes with each note the guide plays (keys, chords, loops, BALLSY,
+  BRICKLAYER, MIDI in), on every page but BALLSY's and BRICKLAYER's.
+
+Changed
+- The DELAY and REVERB pages: every row's name and value in one size (it changed from row to row). The delay's TIME
+  in seconds, without the unit (0.02 .. 0.99, then 1.0 .. 2.0); FEEDBACK is named REPEATS.
+- USB audio: the next packet is queued within 0.1 ms of the last (looked to 10 000 times a second, 2 000 before), so
+  six channels never miss a frame; the ring is kept fuller.
+
+Fixed
+- USB audio on macOS 12 to 15: the keyboard now lists its audio streaming interface before its MIDI one. macOS up to
+  15 drops the MIDI interface from that list as it reads it, and with MIDI listed first no audio input appeared
+  there (MIDI still worked). The device's version number changes, so a computer reads its description again.
+
 ## BUILD 35
 
 27 October 2026

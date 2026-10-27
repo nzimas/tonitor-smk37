@@ -15,9 +15,10 @@ typedef struct {
     uint8_t vel_curve;           /* (GLOBAL SETUP's VELOCITY, SET_FORMAT 2) the keys' velocity: VC_* .. */
     uint8_t vel_lo, vel_hi;      /* .. brought into this range, 1 .. 127 .. */
     uint8_t vel_fix;             /* .. or this one for every note (VC_FIXED) */
+    uint8_t usb_aud;             /* (GLOBAL SETUP's AUDIO, SET_FORMAT 3) USB audio: 0 STEREO (the mix), 1 TRACKS (six) */
 } midi_cfg_t;
 enum { VC_LINEAR, VC_LIGHT, VC_HEAVY, VC_FIXED, VC_N };
-#define MIDI_CFG0 {{1, 2, 3, 4, 5, 6}, 16, {1, 2, 3, 4, 5, 6}, 1, 1, 0, 0, 1, 1, VC_LINEAR, 1, 127, 100}
+#define MIDI_CFG0 {{1, 2, 3, 4, 5, 6}, 16, {1, 2, 3, 4, 5, 6}, 1, 1, 0, 0, 1, 1, VC_LINEAR, 1, 127, 100, 0}
 static midi_cfg_t mcfg = MIDI_CFG0;
 
 static uint16_t midi_held[NLAYER][8];            /* (each track's notes sent on, a bit each: one off each) */

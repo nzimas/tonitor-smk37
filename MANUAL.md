@@ -468,7 +468,8 @@ tracks you take in listen to everything the guide sounds (its keys, latches, cho
 BRICKLAYER) and play their own sounds in answer, in the scale. Choosing another track makes it the guide.
 
 - **SHIFT + FADER BANK** turns the mode on or off at once (REACT, REACT OFF; SHADOW, SHADOW OFF; ARP, ARP OFF).
-  FADER BANK blinks slowly while it is on.
+  FADER BANK blinks slowly while it is on, and **PLAY** flashes with each note the guide plays (keys, chords,
+  loops, BALLSY, BRICKLAYER, MIDI in), on every page but BALLSY's and BRICKLAYER's.
 - **FADER BANK held** (0.6 s) puts its page up, with its pads on the bottom row. Held again while the page is up,
   both go down. A track pad also puts the page down; the mode goes on running, and its pads stay up.
 - On the page, **<** and **>** choose the mode: **REACT**, **SHADOW** or **ARP**. Changing the mode lets go of the
@@ -783,8 +784,8 @@ number. As each one arrives, the screen shows RESTORED and its number.
 
 ### Global setup and MIDI
 
-**SHIFT + SAVE held** (0.8 s) opens **GLOBAL SETUP**, the keyboard's own settings, kept apart from the sessions. It has two
-sections, **MIDI** and **VELOCITY**. **<** and **>** move through the entries and **SAVE** goes into one. On a
+**SHIFT + SAVE held** (0.8 s) opens **GLOBAL SETUP**, the keyboard's own settings, kept apart from the sessions. It has three
+sections, **MIDI**, **VELOCITY** and **AUDIO**. **<** and **>** move through the entries and **SAVE** goes into one. On a
 setting, SAVE puts the focus on its value (a white field), < and > change it, and SAVE sets it; **SHIFT + SAVE**
 leaves it as it was, or goes back a level, and at the top level closes GLOBAL SETUP. Each level below the top
 starts with **BACK**. A track pad also closes it. What changed is written to the flash when you leave.
@@ -799,6 +800,7 @@ starts with **BACK**. A track pad also closes it. What changed is written to the
 | **VELOCITY** | **KEYS** | CURVE: EVEN, SOFT (soft playing louder, for a light touch), HARD (for a firm touch), FIXED | EVEN |
 | | | LOWEST, HIGHEST: the range the curve maps into (1–127) | 1, 127 |
 | | | FIXED: the velocity of every note when the curve is FIXED (1–127) | 100 |
+| **AUDIO** | **USB** | OUT: STEREO (the master) or TRACKS (tracks 1 to 6, each on its own channel). See USB audio | STEREO |
 
 **MIDI in** comes over USB only (the SMK-37 has no MIDI IN jack). A note plays every track whose IN channel it is
 on, and the chosen track on the AUTO channel, at its velocity (the VELOCITY settings apply to the keys only). The
@@ -907,8 +909,8 @@ The first press of **SEQ** opens the **DELAY page**: the title and its four valu
 
 | Knob | | | At the start |
 | --- | --- | --- | --- |
-| **K3** | **TIME** | 20 ms to 2 s, on a logarithmic scale (shown in ms). Turning it glides the delay over about 0.1 s, so the repeats bend in pitch rather than click | 65 (400 ms) |
-| **K4** | **FEEDBACK** | how much of each repeat comes back: 0 (one repeat) to 0.95 | 40 |
+| **K3** | **TIME** | 20 ms to 2 s, on a logarithmic scale (shown in seconds: 0.02 to 0.99, then 1.0 to 2.0). Turning it glides the delay over about 0.1 s, so the repeats bend in pitch rather than click | 65 (0.40) |
+| **K4** | **REPEATS** | the feedback: how much of each repeat comes back: 0 (one repeat) to 0.95 | 40 |
 | **K5** | **DAMP** | a low-pass in the feedback path: each repeat darker than the one before | 40 |
 | **K6** | **MIX** | the level of the echoes | 50 |
 
@@ -940,6 +942,12 @@ choose "SMK-37 Tonitor" as the input in the recording program. It carries the ma
 **44.1 kHz** (the rate Tonitor renders at; there is no 48 kHz). It is class compliant: no driver is needed, and
 MIDI goes on over the same cable. The stream is taken before **fader 4**, so the fader sets the headphones' level
 and not the recording's.
+
+**TRACKS.** In GLOBAL SETUP, AUDIO > USB > OUT chooses what goes out: **STEREO**, the master as above, or
+**TRACKS**, six mono channels, track 1 on channel 1 to track 6 on channel 6, to record the tracks apart. Each track
+is taken after its level, before its pan and before the master delay and reverb. When you change it, the keyboard
+leaves the USB for a moment and comes back as the new device (with six channels, or two); the recording program may
+need to choose it again. The setting is kept, and the keyboard starts as it was left.
 
 ### Voices and load
 

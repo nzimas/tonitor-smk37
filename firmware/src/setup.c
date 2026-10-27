@@ -15,15 +15,19 @@
  *   VELOCITY  KEYS    CURVE                                     EVEN, SOFT (light touch), HARD (firm), FIXED
  *                     LOWEST, HIGHEST (the range it maps into)  1 .. 127
  *                     FIXED (every note, the curve FIXED)       1 .. 127
+ *   AUDIO     USB     OUT                                       STEREO (the mix) / TRACKS (the six, each mono):
+ *                                                               the keyboard leaves the USB a moment and comes back
  *
  * And what the settings do in the main loop: MIDI in routed by channel to the tracks (midi_take), its CCs set the
  * tracks' level, pan, macros, filter and sends; the same sent out when they change (midi_poll). */
 
 #define SET_NUM (PRE_NUM + 2u)                   /* (the record's number: after the presets' two) */
-#define SET_FORMAT 2u                            /* 2: VELOCITY (format 1: the MIDI settings only, read still) */
+#define SET_FORMAT 3u                            /* 3: AUDIO; 2: VELOCITY (format 1: the MIDI settings only; read still) */
 #define SET_LEN (32u + sizeof(midi_cfg_t))
 #define SET_LEN1 (32u + __builtin_offsetof(midi_cfg_t, vel_curve))
-enum { SK_ONOFF, SK_CHAN, SK_VCURVE, SK_VEL };   /* (a value: ON / OFF; OFF, 1 .. 16; a curve; 1 .. 127) */
+#define SET_LEN2 (32u + __builtin_offsetof(midi_cfg_t, usb_aud))
+enum { SK_ONOFF, SK_CHAN, SK_VCURVE, SK_VEL, SK_USBA };   /* (a value: ON / OFF; OFF, 1 .. 16; a curve; 1 .. 127;
+                                                            * STEREO / TRACKS) */
 static const char *const VC_NAME[VC_N] = {"EVEN", "SOFT", "HARD", "FIXED"};   /* (short: beside CURVE on its row) */
 typedef struct { const char *name; uint8_t off, kind; } set_row_t;
 #define SR(n, f, k) {n, (uint8_t)__builtin_offsetof(midi_cfg_t, f), k}
@@ -39,11 +43,13 @@ static const set_row_t SET_SND[] = {SR("NOTES", send_note, SK_ONOFF), SR("CC", s
 static const set_row_t SET_PORT[] = {SR("USB IN", usb_in, SK_ONOFF), SR("TRS OUT", trs_out, SK_ONOFF)};
 static const set_row_t SET_VEL[] = {SR("CURVE", vel_curve, SK_VCURVE), SR("LOWEST", vel_lo, SK_VEL),
                                     SR("HIGHEST", vel_hi, SK_VEL), SR("FIXED", vel_fix, SK_VEL)};
-#define SET_NPART 6u
+static const set_row_t SET_AUD[] = {SR("OUT", usb_aud, SK_USBA)};
+#define SET_NPART 7u
 static const struct { const char *name; const set_row_t *rows; uint8_t n, sec; } SET_PART[SET_NPART] = {
     {"IN CHAN", SET_IN, NELEM(SET_IN), 0}, {"OUT CHAN", SET_OUT, NELEM(SET_OUT), 0}, {"RECEIVE", SET_RCV, NELEM(SET_RCV), 0},
-    {"SEND", SET_SND, NELEM(SET_SND), 0}, {"PORTS", SET_PORT, NELEM(SET_PORT), 0}, {"KEYS", SET_VEL, NELEM(SET_VEL), 1}};
-static const char *const SET_SECTION[2] = {"MIDI", "VELOCITY"};
+    {"SEND", SET_SND, NELEM(SET_SND), 0}, {"PORTS", SET_PORT, NELEM(SET_PORT), 0}, {"KEYS", SET_VEL, NELEM(SET_VEL), 1},
+    {"USB", SET_AUD, NELEM(SET_AUD), 2}};
+static const char *const SET_SECTION[3] = {"MIDI", "VELOCITY", "AUDIO"};
 /* the parts of section sec: how many, and the k-th's place in SET_PART */
 static uint32_t set_nparts(uint32_t sec)
 {
@@ -62,7 +68,10 @@ static uint32_t set_part_at(uint32_t sec, uint32_t k)
 }
 /* a row's range: its lowest and highest value */
 static int32_t set_lo(const set_row_t *r) { return r->kind == SK_VEL ? 1 : 0; }
-static int32_t set_hi(const set_row_t *r) { return r->kind == SK_ONOFF ? 1 : r->kind == SK_CHAN ? 16 : r->kind == SK_VCURVE ? VC_N - 1 : 127; }
+static int32_t set_hi(const set_row_t *r)
+{
+    return r->kind == SK_ONOFF || r->kind == SK_USBA ? 1 : r->kind == SK_CHAN ? 16 : r->kind == SK_VCURVE ? VC_N - 1 : 127;
+}
 #define C_SET RGB(150, 200, 255)
 
 static struct {
@@ -105,9 +114,10 @@ static void setup_load(void)                     /* (the start, a restore: the s
     if (!ses.ok || (at = ses_find(SET_NUM)) < 0)
         return;
     ses_flash_read(SES_LO + ses.sect[at] * SES_SECT, &h, sizeof h);
-    if (!(h.format == SET_FORMAT && h.len == SET_LEN) && !(h.format == 1u && h.len == SET_LEN1))
+    if (!(h.format == SET_FORMAT && h.len == SET_LEN) && !(h.format == 2u && h.len == SET_LEN2) &&
+        !(h.format == 1u && h.len == SET_LEN1))
         return;
-    c = D;                                       /* (format 1: VELOCITY as the defaults) */
+    c = D;                                       /* (format 1: VELOCITY as the defaults; 1 and 2: AUDIO, STEREO) */
     ses_flash_read(SES_LO + ses.sect[at] * SES_SECT + 32u, &c, h.len - 32u);
     if (ses_crc((const uint8_t *)&c, h.len - 32u, 0) != h.body_crc)
         return;
@@ -126,7 +136,9 @@ static void setup_load(void)                     /* (the start, a restore: the s
 static uint8_t *set_ptr(const set_row_t *r) { return (uint8_t *)&mcfg + r->off; }
 static void set_text(const set_row_t *r, int32_t v, char *b)
 {
-    if (r->kind == SK_ONOFF)
+    if (r->kind == SK_USBA)
+        str_cpy(b, v ? "TRACKS" : "STEREO", 8);
+    else if (r->kind == SK_ONOFF)
         str_cpy(b, v ? "ON" : "OFF", 4);
     else if (r->kind == SK_VCURVE)
         str_cpy(b, VC_NAME[v < VC_N ? v : 0], 8);
@@ -201,6 +213,10 @@ static void setup_preset(int32_t s)
 /* each pass: the page left (a track's button, SHIFT + SAVE), what changed written */
 static void setup_poll(void)
 {
+#if defined(FELUCCA_UAC) && FELUCCA_UAC
+    if (usb.up && (mcfg.usb_aud ? UAC_NMAX : 2u) != uac_nch)
+        usb_reconnect(mcfg.usb_aud ? UAC_NMAX : 2u);   /* (AUDIO changed, or restored: the new device, at once) */
+#endif
     if (ui.set_page)
         set.was = 1;
     else if (set.was) {

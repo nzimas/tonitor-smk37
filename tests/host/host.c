@@ -5689,6 +5689,44 @@ static int cmd_setup(void)
                            text_w(&FONT_S, w->name), wide), fail++;
             }
     }
+    {   /* AUDIO > USB > OUT: STEREO -> TRACKS, set and kept; a record from before AUDIO (format 2) loads STEREO */
+        ses_head_t *hh = (ses_head_t *)ses_chunk;
+        int at;
+        setup_open();
+        setup_preset(2);                              /* MIDI -> AUDIO */
+        setup_press(0);                               /* its parts: USB */
+        setup_press(0);                               /* its rows: OUT */
+        setup_press(0);                               /* its value .. */
+        setup_preset(1);                              /* .. TRACKS */
+        fm1_ms += 2000u;                              /* (past any flash) */
+        ui.force = 1;
+        ui_draw();
+        ppm("build/screens/screen-49-setup-audio.ppm");
+        setup_press(0);                               /* set */
+        if (set.lvl != 2u || strcmp(SET_PART[set.part].name, "USB") || mcfg.usb_aud != 1u)
+            printf("FAIL setup: AUDIO > USB > OUT was not set to TRACKS (%u)\n", mcfg.usb_aud), fail++;
+        setup_poll();                                 /* (the main loop's pass: the page seen up) */
+        ui.set_page = 0;
+        setup_poll();                                 /* (left: written) */
+        mcfg.usb_aud = 0;
+        ses_scan(1);
+        setup_load();
+        if (mcfg.usb_aud != 1u)
+            printf("FAIL setup: TRACKS is not kept\n"), fail++;
+        at = ses_find(SET_NUM);                       /* the record rewritten as format 2 wrote it: no AUDIO */
+        ses_flash_read(SES_LO + ses.sect[at] * SES_SECT, ses_chunk, SET_LEN);
+        hh->format = 2u;
+        hh->len = SET_LEN2;
+        hh->seq = ++ses.seq;
+        hh->body_crc = ses_crc(ses_chunk + 32u, SET_LEN2 - 32u, 0);
+        hh->head_crc = ses_crc(ses_chunk, 30u, 0);
+        ses_write_chunk(SET_NUM, SET_LEN2);
+        mcfg.usb_aud = 1;
+        ses_scan(1);
+        setup_load();
+        if (mcfg.usb_aud != 0u || !mcfg.send_note)
+            printf("FAIL setup: a record from before AUDIO does not load as it was, STEREO (%u)\n", mcfg.usb_aud), fail++;
+    }
     printf("setup: %s\n", fail ? "FAILED" : "ok");
     return fail ? 1 : 0;
 }
@@ -8180,6 +8218,39 @@ static int cmd_fastfresh(void)
     return fail ? 1 : 0;
 }
 
+/* PLAY flashes with each of the guide's notes while REACT, SHADOW or ARP is on (70 ms), and is dark between them;
+ * off, PLAY shows the loops again */
+static int cmd_playflash(void)
+{
+    uint32_t fail = 0;
+    layers_init();
+    ui_init();
+    sounds_init();
+    master_q12 = 4096;
+    rx_set(1);
+    rx.mask = 0x06u;
+    ui_leds();
+    if (host_led[PANEL_BTN[B_PLAY]])
+        printf("FAIL playflash: PLAY lit before the guide plays\n"), fail++;
+    press_key(0, 1);                                 /* the guide (track 1) plays */
+    ui_leds();
+    if (!host_led[PANEL_BTN[B_PLAY]])
+        printf("FAIL playflash: PLAY does not light with the guide's note\n"), fail++;
+    fm1_ms += 100u;
+    ui_leds();
+    if (host_led[PANEL_BTN[B_PLAY]])
+        printf("FAIL playflash: PLAY stays lit after the note\n"), fail++;
+    press_key(0, 0);
+    rx_set(0);
+    press_key(2, 1);
+    ui_leds();
+    if (host_led[PANEL_BTN[B_PLAY]])
+        printf("FAIL playflash: off, PLAY still flashes with the keys\n"), fail++;
+    press_key(2, 0);
+    printf("playflash: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 /* ------------------------------------------------------------- snapshots --- */
 /* REC held (1 s): the chosen track's looper emptied */
 static void host_hold_rec(void)
@@ -8808,6 +8879,8 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 2 && !strcmp(argv[1], "playflash"))
+        return cmd_playflash();
     if (argc >= 2 && !strcmp(argv[1], "fastfresh"))
         return cmd_fastfresh();
     if (argc >= 2 && !strcmp(argv[1], "looptie"))
