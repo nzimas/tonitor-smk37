@@ -30,11 +30,14 @@ sequencers and three modes in which the other tracks play along with the one you
 
 - **Six tracks**, each with its own engine and sound, level, pan, filter, granulator, crush, distortion and
   sends to a master delay and reverb.
-- **Seven engines**: FM (six operators, DX7 style), ANIMA, CALIGULA, RUSSOLO, DRUID, BAYAREA and HIVE. Every
+- **Eight engines**: FM (six operators, DX7 style), ANIMA, CALIGULA, RUSSOLO, DRUID, BAYAREA, HIVE and OBRADOR
+  (an analog polysynth after the Oberheim SEM). Every
   sound is generated from a seed, in families, and can lean towards an ambient or an experimental path.
 - **Every key plays**: the 37 keys follow the chosen scale and root contiguously, black keys included.
 - **Loopers** (up to eight loops a track, with direction, speed, stutter and climb), **BALLSY** (a physics
   sequencer), **BRICKLAYER** (a step sequencer built a note at a time), chords and latched notes.
+- **Snapshots**: 16 a session, one on each pad, each the whole machine at a moment (sounds, settings, latches,
+  sequencers, loops), recalled at once or morphed into over up to 30 s.
 - **REACT, SHADOW and ARP**: the tracks you choose play along with the track you are playing.
   - **REACT** improvises from a memory of everything you play, recombining it in your style and rhythm.
   - **SHADOW** follows your playing closely, behind you, at its own pace, now and then backwards or moved
@@ -51,7 +54,7 @@ sequencers and three modes in which the other tracks play along with the one you
 | Top row of pads, 7–8 | the AMBIENT and EXPERIMENTAL paths for new sounds |
 | Bottom row of pads | the page of the button that opened it (chords, loop options, tracks for REACT/SHADOW/ARP, …) |
 | Top row of buttons | CHORD, LOOP, MACRO, BALLSY, BRICKLAYER (left to right); a short press turns on or off, a long press shows the options on the bottom pads |
-| Bottom row of buttons | HOME (a new sound), SAVE (sessions; SHIFT: global setup), scale, reverb and delay, PLAY, REC |
+| Bottom row of buttons | HOME (a new sound), SAVE (snapshots, the 16 pads; SHIFT: sessions; SHIFT held: global setup), scale, reverb and delay, PLAY, REC |
 | KNOB BANK | SHIFT |
 | FADER BANK | the envelope page; held, the REACT / SHADOW / ARP page; with SHIFT, that mode on or off |
 | < and > | through sounds, sessions and settings; on the REACT page, the mode |
@@ -111,7 +114,8 @@ Tonitor is by Nuno Zimas. It stands on the work of others:
   backup tool is based.
 - **msfa** by Google Inc. and Pascal Gauthier (Apache-2.0), from Dexed, in Felucca's integer port: the FM.
 - **ANIMA** and **BAYAREA** are ported from the anima and bayarea opcodes of Vascular; **HIVE** from the
-  SWARMER machine of DigiRust.
+  SWARMER machine of DigiRust. **OBRADOR** is Tonitor's own, written with
+  [**OberVave**](https://github.com/zvenson/obervave) (zvenson) as its frame of reference.
 - **CALIGULA** follows the architecture of [**LIRA-8**](https://github.com/MikeMorenoDSP/LIRA-8) by Miguel
   Moreno (BSD), an emulation of SOMA Laboratory's LYRA-8.
 - **RUSSOLO** re-makes, in fixed point, the techniques of

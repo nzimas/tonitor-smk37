@@ -29,10 +29,10 @@
 
 #define NLAYER 6
 #define NVOICE 12                /* the voices of all the layers (FM and ANIMA) */
-enum { ENG_FM, ENG_ANIMA, ENG_CAL, ENG_RUS, ENG_DRUID, ENG_BAY, ENG_HIVE, NENG };
+enum { ENG_FM, ENG_ANIMA, ENG_CAL, ENG_RUS, ENG_DRUID, ENG_BAY, ENG_HIVE, ENG_OB, NENG };
 /* the tracks' engines at the start (and in a fresh session): FM, ANIMA, CALIGULA, HIVE, DRUID, BAYAREA */
 static const uint8_t ENG_START[6] = {ENG_FM, ENG_ANIMA, ENG_CAL, ENG_HIVE, ENG_DRUID, ENG_BAY};
-static const char *const ENG_NAME[NENG] = {"FM", "ANIMA", "CALIGULA", "RUSSOLO", "DRUID", "BAYAREA", "HIVE"};
+static const char *const ENG_NAME[NENG] = {"FM", "ANIMA", "CALIGULA", "RUSSOLO", "DRUID", "BAYAREA", "HIVE", "OBRADOR"};
 #include "midi.c"                /* (the MIDI settings, the notes sent out) */
 
 static fm_patch_t fm_buf[NLAYER][2];
@@ -55,17 +55,21 @@ static volatile uint8_t ba_pub[NLAYER], ba_use[NLAYER];
 /* HIVE (hive.c): a swarm of oscillators, voices of the pool as well */
 static hv_design_t hv_buf[NLAYER][2];
 static volatile uint8_t hv_pub[NLAYER], hv_use[NLAYER];
+/* OBRADOR (obrador.c): an analog polysynth voice, voices of the pool as well */
+static ob_design_t ob_buf[NLAYER][2];
+static volatile uint8_t ob_pub[NLAYER], ob_use[NLAYER];
 /* an organism engine (one for the layer, outside the voices' pool) */
 static int eng_organism(uint32_t e) { return e == ENG_CAL || e == ENG_RUS; }
 
 /* the pool's voices' own memory, ~4.8 KiB each: an ANIMA voice (its resonator) or a DRUID one (its strings) --
  * a voice is one engine at a time (voice_t.eng) */
-typedef union { an_voice_t an; dr_voice_t dr; ba_voice_t ba; hv_voice_t hv; } vmem_t;
+typedef union { an_voice_t an; dr_voice_t dr; ba_voice_t ba; hv_voice_t hv; ob_voice_t ob; } vmem_t;
 typedef char dr_fits_an_voice[sizeof(dr_voice_t) <= sizeof(an_voice_t) && sizeof(ba_voice_t) <= sizeof(an_voice_t) &&
-                              sizeof(hv_voice_t) <= sizeof(an_voice_t) ? 1 : -1];
+                              sizeof(hv_voice_t) <= sizeof(an_voice_t) && sizeof(ob_voice_t) <= sizeof(an_voice_t) ? 1 : -1];
 static vmem_t vmem[NVOICE] POOL;
 static void dr_measure(dr_design_t *d) { dr_measure_on(d, (dr_voice_t *)(void *)&an_probe); }
 static void ba_measure(ba_design_t *d) { ba_measure_on(d, (ba_voice_t *)(void *)&an_probe); }
+static void ob_measure(ob_design_t *d) { ob_measure_on(d, (ob_voice_t *)(void *)&an_probe); }
 static void hv_measure(hv_design_t *d) { hv_measure_on(d, (hv_voice_t *)(void *)&an_probe); }   /* (ANIMA's probe:
                                                                                                * never both at once) */
 
@@ -325,6 +329,7 @@ static uint32_t lx_map(uint32_t n, int32_t k, uint32_t mask)
 /* each layer's level and place in the stereo field, set by the main loop (SELECT, ALGORITHM): the gain Q14
  * (1.0 = 16384) and the two sides of an equal-power pan, Q15. The ISR glides to them over a block. */
 static volatile int32_t lay_gain[NLAYER], lay_pl[NLAYER], lay_pr[NLAYER];
+static volatile int16_t lay_duck[NLAYER];   /* a snapshot's morph: the layer's level lowered by this, Q15 (0: none; snaps.c) */
 static volatile int32_t lay_send[NLAYER];   /* the send to the reverb, after the level, Q15 (KNOB 4) */
 static volatile int32_t lay_dsend[NLAYER];  /* .. to the delay (SHIFT + KNOB 4) */
 /* each layer's DJ filter (KNOB 1), -FLT_MAX .. FLT_MAX: 0 off; left a low-pass coming down from 20 kHz to
@@ -510,7 +515,8 @@ static void lim_block(int32_t *env, int32_t *g, int32_t *x, uint32_t n)
 
 /* --------------------------------------------------------- events --- */
 enum { EV_ON, EV_OFF, EV_ENGINE, EV_STOP, EV_LOOP_REC, EV_LOOP_PLAY, EV_LOOP_CLEAR, EV_LOOP_SET, EV_LOOPS, EV_LOOP_TRK, EV_LOOP_XP, EV_LOOP_MODE, EV_MIDI_OFF,
-       EV_LATCH };               /* (a key's note latched: its voice is never let go by the overload guard) */
+       EV_LATCH,                 /* (a key's note latched: its voice is never let go by the overload guard) */
+       EV_LOOP_EMPTY, EV_LOOP_PACK, EV_LOOP_TAKES };   /* (the snapshots': snaps.c) */
 typedef struct { uint8_t type, layer, note, val; } ev_t;
 #define EV_UNHEARD 0x80u         /* (EV_ON, EV_OFF: in val, a sequencer's note -- the looper does not record it) */
 #define EVQ 64u
@@ -561,6 +567,9 @@ static void voice_on(uint32_t l, uint32_t k, int fresh)
     } else if (lay[l].engine == ENG_HIVE) {
         hv_note_on(&vmem[k].hv, &hv_buf[l][hv_use[l]], (int32_t)v->note, v->vel ? v->vel : 127, fresh || !v->sounding);
         vmem[k].hv.hold = 0;
+    } else if (lay[l].engine == ENG_OB) {
+        ob_note_on(&vmem[k].ob, &ob_buf[l][ob_use[l]], (int32_t)v->note, v->vel ? v->vel : 127, fresh || !v->sounding);
+        vmem[k].ob.hold = 0;
     }
     else {
         an_note_on(&vmem[k].an, &an_buf[l][an_use[l]], pitch_inc((int32_t)v->note * 16), fresh || !v->sounding);
@@ -576,6 +585,8 @@ static void voice_on(uint32_t l, uint32_t k, int fresh)
             vmem[k].ba.hold = 1;
         else if (lay[l].engine == ENG_HIVE)
             vmem[k].hv.hold = 1;
+        else if (lay[l].engine == ENG_OB)
+            vmem[k].ob.hold = 1;
         v->est = AE_ATT;
         v->elv = 0;
     }
@@ -600,6 +611,8 @@ static void voice_off(uint32_t l, uint32_t k)
         ba_note_off(&vmem[k].ba, &ba_buf[l][ba_use[l]]);
     else if (v->eng == ENG_HIVE)
         hv_note_off(&vmem[k].hv);
+    else if (v->eng == ENG_OB)
+        ob_note_off(&vmem[k].ob);
     else
         an_note_off(&vmem[k].an);
 }
@@ -617,6 +630,8 @@ static void voice_silence(uint32_t k)
         vmem[k].ba.live = 0;
     else if (v->eng == ENG_HIVE)
         vmem[k].hv.live = 0;
+    else if (v->eng == ENG_OB)
+        vmem[k].ob.live = 0;
     else
         vmem[k].an.live = 0;
 }
@@ -793,12 +808,14 @@ static int change_due(uint32_t l)
         ba_use[l] = ba_pub[l];
     if (y->engine != ENG_HIVE && y->want_engine != ENG_HIVE)
         hv_use[l] = hv_pub[l];
+    if (y->engine != ENG_OB && y->want_engine != ENG_OB)
+        ob_use[l] = ob_pub[l];
     if (y->want_engine != y->engine)
         return 1;
     return y->engine == ENG_FM ? fm_pub[l] != fm_use[l] : y->engine == ENG_ANIMA ? an_pub[l] != an_use[l]
            : y->engine == ENG_CAL ? cal_pub[l] != cal_use[l] : y->engine == ENG_RUS ? rus_pub[l] != rus_use[l]
            : y->engine == ENG_DRUID ? dr_pub[l] != dr_use[l] : y->engine == ENG_BAY ? ba_pub[l] != ba_use[l]
-           : hv_pub[l] != hv_use[l];
+           : y->engine == ENG_OB ? ob_pub[l] != ob_use[l] : hv_pub[l] != hv_use[l];
 }
 /* what was asked, now (the voices silent), and the notes still held played again with it */
 static void change_apply(uint32_t l)
@@ -852,6 +869,7 @@ static void change_apply(uint32_t l)
         dr_use[l] = dr_pub[l];
         ba_use[l] = ba_pub[l];
         hv_use[l] = hv_pub[l];
+        ob_use[l] = ob_pub[l];
         if (y->engine == ENG_CAL)
             for (j = 0; j < n; j++)
                 cal_note_on(c, &cal_buf[l][cal_use[l]], nn[j], ns[j]);
@@ -1127,14 +1145,126 @@ static void loop_trk_set(uint32_t l, uint32_t k, uint32_t on)
             trk_start(p, t);
         p->mute &= (uint16_t)~bit;
     } else if (!on && !(p->mute & bit)) {
-        if (p->play) {
-            uint32_t n;
-            for (n = 0; n < 128u; n++)
-                if ((t->snd[n >> 5] >> (n & 31u)) & 1u)
-                    note_off(l, loop_note(l, p, t, n), SRC_LOOP);
-            memset(t->snd, 0, sizeof t->snd);
-        }
+        if (p->play)
+            trk_release(l, p, t);
         p->mute |= (uint16_t)bit;
+    }
+}
+
+/* ------------------------------------------- the snapshots' (snaps.c) --- */
+/* A loop once recorded stays in its looper's events while a snapshot holds it (a take): emptying the looper
+ * (EV_LOOP_EMPTY) leaves the events be, and the main loop has those no longer held packed away (EV_LOOP_PACK); a
+ * snapshot recalled gives the looper its loops (EV_LOOP_TAKES). One layer at a time, the main loop waiting for each */
+#define NTAKE 24u                /* the takes a layer's snapshots hold between them */
+#define PK_N (LOOP_TRK + NTAKE)
+static struct { uint8_t n; uint16_t from[PK_N], len[PK_N]; } lpk;   /* EV_LOOP_PACK: the events kept, in order */
+static volatile uint8_t lpk_ok;  /* .. done (not while a loop records) */
+typedef struct { uint16_t first, n; uint32_t len; int8_t xb; } take_t;
+static struct {
+    uint8_t ntrk, play;
+    uint16_t mute;
+    take_t t[LOOP_TRK];
+    uint16_t ph[LOOP_TRK];       /* where each was, a fraction of its length (Q16): where those not playing yet go */
+} lts;                           /* EV_LOOP_TAKES */
+/* where an event kept goes (a loop with none: anywhere) */
+static uint32_t pk_map(uint32_t first, uint32_t n)
+{
+    uint32_t i, at = 0;
+    if (!n)
+        return 0;
+    for (i = 0; i < lpk.n; i++) {
+        if (first >= lpk.from[i] && first < (uint32_t)lpk.from[i] + lpk.len[i])
+            return at + first - lpk.from[i];
+        at += lpk.len[i];
+    }
+    return first;
+}
+static void loop_pack(uint32_t l)
+{
+    looper_t *p = &loop[l];
+    uint32_t i, k, at = 0;
+    if (p->rec != LR_IDLE) {
+        lpk_ok = 0;
+        return;
+    }
+    for (k = 0; k < p->ntrk; k++)
+        p->trk[k].first = (uint16_t)pk_map(p->trk[k].first, p->trk[k].n);
+    for (i = 0; i < lpk.n; i++)                   /* (down, in order: a word at a time forwards is safe) */
+        for (k = 0; k < lpk.len[i]; k++)
+            p->ev[at++] = p->ev[lpk.from[i] + k];
+    p->nev = at;
+    lpk_ok = 1;
+}
+/* pos as a fraction of len, Q16 (32 bits: no 64-bit division on the chip) */
+static uint32_t frac16(uint32_t pos, uint32_t len)
+{
+    if (!len)
+        return 0;
+    return len < 65536u ? (pos << 16) / len : (pos << 8) / (len >> 8);
+}
+/* loop t at its place ph (forwards: its events from there; else from its start) */
+static void trk_seek(const looper_t *p, loop_trk_t *t, uint32_t ph)
+{
+    const uint32_t *ev = p->ev + t->first;
+    int32_t j = 0;
+    trk_start(p, t);
+    if (t->dir < 0 || p->dmode == LD_RAND || t->len < 2u)
+        return;
+    t->pos = (int32_t)(((uint64_t)ph * t->len) >> 16);
+    while (j < (int32_t)t->n && (int32_t)LE_T(ev[j]) < t->pos)
+        j++;
+    t->ix = (int16_t)j;
+}
+static int take_same(const loop_trk_t *t, const take_t *k)
+{
+    return t->first == k->first && t->n == k->n && t->len == k->len && t->xb == k->xb;
+}
+static void loop_takes(uint32_t l)
+{
+    looper_t *p = &loop[l];
+    uint32_t k, keep = LOOP_TRK, any_same = 0;
+    if (p->rec == LR_REC)
+        p->nev = p->trk[p->ntrk].first;           /* (a recording under way: given up) */
+    p->rec = LR_IDLE;
+    p->nheld = 0;
+    for (k = 0; k < p->ntrk && k < lts.ntrk; k++)   /* the loops in both, in or out as they were */
+        if (take_same(&p->trk[k], &lts.t[k])) {
+            any_same = 1;
+            if (keep == LOOP_TRK && !(p->mute >> k & 1u) && !(lts.mute >> k & 1u))
+                keep = k;                         /* (the one the others are placed by) */
+            loop_trk_set(l, k, !(lts.mute >> k & 1u));
+        }
+    for (k = 0; k < LOOP_TRK; k++) {
+        loop_trk_t *t = &p->trk[k];
+        int same = k < p->ntrk && k < lts.ntrk && take_same(t, &lts.t[k]);
+        if (same)
+            continue;
+        if (k < p->ntrk && p->play && !(p->mute >> k & 1u))
+            trk_release(l, p, t);                 /* (gone, or another: its notes let go) */
+        if (k < lts.ntrk) {
+            t->first = lts.t[k].first;
+            t->n = lts.t[k].n;
+            t->len = lts.t[k].len;
+            t->xb = lts.t[k].xb;
+            if (keep < LOOP_TRK && t->len) {      /* placed as it was against the one playing on */
+                const loop_trk_t *r = &p->trk[keep];
+                uint32_t was = (uint32_t)(((uint64_t)lts.ph[keep] * r->len) >> 16);
+                uint32_t since = ((uint32_t)r->pos + r->len - was) % r->len;
+                uint32_t at = ((uint32_t)(((uint64_t)lts.ph[k] * t->len) >> 16) + since) % t->len;
+                trk_seek(p, t, frac16(at, t->len));
+            } else
+                trk_seek(p, t, any_same ? 0u : lts.ph[k]);   /* (all of them anew: as they stood together) */
+        }
+    }
+    p->ntrk = lts.ntrk;
+    p->mute = lts.mute;
+    if (!p->ntrk || (!lts.play && p->play)) {
+        loop_notes_off(l);
+        p->play = 0;
+    } else if (lts.play && !p->play) {
+        for (k = 0; k < p->ntrk; k++)
+            trk_seek(p, &p->trk[k], lts.ph[k]);
+        p->play = 1;
     }
 }
 /* VARY (SHIFT + REC): each loop note struck at a random level (-10 dB .. full), for a random length (50 ms ..
@@ -1661,6 +1791,19 @@ static void events_take(void)        /* audio ISR, at a block start */
         case EV_LOOP_SET:
             loop_set(e.layer, e.val);
             break;
+        case EV_LOOP_EMPTY:                       /* (REC held, snapshots kept: the events stay, packed later) */
+            {
+                uint32_t keep = loop[e.layer].nev;
+                loop_cmd(e.layer, EV_LOOP_CLEAR);
+                loop[e.layer].nev = keep;
+            }
+            break;
+        case EV_LOOP_PACK:
+            loop_pack(e.layer);
+            break;
+        case EV_LOOP_TAKES:
+            loop_takes(e.layer);
+            break;
         case EV_LATCH:                            /* (a key's note latched: its voices kept from the overload guard) */
             for (k = 0; k < NVOICE; k++)
                 if (vox[k].gate && vox_owner(&vox[k]) == e.layer && vox[k].note == e.note && vox[k].src == SRC_KEY)
@@ -1775,6 +1918,9 @@ static void voice_render(uint32_t k)
     } else if (e == ENG_HIVE) {
         memcpy(vmem[k].hv.mac, blk_felt[l], NMAC);
         alive = hv_render_p_p(&vmem[k].hv, &hv_buf[l][hv_use[l]], vb, CTL, blk_pitch[l]);
+    } else if (e == ENG_OB) {
+        memcpy(vmem[k].ob.mac, blk_felt[l], NMAC);
+        alive = ob_render_p_p(&vmem[k].ob, &ob_buf[l][ob_use[l]], vb, CTL, blk_pitch[l]);
     } else {
         memcpy(vmem[k].an.mac, blk_mac[l], NMAC);
         alive = an_render_p_p(&vmem[k].an, &an_buf[l][an_use[l]], vb, CTL, blk_pitch[l]);
@@ -2017,6 +2163,8 @@ static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin,
                     vmem[k].ba.live = 0;
                 else if (v->eng == ENG_HIVE)
                     vmem[k].hv.live = 0;
+                else if (v->eng == ENG_OB)
+                    vmem[k].ob.live = 0;
                 else
                     vmem[k].an.live = 0;
             }
@@ -2134,6 +2282,8 @@ static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin,
             int32_t lv = mod_val(l, MD_LVL, lay_lvl[l], 0, LEVEL_MAX);
             g1 = lv <= 0 ? 0 : (int32_t)(exp2_q16((lv - LEVEL_UNITY) * 16328) >> 2);
         }
+        if (lay_duck[l])                          /* (a morph changing the sound: down, then up again) */
+            g1 -= mulq15(g1, lay_duck[l]);
         if (mst[l].off[MD_PAN]) {                 /* (.. its pan) */
             int32_t ph = (int32_t)((uint32_t)(mod_val(l, MD_PAN, lay_pan[l], -PAN_MAX, PAN_MAX) + PAN_MAX) *
                                    (0x40000000u / (2u * PAN_MAX)));
@@ -2309,6 +2459,7 @@ static void layers_init(void)
     eng_cost[ENG_DRUID] = BLK_TICKS * 6u / 100u;
     eng_cost[ENG_BAY] = BLK_TICKS * 6u / 100u;
     eng_cost[ENG_HIVE] = BLK_TICKS * 8u / 100u;
+    eng_cost[ENG_OB] = BLK_TICKS * 6u / 100u;
 #else
     memcpy(eng_cost, host_cost_model, sizeof eng_cost);
 #endif
@@ -2421,16 +2572,17 @@ static int new_cal(uint32_t l, uint32_t seed, uint32_t path)
     cal_pub[l] = (uint8_t)k;
     return 1;
 }
-/* layer l's sound on engine e drawn again from what made it (a preset): its seed, path and generation, and the
- * level it was measured at; published as a new sound is. 0: the ISR still holds the other buffer */
-static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path, uint32_t gen, int32_t level)
+/* layer l's sound on engine e drawn again from what made it (a preset): its seed, path and generation, the level
+ * it was measured at, and its family (-1: drawn from the seed); published as a new sound is. 0: the ISR still holds
+ * the other buffer */
+static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path, uint32_t gen, int32_t level, int32_t kind)
 {
     uint32_t k;
     if (e == ENG_FM) {
         if (!sound_slot_free(&fm_pub[l], &fm_use[l]))
             return 0;
         k = fm_use[l] ^ 1u;
-        fm_generate(&fm_buf[l][k], -1, seed, path, gen);
+        fm_generate(&fm_buf[l][k], kind, seed, path, gen);
         fm_buf[l][k].gain = level;
         RING_PUBLISH();
         fm_pub[l] = (uint8_t)k;
@@ -2438,7 +2590,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         if (!sound_slot_free(&an_pub[l], &an_use[l]))
             return 0;
         k = an_use[l] ^ 1u;
-        an_design(&an_buf[l][k], -1, seed, path, gen);
+        an_design(&an_buf[l][k], kind, seed, path, gen);
         an_buf[l][k].out = level;
         RING_PUBLISH();
         an_pub[l] = (uint8_t)k;
@@ -2446,7 +2598,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         if (!sound_slot_free(&cal_pub[l], &cal_use[l]))
             return 0;
         k = cal_use[l] ^ 1u;
-        cal_design(&cal_buf[l][k], -1, seed, path, gen);
+        cal_design(&cal_buf[l][k], kind, seed, path, gen);
         cal_buf[l][k].out = level;
         RING_PUBLISH();
         cal_pub[l] = (uint8_t)k;
@@ -2454,7 +2606,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         if (!sound_slot_free(&hv_pub[l], &hv_use[l]))
             return 0;
         k = hv_use[l] ^ 1u;
-        hv_design(&hv_buf[l][k], -1, seed, path, gen);
+        hv_design(&hv_buf[l][k], kind, seed, path, gen);
         hv_buf[l][k].out = level;
         RING_PUBLISH();
         hv_pub[l] = (uint8_t)k;
@@ -2462,15 +2614,23 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         if (!sound_slot_free(&ba_pub[l], &ba_use[l]))
             return 0;
         k = ba_use[l] ^ 1u;
-        ba_design(&ba_buf[l][k], -1, seed, path, gen);
+        ba_design(&ba_buf[l][k], kind, seed, path, gen);
         ba_buf[l][k].out = level;
         RING_PUBLISH();
         ba_pub[l] = (uint8_t)k;
+    } else if (e == ENG_OB) {
+        if (!sound_slot_free(&ob_pub[l], &ob_use[l]))
+            return 0;
+        k = ob_use[l] ^ 1u;
+        ob_design(&ob_buf[l][k], kind, seed, path, gen);
+        ob_buf[l][k].out = level;
+        RING_PUBLISH();
+        ob_pub[l] = (uint8_t)k;
     } else if (e == ENG_DRUID) {
         if (!sound_slot_free(&dr_pub[l], &dr_use[l]))
             return 0;
         k = dr_use[l] ^ 1u;
-        dr_design(&dr_buf[l][k], -1, seed, path, gen);
+        dr_design(&dr_buf[l][k], kind, seed, path, gen);
         dr_buf[l][k].out = level;
         RING_PUBLISH();
         dr_pub[l] = (uint8_t)k;
@@ -2478,7 +2638,7 @@ static int sound_from_seed(uint32_t l, uint32_t e, uint32_t seed, uint32_t path,
         if (!sound_slot_free(&rus_pub[l], &rus_use[l]))
             return 0;
         k = rus_use[l] ^ 1u;
-        rus_design(&rus_buf[l][k], -1, seed, path, gen);
+        rus_design(&rus_buf[l][k], kind, seed, path, gen);
         rus_buf[l][k].out = level;
         RING_PUBLISH();
         rus_pub[l] = (uint8_t)k;
@@ -2553,6 +2713,23 @@ static int new_hive(uint32_t l, uint32_t seed, uint32_t path)
     hv_pub[l] = (uint8_t)k;
     return 1;
 }
+static int new_ob(uint32_t l, uint32_t seed, uint32_t path)
+{
+    uint32_t k, tries;
+    int32_t was = ob_buf[l][ob_use[l]].kind;
+    if (!sound_slot_free(&ob_pub[l], &ob_use[l]))
+        return 0;
+    k = ob_use[l] ^ 1u;
+    for (tries = 0; tries < 4u; tries++) {
+        ob_design(&ob_buf[l][k], new_kind, seed + tries * 7919u, path, GEN_NOW);
+        if (new_kind >= 0 || ob_buf[l][k].kind != was)
+            break;
+    }
+    ob_measure(&ob_buf[l][k]);
+    RING_PUBLISH();
+    ob_pub[l] = (uint8_t)k;
+    return 1;
+}
 /* the name of what layer l plays on engine e */
 static const char *sound_name(uint32_t l, uint32_t e)
 {
@@ -2566,6 +2743,8 @@ static const char *sound_name(uint32_t l, uint32_t e)
         return BK_NAME[ba_buf[l][ba_pub[l]].kind % BK_N];
     if (e == ENG_HIVE)
         return HK_NAME[hv_buf[l][hv_pub[l]].kind % HK_N];
+    if (e == ENG_OB)
+        return OBK_NAME[ob_buf[l][ob_pub[l]].kind % OBK_N];
     if (e == ENG_FM)
         return FF_NAME[fm_buf[l][fm_pub[l]].family % FF_N];
     return AK_NAME[an_buf[l][an_pub[l]].kind % AK_N];

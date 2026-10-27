@@ -94,6 +94,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 #include "druid.c"
 #include "bayarea.c"
 #include "hive.c"
+#include "obrador.c"
 #include "reverb.c"
 /* CPU1's mailbox (src/audio_worker.h), as one core sees it: a job posted runs at the join -- the units of work are
  * apart, so the sound is the same as with the two cores at once. host_cores 1: CPU1 off (the one-core path) */
@@ -143,6 +144,7 @@ static volatile uint32_t mi_w, mi_r;
 static struct { uint32_t keyw[2], buttons; uint8_t key_vel[37]; } fm1_in;
 static uint32_t host_press;
 static uint32_t host_pads;                   /* (the bottom row's hits: smk_pad_take) */
+static uint8_t smk_pad_on[16];               /* (each pad down: the SNAPSHOTS page's holds) */
 static uint32_t smk_pad_take(void) { uint32_t h = host_pads; host_pads = 0; return h; }
 static int32_t host_enc[9];                  /* (K1 .. K8, and 8: the FM-1's PRESETS) */
 static uint32_t fm1_input_edges(uint32_t *rel)
@@ -164,6 +166,7 @@ static uint8_t fm1_led_dim[32];               /* (ui.c: the right-hand buttons d
 static void smo_on(uint32_t on) { (void)on; }  /* (the TRS jack: smk_midi_out.h) */
 static void fm1_led_key(uint32_t id, int on) { if (id < 64u) host_led[id] = (uint8_t)!!on; }
 #include "ui.c"
+#include "snaps.c"
 /* the FM-1's black-key functions and SHIFT, as the tests press them: KEY_SHIFT is KNOB BANK; KEY_x the function FN_x
  * (no control on the SMK-37 yet: ui.c fn_keys reads host_fn) */
 #define KEY_FN0 100u
@@ -935,6 +938,13 @@ static void save_btn(uint32_t held_ms)
     fm1_ms += 2000;                           /* past any flash */
     ui_draw();
 }
+/* SHIFT + SAVE: pressed and let go soon (the SESSIONS page), or held (GLOBAL SETUP) */
+static void ses_btn(uint32_t held_ms)
+{
+    press_phys(KEY_SHIFT, 1);
+    save_btn(held_ms);
+    press_phys(KEY_SHIFT, 0);
+}
 static int same_machine(const char *what, const uint8_t *eng, const int8_t *lv, const int8_t *pn, const int8_t *sd,
                         const int8_t *oc, const fm_patch_t *fp, const an_design_t *ad, const int8_t *rvp,
                         const looper_t *lp)
@@ -1073,9 +1083,9 @@ static int cmd_sessions(const char *dir)
     ui_init();
     sounds_init();
     run_blocks(100, 0);
-    save_btn(0);
+    ses_btn(0);
     if (ui.ses_page != SP_LIST)
-        printf("FAIL sessions: SAVE did not open the list\n"), fail++;
+        printf("FAIL sessions: SHIFT + SAVE did not open the list\n"), fail++;
     host_enc[PANEL_ENC[EN_PRESET]] = 1;
     ui_input();
     ui_draw();
@@ -1109,7 +1119,7 @@ static int cmd_sessions(const char *dir)
     ui.lx = 2;
     ui.rvp[0] = 12;
     ui.edit = 1;
-    save_btn(0);
+    ses_btn(0);
     host_enc[PANEL_ENC[EN_PRESET]] = 8;
     ui_input();
     ui_draw();
@@ -1134,7 +1144,7 @@ static int cmd_sessions(const char *dir)
         printf("FAIL sessions: SAVE held did not save into slot 9\n"), fail++;
     /* none loaded, the list, a full slot (1): SAVE held asks OVERWRITE (NO first); NO keeps it, YES writes over it */
     ses.current = 0;
-    save_btn(0);
+    ses_btn(0);
     if (ui.ses_page != SP_LIST || ui.ses_ix != 1u || !ses_has(1))
         printf("FAIL sessions: the list does not open on the full slot 1\n"), fail++;
     ui.level[0] = 5;
@@ -1150,7 +1160,7 @@ static int cmd_sessions(const char *dir)
         printf("FAIL sessions: NO wrote over session 1\n"), fail++;
     ses.current = 0;
     ui.level[0] = 5;
-    save_btn(0);
+    ses_btn(0);
     save_btn(900);
     host_enc[PANEL_ENC[EN_PRESET]] = 1;           /* YES */
     ui_input();
@@ -4694,7 +4704,7 @@ static int cmd_druid(const char *dir)
             double held = 0, tail = 0, ns;
             struct timespec t0, t1;
             int per;
-            dr_design(&d, (int32_t)k, 500u + s * 7919u + k * 31u, s ? PATH_EXP : PATH_AMBIENT, GEN_NOW);
+            dr_design(&d, (int32_t)k, 1200u + s * 7919u + k * 31u, s ? PATH_EXP : PATH_AMBIENT, GEN_NOW);
             dr_measure(&d);
             dr_init(&v, 99u);
             dr_note_on(&v, &d, 48, 1);
@@ -5247,7 +5257,7 @@ static int cmd_hive(const char *dir)
             int32_t out[CTL], pk = 0;
             double held = 0, late = 0, tail = 0, ns;
             struct timespec t0, t1;
-            hv_design(&d, (int32_t)k, 900u + s * 7919u + k * 31u, s ? PATH_EXP : PATH_AMBIENT, GEN_NOW);
+            hv_design(&d, (int32_t)k, 600u + s * 7919u + k * 31u, s ? PATH_EXP : PATH_AMBIENT, GEN_NOW);
             hv_measure(&d);
             hv_init(&v, 99u);
             hv_note_on(&v, &d, 48, 127, 1);
@@ -5515,8 +5525,14 @@ static int cmd_setup(void)
     memset(host_flash, 0xFF, sizeof host_flash);
     ses_scan(1);
     setup_load();
-    press_phys(KEY_SHIFT, 1);
-    press_btn(B_SAVE);
+    press_phys(KEY_SHIFT, 1);                         /* SHIFT + SAVE held 0.8 s */
+    host_press |= 1u << PANEL_BTN[B_SAVE];
+    fm1_in.buttons |= 1u << PANEL_BTN[B_SAVE];
+    ui_input();
+    fm1_ms += 900u;
+    ui_input();
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_SAVE]);
+    ui_input();
     press_phys(KEY_SHIFT, 0);
     setup_poll();                                     /* (the main loop's pass: the page seen up) */
     ui_draw();
@@ -7875,6 +7891,570 @@ static int cmd_russolo(const char *dir)
     return fail ? 1 : 0;
 }
 
+/* ------------------------------------------------------------- snapshots --- */
+/* REC held (1 s): the chosen track's looper emptied */
+static void host_hold_rec(void)
+{
+    host_press |= 1u << PANEL_BTN[B_REC];
+    fm1_in.buttons |= 1u << PANEL_BTN[B_REC];
+    ui_input();
+    fm1_ms += 1100;
+    ui_input();
+    fm1_in.buttons &= ~(1u << PANEL_BTN[B_REC]);
+    ui_input();
+    run_blocks(10, 0);
+}
+/* the whole machine, as the snapshots are to keep it: every setting; every engine's sound on every track; the latched
+ * notes; BRICKLAYER's notes; PLAY ALONG; each looper's loops as their events (not where they lie) */
+typedef struct {
+    uint8_t engine[NLAYER], path[NLAYER], chord_on[NLAYER], chord_form[NLAYER];
+    int8_t oct[NLAYER], lxt[NLAYER], level[NLAYER], pan[NLAYER], send[NLAYER], dsend[NLAYER], flt[NLAYER], gr[NLAYER];
+    int8_t cr[NLAYER], dist[NLAYER], mac[NLAYER][NENG][NMAC], env[NLAYER][NENG][4];
+    uint8_t env_on[NLAYER][NENG];
+    uint32_t seed[NLAYER][NENG], word[NLAYER][NENG];
+    uint8_t kind[NLAYER][NENG];
+    uint32_t latch[NLAYER][2];
+    uint8_t latch_note[NLAYER][NKEY], latch_form[NLAYER][NKEY], latch_vel[NLAYER][NKEY];
+    uint32_t gseed[NLAYER];
+    mod_t mod[NLAYER];
+    uint8_t bb_on[NLAYER], bb_run[NLAYER], bl_on[NLAYER], bl_run[NLAYER], bl_n[NLAYER], bl_len[NLAYER], bl_dir[NLAYER], bl_spd[NLAYER];
+    int8_t bb_n[NLAYER], bb_speed[NLAYER], bb_base[NLAYER], bb_unst[NLAYER], bl_rate[NLAYER], bl_harm[NLAYER], bl_unst[NLAYER];
+    int8_t bl_w[NLAYER][BL_MAX], bl_o[NLAYER][BL_MAX];
+    uint8_t bl_fx[NLAYER], lfx[NLAYER];
+    uint8_t ntrk[NLAYER], play[NLAYER], dmode[NLAYER], rate[NLAYER], vary[NLAYER];
+    uint16_t mute[NLAYER];
+    uint32_t tlen[NLAYER][LOOP_TRK], tn[NLAYER][LOOP_TRK];
+    int8_t txb[NLAYER][LOOP_TRK];
+    uint32_t ev[NLAYER][LOOP_N];
+    int8_t rvp[4], dlp[4];
+    uint8_t scale, root, rx_on, rx_mode, rx_mask;
+    int8_t lx, rx_k[4], rx_sk[4], rx_ak[6];
+} machine_t;
+static void machine_get(machine_t *m)
+{
+    uint32_t l, e, k, n;
+    memset(m, 0, sizeof *m);
+    for (l = 0; l < NLAYER; l++) {
+        const looper_t *p = &loop[l];
+        m->engine[l] = ui.engine[l], m->path[l] = ui.path[l], m->chord_on[l] = ui.chord_on[l], m->chord_form[l] = ui.chord_form[l];
+        m->oct[l] = ui.oct[l], m->lxt[l] = ui.lxt[l], m->level[l] = ui.level[l], m->pan[l] = ui.pan[l], m->send[l] = ui.send[l];
+        m->dsend[l] = ui.dsend[l], m->flt[l] = ui.flt[l], m->gr[l] = ui.gr[l], m->cr[l] = ui.cr[l], m->dist[l] = ui.dist[l];
+        memcpy(m->mac[l], ui.mac[l], sizeof m->mac[l]);
+        memcpy(m->env[l], ui.env[l], sizeof m->env[l]);
+        memcpy(m->env_on[l], ui.env_on[l], sizeof m->env_on[l]);
+        for (e = 0; e < NENG; e++)
+            sound_rec(l, e, &m->seed[l][e], &m->word[l][e], &m->kind[l][e]);
+        m->latch[l][0] = ui.latch[l][0], m->latch[l][1] = ui.latch[l][1];
+        for (k = 0; k < NKEY; k++)
+            if (kb(ui.latch[l], k))
+                m->latch_note[l][k] = ui.latch_note[l][k], m->latch_form[l][k] = ui.latch_form[l][k],
+                m->latch_vel[l][k] = ui.latch_vel[l][k];
+        m->gseed[l] = gran[l].seed;
+        m->mod[l] = lay_mod[l];
+        m->bb_on[l] = bb.on[l], m->bb_run[l] = bb.run[l], m->bb_n[l] = bb.n[l], m->bb_speed[l] = bb.speed[l];
+        m->bb_base[l] = bb.base[l], m->bb_unst[l] = bb.unst[l];
+        m->bl_on[l] = bl.on[l], m->bl_run[l] = bl.run[l], m->bl_n[l] = bl.n[l], m->bl_len[l] = bl.len[l];
+        m->bl_dir[l] = bl.dir[l], m->bl_spd[l] = bl.spd[l], m->bl_rate[l] = bl.rate[l], m->bl_harm[l] = bl.harm[l];
+        m->bl_unst[l] = bl.unst[l], m->bl_fx[l] = bl.fx[l], m->lfx[l] = lfx[l];
+        memcpy(m->bl_w[l], bl.w[l], bl.n[l]);
+        memcpy(m->bl_o[l], bl.o[l], bl.n[l]);
+        m->ntrk[l] = p->ntrk, m->play[l] = p->play, m->dmode[l] = p->dmode, m->rate[l] = p->rate, m->vary[l] = p->vary;
+        m->mute[l] = p->mute;
+        for (k = 0, n = 0; k < p->ntrk; k++) {
+            m->tlen[l][k] = p->trk[k].len, m->tn[l][k] = p->trk[k].n, m->txb[l][k] = p->trk[k].xb;
+            memcpy(m->ev[l] + n, p->ev + p->trk[k].first, p->trk[k].n * 4u);
+            n += p->trk[k].n;
+        }
+    }
+    memcpy(m->rvp, ui.rvp, 4);
+    memcpy(m->dlp, ui.dlp, 4);
+    m->scale = ui.scale, m->root = ui.root, m->lx = ui.lx;
+    m->rx_on = rx.on, m->rx_mode = rx.mode, m->rx_mask = rx.mask;
+    memcpy(m->rx_k, rx.k, 4);
+    memcpy(m->rx_sk, rx.sk, 4);
+    memcpy(m->rx_ak, rx.ak, 6);
+}
+static machine_t snap_m1, snap_m2, snap_now;
+/* frames for the sounds still to be drawn again, and the loopers to be packed */
+static void snap_settle(void)
+{
+    uint32_t i;
+    for (i = 0; i < 120u; i++) {
+        fm1_ms += 16;
+        ui_input();
+        run_blocks(2, 0);
+    }
+}
+static uint32_t machine_diff(const char *what, const machine_t *a, const machine_t *b)
+{
+    if (!memcmp(a, b, sizeof *a))
+        return 0;
+    {
+        const uint8_t *x = (const uint8_t *)a, *y = (const uint8_t *)b;
+        uint32_t i;
+        for (i = 0; i < sizeof *a && x[i] == y[i]; i++)
+            ;
+        printf("FAIL snaps: %s is not the machine as stored (it differs at byte %u of %u)\n", what, i, (uint32_t)sizeof *a);
+    }
+    return 1;
+}
+/* pad p (0 .. 15) on the SNAPSHOTS page: down for ms, let go (the top row's are buttons, the bottom row's hits) */
+static void snap_tap(uint32_t p, uint32_t ms)
+{
+    if (p < 8u) {
+        host_press |= 1u << (SMK_PADBTN0 + p);
+        fm1_in.buttons |= 1u << (SMK_PADBTN0 + p);
+    } else
+        host_pads |= 1u << p;
+    smk_pad_on[p] = 1;
+    ui_input();
+    fm1_ms += ms;
+    ui_input();
+    if (p < 8u)
+        fm1_in.buttons &= ~(1u << (SMK_PADBTN0 + p));
+    smk_pad_on[p] = 0;
+    ui_input();
+    run_blocks(20, 0);
+}
+/* track l: a loop recorded, of notes k0, k0 + 2 */
+static void snap_record(uint32_t l, uint32_t k0)
+{
+    press_btn(LAYER_BTN[l]);
+    press_btn(B_REC);
+    press_key(k0, 1);
+    run_blocks(150, 0);
+    press_key(k0, 0);
+    press_key(k0 + 2u, 1);
+    run_blocks(150, 0);
+    press_key(k0 + 2u, 0);
+    run_blocks(100, 0);
+    press_btn(B_REC);
+    run_blocks(10, 0);
+}
+/* snapshots: SAVE opens the SNAPSHOTS page, SHIFT + SAVE the SESSIONS page, SHIFT + SAVE held GLOBAL SETUP; a pad held
+ * stores, let go soon recalls, SHIFT + held empties (the top row's and the bottom row's alike); < > move the frame and
+ * SAVE held stores into it. A snapshot is the whole machine: a loop and its overdub stored apart come back apart, and
+ * back together; the latched notes, BRICKLAYER's notes, every engine's sound, PLAY ALONG, the loops' STUTTER; the
+ * looper emptied and recorded anew, the snapshots' loops still there. Recalled over a morph: what glides moves only
+ * between the two, the pitch changes once, at the middle; a track whose sound changes goes down to silence at the
+ * middle and back; at the end the snapshot exactly. Kept with the session; none in a new one. On the page the pads
+ * choose no track */
+static int cmd_snaps(const char *dir)
+{
+    uint32_t fail = 0, l, step, half = 0;
+    char path[512];
+    layers_init();
+    ui_init();
+    sounds_init();
+    grain_reset();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    ses_fresh(1);
+    save_btn(0);
+    if (!ui.snap_page || ui.ses_page)
+        printf("FAIL snaps: SAVE does not open the SNAPSHOTS page\n"), fail++;
+    save_btn(0);
+    if (ui.snap_page)
+        printf("FAIL snaps: SAVE again does not leave it\n"), fail++;
+    ses_btn(0);
+    if (ui.ses_page != SP_LIST || ui.snap_page)
+        printf("FAIL snaps: SHIFT + SAVE does not open the SESSIONS page\n"), fail++;
+    ses_btn(0);
+    if (ui.ses_page)
+        printf("FAIL snaps: SHIFT + SAVE again does not leave it\n"), fail++;
+    ses_btn(900);
+    if (!ui.set_page || ui.ses_page)
+        printf("FAIL snaps: SHIFT + SAVE held does not open GLOBAL SETUP\n"), fail++;
+    ui.set_page = 0;
+    setup_poll();
+    /* state 1: a loop on track 1; settings; stored by holding pad 1 */
+    for (l = 0; l < NLAYER; l++) {
+        ui.level[l] = 10;
+        ui.flt[l] = -40;
+        ui.oct[l] = 0;
+        level_pan_apply(l);
+    }
+    ui.scale = 0;
+    ui.root = 0;
+    ui.rvp[3] = 20;
+    snap_record(0, 0);
+    if (loop[0].ntrk != 1u)
+        printf("FAIL snaps: no loop recorded (%u)\n", loop[0].ntrk), fail++;
+    save_btn(0);
+    snap_tap(0, 900);
+    if (!snap_has(0) || snap_current() != 0 || !str_eq(ui.flash_l1, "STORED") || ui.sel != 0u)
+        printf("FAIL snaps: holding pad 1 did not store snapshot 1\n"), fail++;
+    machine_get(&snap_m1);
+    fm1_ms += 2000;
+    save_btn(0);                                 /* (out, to play) */
+    /* state 2: an overdub on track 1, STUTTER on its loops; a latched note on track 2; BRICKLAYER's notes on track 4;
+     * another CALIGULA on track 3 (not the engine it plays); PLAY ALONG on; track 1 on the next engine; other values and
+     * pitch; into 2 by > and SAVE held */
+    snap_record(0, 4);
+    if (loop[0].ntrk != 2u)
+        printf("FAIL snaps: no overdub recorded (%u loops)\n", loop[0].ntrk), fail++;
+    ev_post(EV_LOOP_MODE, 0, 3, LF_STUTTER);
+    press_btn(LAYER_BTN[1]);
+    press_key(5, 1);
+    press_phys(KEY_SHIFT, 1);
+    press_phys(KEY_SHIFT, 0);
+    press_key(5, 0);
+    if (!ui.latch[1][0])
+        printf("FAIL snaps: no note latched on track 2\n"), fail++;
+    bl_add(3, 2, 0);
+    bl_add(3, 4, 1);
+    new_cal(2, 0xC0FFEEu, PATH_OPEN);
+    rx_set(1);
+    rx.mask = 0x0Cu;
+    for (l = 0; l < NLAYER; l++) {
+        ui.level[l] = 20;
+        ui.flt[l] = 40;
+        ui.oct[l] = 2;
+        level_pan_apply(l);
+    }
+    ui.scale = 4;
+    ui.root = 7;
+    ui.rvp[3] = 80;
+    press_btn(LAYER_BTN[0]);
+    host_enc[PANEL_ENC[EN_PRESET]] = 1;          /* track 1: the next engine */
+    ui_input();
+    run_blocks(100, 0);
+    save_btn(0);
+    host_enc[PANEL_ENC[EN_PRESET]] = 1;
+    ui_input();
+    save_btn(900);
+    if (!snap_has(1) || snap_current() != 1)
+        printf("FAIL snaps: > and SAVE held did not store snapshot 2\n"), fail++;
+    machine_get(&snap_m2);
+    ui.force = 1;
+    ui_draw();
+    snprintf(path, sizeof path, "%s/screen-46-snapshots.ppm", dir);
+    ppm(path);
+    /* recalled at once, each: the machine as stored -- one loop, then the two */
+    ui.morph = 0;
+    snap_tap(0, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 1 recalled", &snap_now, &snap_m1);
+    if (loop[0].ntrk != 1u || ui.latch[1][0] || bl.n[3] || rx.on || lfx[0])
+        printf("FAIL snaps: snapshot 1 has the overdub, the latch, BRICKLAYER's notes, PLAY ALONG or STUTTER (%u loops)\n", loop[0].ntrk), fail++;
+    snap_tap(1, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 2 recalled", &snap_now, &snap_m2);
+    /* the looper emptied and a new loop recorded: the snapshots' loops are still there */
+    save_btn(0);
+    press_btn(LAYER_BTN[0]);
+    host_hold_rec();
+    snap_settle();
+    if (loop[0].ntrk)
+        printf("FAIL snaps: REC held did not empty the looper\n"), fail++;
+    snap_record(0, 9);
+    snap_settle();
+    save_btn(0);
+    snap_tap(0, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 1 after the looper was emptied", &snap_now, &snap_m1);
+    snap_tap(1, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 2 after the looper was emptied", &snap_now, &snap_m2);
+    /* recalled over 2 s, from 1: in between, never beyond either; the pitch and the loops once, at the middle; the new
+     * sound through silence */
+    snap_tap(0, 50);
+    snap_settle();
+    host_enc[PANEL_ENC[PAGE_K[0]]] = 4;
+    ui_input();
+    if (ui.morph != 4u)
+        printf("FAIL snaps: the first page knob does not set the morph time (%u)\n", ui.morph), fail++;
+    ui.force = 1;
+    ui_draw();
+    snprintf(path, sizeof path, "%s/screen-47-morph.ppm", dir);
+    ppm(path);
+    fm1_ms += 2000;
+    snap_tap(1, 20);
+    if (snap_morph_target() != 1)
+        printf("FAIL snaps: no morph to snapshot 2\n"), fail++;
+    for (step = 0; step < 50u && snap_morph_target() == 1; step++) {
+        int to1 = ui.scale == snap_m1.scale && ui.root == snap_m1.root && ui.oct[0] == snap_m1.oct[0] && loop[0].ntrk == 1u;
+        int to2 = ui.scale == snap_m2.scale && ui.root == snap_m2.root && ui.oct[0] == snap_m2.oct[0] && loop[0].ntrk == 2u;
+        if (!to1 && !to2)
+            printf("FAIL snaps: the pitch and loops are neither snapshot's on the way (step %u)\n", step), fail++;
+        if (to2)
+            half = half ? half : step;
+        for (l = 0; l < NLAYER; l++)
+            if (ui.level[l] < 10 || ui.level[l] > 20 || ui.flt[l] < -40 || ui.flt[l] > 40)
+                printf("FAIL snaps: track %u beyond both snapshots on the way\n", l + 1), fail++;
+        if (step == 16u && lay_duck[0] < Q15 / 4)
+            printf("FAIL snaps: track 1's new engine comes in without going down\n"), fail++;
+        if (lay_duck[4])
+            printf("FAIL snaps: track 5 (the same sound) goes down\n"), fail++;
+        fm1_ms += 50;
+        ui_input();
+        run_blocks(4, 0);
+    }
+    printf("snaps: the morph in %u steps of 50 ms, the pitch and loops at %u\n", step, half);
+    if (snap_morph_target() >= 0 || step < 30u || half < 15u || half > 25u)
+        printf("FAIL snaps: the morph took %u steps, changed at %u (of 40)\n", step, half), fail++;
+    snap_settle();
+    machine_get(&snap_now);
+    if (machine_diff("the end of the morph", &snap_now, &snap_m2) || snap_current() != 1 || lay_duck[0])
+        printf("FAIL snaps: at the end of the morph, not snapshot 2 exactly\n"), fail++;
+    /* a bottom-row pad: pad 12 stored, recalled; then emptied with SHIFT, alone */
+    snap_tap(11, 900);
+    if (!snap_has(11))
+        printf("FAIL snaps: holding pad 12 did not store snapshot 12\n"), fail++;
+    pads_show();
+    if (!padled_rgb[11] || padled_rgb[12])
+        printf("FAIL snaps: pad 12 is not lit (or the empty pad 13 is)\n"), fail++;
+    press_phys(KEY_SHIFT, 1);
+    snap_tap(11, 900);
+    press_phys(KEY_SHIFT, 0);
+    if (snap_has(11) || !snap_has(0) || !snap_has(1))
+        printf("FAIL snaps: SHIFT + pad 12 held did not empty snapshot 12 alone\n"), fail++;
+    /* kept with the session: saved, the machine changed, loaded, each snapshot as it was */
+    if (ses_save(1) != SES_OK)
+        printf("FAIL snaps: the session was not saved\n"), fail++;
+    ses_fresh(2);
+    if (snap_has(0) || snap_has(1) || snap_current() >= 0 || loop[0].ntrk)
+        printf("FAIL snaps: a new session has snapshots or loops\n"), fail++;
+    ui.morph = 0;
+    if (ses_load_slot(1) != SES_OK || !snap_has(0) || !snap_has(1) || snap_has(11) || snap_current() >= 0 || ui.morph != 4u)
+        printf("FAIL snaps: the session did not bring its snapshots back\n"), fail++;
+    ui.morph = 0;
+    ui.snap_page = 1;
+    snap_tap(0, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 1 from the session", &snap_now, &snap_m1);
+    snap_tap(1, 50);
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("snapshot 2 from the session", &snap_now, &snap_m2);
+    ui.snap_page = 0;
+    printf("snaps: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
+/* OBRADOR: the eighth engine, chosen with PRESETS; each family sounds (the output in range), a chord's voices end
+ * once let go; its eight macros named and felt; the pitch bend moves it; a session keeps its sound in full (the track
+ * on it) and as its seed (not); a preset and the clipboard keep it; a preset record of before OBRADOR (HIVE alone in
+ * it) leaves its slots empty */
+static int cmd_obrador(void)
+{
+    uint32_t fail = 0, k, g = 0, sec = 44100u / CTL;
+    static ob_design_t keep;
+    layers_init();
+    ui_init();
+    sounds_init();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    master_q12 = 4096;
+    press_btn(B_FX);
+    while (ui.engine[0] != ENG_OB && g++ < NENG) {
+        host_enc[PANEL_ENC[EN_PRESET]] = 1;
+        ui_input();
+    }
+    run_blocks(20, 0);
+    if (ui.engine[0] != ENG_OB || lay[0].engine != ENG_OB || strcmp(ENG_NAME[ENG_OB], "OBRADOR"))
+        printf("FAIL obrador: PRESETS does not reach OBRADOR (%u)\n", ui.engine[0]), fail++;
+    if (strcmp(mac_name(0, 0), "CUTOFF") || strcmp(mac_name(0, 3), "DETUNE") || strcmp(mac_name(0, 4), "FILTER ENV") ||
+        strcmp(mac_name(0, 7), "VINTAGE"))
+        printf("FAIL obrador: its macros are not CUTOFF .. VINTAGE (%s)\n", mac_name(0, 7)), fail++;
+    for (k = 0; k < OBK_N; k++) {
+        int32_t pk = 0;
+        uint32_t b, i;
+        new_sound_of((int32_t)k, 0);
+        run_blocks(20, 0);
+        if (ob_buf[0][ob_pub[0]].kind != k || strcmp(sound_name(0, ENG_OB), OBK_NAME[k]))
+            printf("FAIL obrador: no %s drawn\n", OBK_NAME[k]), fail++;
+        press_key(0, 1);
+        press_key(2, 1);
+        press_key(4, 1);
+        for (b = 0; b < 2u * sec; b++) {
+            run_blocks(1, 0);
+            for (i = 0; i < 2u * CTL; i++)
+                pk = absi(mix_out[i]) > pk ? absi(mix_out[i]) : pk;
+        }
+        if (!lsound(0) || pk < 300 || pk > 32767)
+            printf("FAIL obrador: %s does not sound, or out of range (peak %d)\n", OBK_NAME[k], pk), fail++;
+        press_key(0, 0);
+        press_key(2, 0);
+        press_key(4, 0);
+        run_blocks(12u * sec, 0);
+        if (lsound(0))
+            printf("FAIL obrador: %s still sounds 12 s after the chord was let go\n", OBK_NAME[k]), fail++;
+    }
+    {   /* the four macros of the SMK-37's and the wheels: each changes the sound of one voice (rendered alone) */
+        static ob_design_t d;
+        static ob_voice_t v;
+        int32_t out[CTL];
+        uint32_t j, b, h0 = 0, h;
+        ob_design(&d, OBK_PWM, 777u, PATH_OPEN, GEN_NOW);   /* (its LFO at once: no delay) */
+        ob_measure(&d);
+        for (j = 0; j <= NMAC; j++) {
+            ob_init(&v, 5u);
+            ob_note_on(&v, &d, 60, 100, 1);
+            if (j < NMAC)
+                v.mac[j] = (int8_t)(j == 5u ? MAC_MAX : MAC_MAX / 2);
+            h = 2166136261u;
+            for (b = 0; b < 400u; b++) {
+                if (!ob_render_p(&v, &d, out, CTL, j == NMAC ? 2 * Q16 : 0))
+                    memset(out, 0, sizeof out);
+                h = (h ^ (uint32_t)out[CTL - 1]) * 16777619u;
+            }
+            if (j == 0u) {
+                ob_init(&v, 5u);
+                ob_note_on(&v, &d, 60, 100, 1);
+                h0 = 2166136261u;
+                for (b = 0; b < 400u; b++) {
+                    if (!ob_render_p(&v, &d, out, CTL, 0))
+                        memset(out, 0, sizeof out);
+                    h0 = (h0 ^ (uint32_t)out[CTL - 1]) * 16777619u;
+                }
+            }
+            if (h == h0)
+                printf("FAIL obrador: %s does not change the sound\n", j < NMAC ? ob_mac_name(&d, j) : "the pitch bend"), fail++;
+        }
+    }
+    new_sound_of(OBK_STRINGS, 0);                      /* a session: the track on OBRADOR, its sound in full */
+    run_blocks(10, 0);
+    ui.mac[0][ENG_OB][6] = 20;
+    keep = ob_buf[0][ob_pub[0]];
+    if (ses_save(1) != SES_OK)
+        printf("FAIL obrador: the session was not saved\n"), fail++;
+    new_sound_of(OBK_BASS, 0);
+    run_blocks(10, 0);
+    ses_load_slot(1);
+    run_blocks(10, 0);
+    if (ui.engine[0] != ENG_OB || memcmp(&ob_buf[0][ob_pub[0]], &keep, sizeof keep) || ui.mac[0][ENG_OB][6] != 20)
+        printf("FAIL obrador: the session does not bring its sound back (engine %u)\n", ui.engine[0]), fail++;
+    g = 0;                                            /* .. and on another engine: its seed, the same sound */
+    while (ui.engine[0] != ENG_FM && g++ < NENG) {
+        host_enc[PANEL_ENC[EN_PRESET]] = -1;
+        ui_input();
+    }
+    ses_save(2);
+    ses_load_slot(2);
+    run_blocks(10, 0);
+    if (memcmp(&ob_buf[0][ob_pub[0]], &keep, sizeof keep))
+        printf("FAIL obrador: kept as its seed, the sound does not come back\n"), fail++;
+    clip_copy(0);
+    clip_paste(3);
+    if (memcmp(&ob_buf[3][ob_pub[3]], &keep, sizeof keep))
+        printf("FAIL obrador: the clipboard does not copy it\n"), fail++;
+    {   /* the presets: HIVE's and OBRADOR's slots share a record; one written before OBRADOR (HIVE's alone) keeps
+         * HIVE's and gives OBRADOR none */
+        uint32_t num, k0, ne, len;
+        int i;
+        ses_head_t *hh = (ses_head_t *)ses_chunk;
+        if (pre_save(0, ENG_HIVE, 3) != SES_OK || pre_save(0, ENG_OB, 3) != SES_OK)
+            printf("FAIL obrador: the presets are not saved\n"), fail++;
+        if (pre_kind(ENG_OB, 3) != (int)keep.kind || pre_kind(ENG_HIVE, 3) < 0)
+            printf("FAIL obrador: the presets are not kept\n"), fail++;
+        pre_where(ENG_OB, &num, &k0, &ne, &len);
+        i = ses_find(num);
+        if (i < 0)
+            printf("FAIL obrador: no preset record\n"), fail++;
+        else {                                         /* the record rewritten as before: HIVE's 64 slots alone */
+            uint32_t n1 = PRE5_LEN(1u);
+            ses_flash_read(SES_LO + ses.sect[i] * SES_SECT, ses_chunk, n1);
+            memset(ses_chunk + n1, 0xA5, PRE_SLOTS * PRE5_STRIDE);   /* (what follows in the flash: anything) */
+            hh->len = n1;
+            hh->seq = ++ses.seq;
+            hh->body_crc = ses_crc(ses_chunk + 32u, n1 - 32u, 0);
+            hh->head_crc = ses_crc(ses_chunk, 30u, 0);
+            ses_write_chunk(num, n1);
+            if (pre_kind(ENG_HIVE, 3) < 0 || pre_kind(ENG_OB, 3) >= 0)
+                printf("FAIL obrador: a record of before OBRADOR is not read as it was\n"), fail++;
+            if (pre_save(0, ENG_OB, 4) != SES_OK || pre_kind(ENG_HIVE, 3) < 0 || pre_kind(ENG_OB, 4) < 0 || pre_kind(ENG_OB, 3) >= 0)
+                printf("FAIL obrador: saving into a record of before OBRADOR loses or invents slots\n"), fail++;
+        }
+    }
+    printf("obrador: %s\n", fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
+/* every engine's sounds chosen by family (SHIFT + PRESETS) come back the same when kept as their seed: from a
+ * session, the track on another engine, and from a preset */
+static const void *fam_sound(uint32_t e, uint32_t *size, int32_t *kind)
+{
+    switch (e) {
+    case ENG_FM: *size = sizeof(fm_patch_t), *kind = fm_buf[0][fm_pub[0]].family; return &fm_buf[0][fm_pub[0]];
+    case ENG_ANIMA: *size = sizeof(an_design_t), *kind = an_buf[0][an_pub[0]].kind; return &an_buf[0][an_pub[0]];
+    case ENG_CAL: *size = sizeof(cal_design_t), *kind = cal_buf[0][cal_pub[0]].kind; return &cal_buf[0][cal_pub[0]];
+    case ENG_RUS: *size = sizeof(rus_design_t), *kind = rus_buf[0][rus_pub[0]].kind; return &rus_buf[0][rus_pub[0]];
+    case ENG_DRUID: *size = sizeof(dr_design_t), *kind = dr_buf[0][dr_pub[0]].kind; return &dr_buf[0][dr_pub[0]];
+    case ENG_BAY: *size = sizeof(ba_design_t), *kind = ba_buf[0][ba_pub[0]].kind; return &ba_buf[0][ba_pub[0]];
+    case ENG_HIVE: *size = sizeof(hv_design_t), *kind = hv_buf[0][hv_pub[0]].kind; return &hv_buf[0][hv_pub[0]];
+    default: *size = sizeof(ob_design_t), *kind = ob_buf[0][ob_pub[0]].kind; return &ob_buf[0][ob_pub[0]];
+    }
+}
+static void fam_engine(uint32_t e)
+{
+    uint32_t g = 0;
+    while (ui.engine[0] != e && g++ < NENG) {
+        host_enc[PANEL_ENC[EN_PRESET]] = e > ui.engine[0] ? 1 : -1;   /* (PRESETS: the engines in turn, no wrap) */
+        ui_input();
+    }
+    run_blocks(20, 0);
+}
+static int cmd_famseed(void)
+{
+    static const uint32_t NK[NENG] = {FF_N, AK_N, CS_N, RK_N, DK_N, BK_N, HK_N, OBK_N};
+    static uint8_t keep[4096];
+    uint32_t fail = 0, e, k, size, checked = 0;
+    int32_t kind;
+    layers_init();
+    ui_init();
+    sounds_init();
+    memset(host_flash, 0xFF, sizeof host_flash);
+    ses_scan(1);
+    master_q12 = 4096;
+    press_btn(B_FX);
+    for (e = 0; e < NENG; e++)
+        for (k = 0; k < NK[e]; k++) {
+            const void *now;
+            fam_engine(e);
+            if (ui.engine[0] != e) {
+                printf("FAIL famseed: PRESETS does not reach engine %u\n", e), fail++;
+                break;
+            }
+            new_sound_of((int32_t)k, 0);
+            run_blocks(20, 0);
+            now = fam_sound(e, &size, &kind);
+            if (kind != (int32_t)k || size > sizeof keep)
+                continue;                              /* (a family no longer drawn: FM's GLISSE, RUBBER) */
+            memcpy(keep, now, size);
+            checked++;
+            if (pre_save(0, e, 1) != SES_OK)
+                printf("FAIL famseed: engine %u: the preset was not saved\n", e), fail++;
+            new_sound_of((int32_t)((k + 1u) % NK[e]), 0);
+            run_blocks(20, 0);
+            if (pre_load(0, e, 1) != SES_OK)
+                printf("FAIL famseed: engine %u: the preset was not loaded\n", e), fail++;
+            run_blocks(20, 0);
+            now = fam_sound(e, &size, &kind);
+            if (memcmp(now, keep, size))
+                printf("FAIL famseed: engine %u family %u: the preset brings another sound back (family %d)\n", e, k, kind), fail++;
+            fam_engine((e + 1u) % NENG);               /* the session: the sound kept as its seed */
+            memset(host_flash, 0xFF, sizeof host_flash);
+            ses_scan(1);
+            if (ses_save(1) != SES_OK)
+                printf("FAIL famseed: engine %u: the session was not saved\n", e), fail++;
+            ses_load_slot(1);
+            run_blocks(10, 0);
+            now = fam_sound(e, &size, &kind);
+            if (memcmp(now, keep, size))
+                printf("FAIL famseed: engine %u family %u: the session brings another sound back (family %d)\n", e, k, kind), fail++;
+        }
+    if (checked < 60u)
+        printf("FAIL famseed: only %u sounds checked\n", checked), fail++;
+    printf("famseed: %u sounds, %s\n", checked, fail ? "FAILED" : "ok");
+    return fail ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 3 && !strcmp(argv[1], "caligula"))
@@ -7939,6 +8519,12 @@ int main(int argc, char **argv)
         return cmd_setup();
     if (argc >= 3 && !strcmp(argv[1], "cores"))
         return cmd_cores(atoi(argv[2]));
+    if (argc >= 3 && !strcmp(argv[1], "snaps"))
+        return cmd_snaps(argv[2]);
+    if (argc >= 2 && !strcmp(argv[1], "obrador"))
+        return cmd_obrador();
+    if (argc >= 2 && !strcmp(argv[1], "famseed"))
+        return cmd_famseed();
     if (argc >= 3 && !strcmp(argv[1], "hive"))
         return cmd_hive(argv[2]);
     if (argc >= 3 && !strcmp(argv[1], "bricks"))

@@ -193,6 +193,15 @@ static struct {
     uint8_t ses_yes;             /* the question's answer */
     uint16_t ses_new;            /* the number it asks about */
     uint8_t ses_over;            /* .. and it holds a session: the question is OVERWRITE */
+    uint8_t snap_page, snap_ix;  /* the SNAPSHOTS page (SAVE); its frame (0 .. 15) */
+    int8_t snap_pad;             /* the pad down on it (its snapshot, -1 none), since snap_t0; held: done */
+    uint8_t snap_done, snap_sh;
+    uint32_t snap_t0;
+    uint8_t morph;               /* the first knob there: the morph time, half seconds (0: at once) */
+    uint32_t morph_until;        /* .. its dial shown until then */
+    int32_t shown_snap, shown_morph;
+    uint32_t ssv_t0;             /* SHIFT + SAVE pressed at: held 0.8 s is GLOBAL SETUP, shorter the SESSIONS page */
+    uint8_t ssv_down, ssv_long;
     uint8_t set_page;            /* GLOBAL SETUP up (setup.c) */
     uint8_t mod_page, mod_ix;    /* the MOD page up (SEQ's third); its entry: LFO 1, LFO 2, MOD A .. D */
     int8_t mod_touched;          /* (the row just turned, until mod_touch_until) */
@@ -474,7 +483,7 @@ static void latch_move(uint32_t l, int32_t d)
 /* the REACT / SHADOW page is what the screen shows (no other page over it) */
 static int rx_page_up(void)
 {
-    return ui.rx_page && !ui.rv_page && !ui.ses_page && !ui.sc_page && !ui.pre_page && !ui.set_page && !ui.env_page &&
+    return ui.rx_page && !ui.rv_page && !ui.ses_page && !ui.snap_page && !ui.sc_page && !ui.pre_page && !ui.set_page && !ui.env_page &&
            !(ui.bb_page && bb.on[ui.sel]) && !(ui.bl_page && bl.on[ui.sel]) && !ui.mod_page && !ui.ovd;
 }
 static uint8_t rx_focus;                         /* (REACT's page: the knob turned last, 0 .. 3) */
@@ -487,12 +496,16 @@ static const int8_t DL_DEF[4] = {65, 40, 40, 50};      /* 400 ms, a few repeats,
 static const char *const DL_NAME[4] = {"TIME", "FEEDBACK", "DAMP", "MIX"};
 
 /* the layer's level and pan, to the ISR */
+/* a level (in 1/256 of a step) as the ISR's gain, Q14: 1.5 dB a step, log2 of the gain = (lv - unity) x 1.5 / 6.0206 */
+static int32_t level_gain(int32_t lv_q8)
+{
+    int32_t db16 = ((lv_q8 - LEVEL_UNITY * 256) * 16328) >> 8;   /* x 0.24914, Q16 */
+    return lv_q8 <= 0 ? 0 : (int32_t)(exp2_q16(db16) >> 2);
+}
 static void level_pan_apply(uint32_t l)
 {
-    int32_t lv = ui.level[l], db16, ph;
-    /* 1.5 dB a step: log2 of the gain = (lv - unity) x 1.5 / 6.0206 */
-    db16 = (lv - LEVEL_UNITY) * 16328;                     /* x 0.24914, Q16 */
-    lay_gain[l] = lv <= 0 ? 0 : (int32_t)(exp2_q16(db16) >> 2);   /* Q14 */
+    int32_t ph;
+    lay_gain[l] = level_gain(ui.level[l] * 256);
     ph = (int32_t)((uint32_t)(ui.pan[l] + PAN_MAX) * (0x40000000u / (2u * PAN_MAX)));   /* 0 .. a quarter turn */
     lay_pl[l] = sin_ph((uint32_t)ph + 0x40000000u);
     lay_pr[l] = sin_ph((uint32_t)ph);
@@ -508,6 +521,7 @@ static void level_pan_apply(uint32_t l)
 
 enum { SP_LIST = 1, SP_ASK = 2 };
 #define C_SES RGB(120, 255, 200)
+#define C_SNAP RGB(120, 220, 255)        /* (the snapshots: the screen's, and the pads' on their page) */
 #define C_FULL RGB(255, 50, 50)          /* a slot with a session in it */
 #define C_OK RGB(60, 220, 90)
 #define C_BAD RGB(255, 40, 40)
@@ -535,6 +549,17 @@ static void clip_copy(uint32_t l);
 static void clip_paste(uint32_t l);
 static int clip_from(void);                  /* the track on the clipboard, -1 if it is empty */
 static int ses_load_slot(uint32_t num);
+/* snaps.c (after this file) */
+#define NSNAP 16u                /* a session's snapshots (a pad each) */
+#define MORPH_STEPS 60u          /* the morph time: 0 .. 60 half seconds */
+static int snap_store(uint32_t i);
+static void snap_loop_emptied(uint32_t l);
+static void snap_recall(uint32_t i, uint32_t morph_half_s);
+static void snap_clear(uint32_t i);
+static int snap_has(uint32_t i);
+static int snap_current(void);
+static int snap_morph_target(void);
+static void morph_poll(void);
 static void mac_apply(uint32_t l);
 static int pre_kind(uint32_t e, uint32_t slot);   /* the kind of sound in engine e's slot, -1 if none */
 static int pre_save(uint32_t l, uint32_t e, uint32_t slot);
@@ -602,6 +627,16 @@ static void save_long(void)
         pre_long();
         return;
     }
+    if (ui.snap_page) {                          /* the SNAPSHOTS page: the state now, into the snapshot framed */
+        char n[8];
+        fmt_int(n, ui.snap_ix + 1);
+        if (snap_store(ui.snap_ix))
+            flash("STORED", n, C_SNAP);
+        else
+            flash("FULL", n, C_BAD);
+        ui.force = 1;
+        return;
+    }
     if (ui.ses_page == SP_ASK)
         return;
     ui.rv_page = ui.env_page = ui.bb_page = ui.bl_page = 0;
@@ -614,7 +649,7 @@ static void save_long(void)
         return;
     }
     if (ses_current()) {                         /* a session loaded: saved over it, at once */
-        ui.ses_page = 0;
+        ui.ses_page = ui.snap_page = 0;
         flash("SAVING", "", C_OK);
         ui_draw();
         ses_done(ses_save((uint32_t)ses_current()), "SAVED", (uint32_t)ses_current());
@@ -639,7 +674,7 @@ static void save_short(void)
     }
     if (ui.ses_page == SP_ASK) {
         uint32_t num = ui.ses_new;
-        ui.ses_page = 0;
+        ui.ses_page = ui.snap_page = 0;
         ui.force = 1;
         if (!ui.ses_yes) {
             say("NOT SAVED", 1500);
@@ -652,7 +687,7 @@ static void save_short(void)
     }
     if (ui.ses_page == SP_LIST) {                /* the slot shown: loaded (or, empty, chosen), and back */
         uint32_t num = ui.ses_ix;
-        ui.ses_page = 0;
+        ui.ses_page = ui.snap_page = 0;
         ui.force = 1;
         if (ses_has(num)) {
             flash("LOADING", "", C_SES);
@@ -668,8 +703,31 @@ static void save_short(void)
         }
         return;
     }
-    ui.rv_page = ui.env_page = ui.bb_page = ui.bl_page = 0;   /* the SESSIONS page, on the session chosen if any */
-    ui.sc_page = 0;
+    if (ui.snap_page) {                          /* the SNAPSHOTS page: back */
+        ui.snap_page = 0;
+        ui.force = 1;
+        return;
+    }
+    ui.rv_page = ui.env_page = ui.bb_page = ui.bl_page = ui.sc_page = ui.mod_page = 0;   /* the SNAPSHOTS page, framed
+                                                                                          * on the last */
+    ui.snap_page = 1;
+    ui.snap_pad = -1;
+    if (snap_current() >= 0)
+        ui.snap_ix = (uint8_t)snap_current();
+    ui.force = 1;
+}
+/* SHIFT + SAVE let go soon: the SESSIONS page, on the session chosen if any; on it, back (a question: not saved) */
+static void ses_page_toggle(void)
+{
+    if (ui.ses_page == SP_ASK)
+        say("NOT SAVED", 1500);
+    if (ui.ses_page) {
+        ui.ses_page = ui.snap_page = 0;
+        ui.force = 1;
+        return;
+    }
+    ui.rv_page = ui.env_page = ui.bb_page = ui.bl_page = ui.sc_page = ui.mod_page = ui.snap_page = 0;
+    ui.pre_page = 0;
     ui.ses_page = SP_LIST;
     ui.ses_ix = (uint8_t)(ses_current() ? ses_current() : 1);
     ui.force = 1;
@@ -726,6 +784,8 @@ static void env_native(uint32_t l, int8_t *v)
         ba_env_adsr(&ba_buf[l][ba_pub[l]], a);
     else if (e == ENG_HIVE)
         hv_env_adsr(&hv_buf[l][hv_pub[l]], a);
+    else if (e == ENG_OB)
+        ob_env_adsr(&ob_buf[l][ob_pub[l]], a);
     else {
         const rus_design_t *d = &rus_buf[l][rus_pub[l]];
         a[0] = d->att;
@@ -755,7 +815,7 @@ static const char *mac_name(uint32_t l, uint32_t j)
     return e == ENG_FM ? fm_mac_name(&fm_buf[l][fm_pub[l]], j) : e == ENG_ANIMA ? an_mac_name(&an_buf[l][an_pub[l]], j)
            : e == ENG_CAL ? cal_mac_name(&cal_buf[l][cal_pub[l]], j) : e == ENG_RUS ? rus_mac_name(&rus_buf[l][rus_pub[l]], j)
            : e == ENG_DRUID ? dr_mac_name(&dr_buf[l][dr_pub[l]], j) : e == ENG_BAY ? ba_mac_name(&ba_buf[l][ba_pub[l]], j)
-           : hv_mac_name(&hv_buf[l][hv_pub[l]], j);
+           : e == ENG_OB ? ob_mac_name(&ob_buf[l][ob_pub[l]], j) : hv_mac_name(&hv_buf[l][hv_pub[l]], j);
 }
 
 /* the family (kind, species) layer l plays on its engine now */
@@ -767,6 +827,7 @@ static int32_t cur_kind(uint32_t l)
            : ui.engine[l] == ENG_RUS   ? (int32_t)rus_buf[l][rus_pub[l]].kind
            : ui.engine[l] == ENG_DRUID ? (int32_t)dr_buf[l][dr_pub[l]].kind
            : ui.engine[l] == ENG_BAY   ? (int32_t)ba_buf[l][ba_pub[l]].kind
+           : ui.engine[l] == ENG_OB    ? (int32_t)ob_buf[l][ob_pub[l]].kind
                                        : (int32_t)hv_buf[l][hv_pub[l]].kind;
 }
 static uint32_t cur_seed(uint32_t l)             /* (the seed of the sound layer l plays on its engine now) */
@@ -777,6 +838,7 @@ static uint32_t cur_seed(uint32_t l)             /* (the seed of the sound layer
            : ui.engine[l] == ENG_RUS   ? rus_buf[l][rus_pub[l]].seed
            : ui.engine[l] == ENG_DRUID ? dr_buf[l][dr_pub[l]].seed
            : ui.engine[l] == ENG_BAY   ? ba_buf[l][ba_pub[l]].seed
+           : ui.engine[l] == ENG_OB    ? ob_buf[l][ob_pub[l]].seed
                                        : hv_buf[l][hv_pub[l]].seed;
 }
 /* a new sound for the layer chosen, of family kind (-1: any); msg said first (0: none, the family's name shows) */
@@ -795,6 +857,7 @@ static void new_sound_of(int32_t kind, const char *msg)
          : ui.engine[l] == ENG_RUS   ? new_rus(l, next_seed(), ui.path[l])
          : ui.engine[l] == ENG_DRUID ? new_druid(l, next_seed(), ui.path[l])
          : ui.engine[l] == ENG_BAY   ? new_bay(l, next_seed(), ui.path[l])
+         : ui.engine[l] == ENG_OB    ? new_ob(l, next_seed(), ui.path[l])
                                      : new_hive(l, next_seed(), ui.path[l]);
     new_kind = -1;
     if (!ok)
@@ -843,11 +906,52 @@ static void bl_fx_toggle(uint32_t l, uint32_t i)
 /* BALLSY's page (k 0) or BRICKLAYER's (1) up: every other page down */
 static void seq_page_only(uint32_t k)
 {
-    ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.mod_page = 0;
+    ui.rv_page = ui.ses_page = ui.snap_page = ui.sc_page = ui.pre_page = ui.set_page = ui.env_page = ui.mod_page = 0;
     if (k)
         ui.bb_page = 0;
     else
         ui.bl_page = 0;
+}
+/* the SNAPSHOTS page: the 16 pads are the session's snapshots (pad n, snapshot n). A pad let go soon: its snapshot
+ * recalled, over the morph time; held 0.8 s: the state now stored in it; SHIFT held too: emptied. The top row's
+ * presses taken from the rest (no track chosen, copied or pasted) */
+static int snap_pad_down(uint32_t p)
+{
+    return p < 8u ? (int)((fm1_in.buttons >> (SMK_PADBTN0 + p)) & 1u) : smk_pad_on[p] != 0u;
+}
+static uint32_t snap_pads(uint32_t press)
+{
+    uint32_t hits = (press >> SMK_PADBTN0 & 0xFFu) | (smk_pad_take() & 0xFF00u), p;
+    for (p = 0; p < NSNAP; p++)
+        if ((hits >> p) & 1u) {
+            ui.snap_pad = (int8_t)p;
+            ui.snap_t0 = fm1_ms;
+            ui.snap_done = 0;
+            ui.snap_sh = (uint8_t)shift_held();
+            ui.snap_ix = (uint8_t)p;
+            ui.force = 1;
+        }
+    if (ui.snap_pad >= 0) {
+        int down = snap_pad_down((uint32_t)ui.snap_pad);
+        char n[8];
+        fmt_int(n, ui.snap_pad + 1);
+        if (down && !ui.snap_done && (uint32_t)(fm1_ms - ui.snap_t0) >= 800u) {
+            ui.snap_done = 1;                    /* held: stored, or (SHIFT) emptied */
+            if (ui.snap_sh || shift_held()) {
+                snap_clear((uint32_t)ui.snap_pad);
+                flash("EMPTIED", n, C_SNAP);
+            } else if (snap_store((uint32_t)ui.snap_pad))
+                flash("STORED", n, C_SNAP);
+            else
+                flash("FULL", n, C_BAD);       /* (the snapshots' room taken: emptying some makes more) */
+            ui.force = 1;
+        } else if (!down) {                      /* let go soon: recalled (over the morph time) */
+            if (!ui.snap_done && snap_has((uint32_t)ui.snap_pad))
+                snap_recall((uint32_t)ui.snap_pad, ui.morph);
+            ui.snap_pad = -1;
+        }
+    }
+    return press & ~(0xFFu << SMK_PADBTN0);
 }
 static void ui_input(void)
 {
@@ -860,12 +964,15 @@ static void ui_input(void)
             say("1 CORE", 4000);
         was_on = (uint8_t)audio_worker_online;
     }
+    morph_poll();                                /* (a snapshot's morph, a step on) */
     bb_tick();                                   /* (the balls: their time, their notes) */
     bl_tick();                                   /* (BRICKLAYER's steps) */
     rx_tick();                                   /* (REACT: listening, and the parts' notes) */
     if (ui.vary_shown && loop[ui.sel].vary == ui.vary_shown - 1u)
         ui.vary_shown = 0;                       /* (VARY taken by the ISR: shown from the looper again) */
     (void)rel;
+    if (ui.snap_page)
+        press = snap_pads(press);
     for (l = 0; l < NLAYER; l++)
         if (btn_bit(press, LAYER_BTN[l])) {
             ui.trk_down = (uint8_t)(l + 1u);
@@ -879,7 +986,7 @@ static void ui_input(void)
                                                                                                     * back to it */
                 ui.rv_page = ui.rx_page = 0;
                 ui.env_page = ui.bb_page = ui.bl_page = 0;
-                ui.ses_page = 0;
+                ui.ses_page = ui.snap_page = 0;
                 ui.sc_page = 0;
                 ui.pre_page = ui.set_page = ui.mod_page = 0;
                 ui.force = 1;
@@ -927,7 +1034,7 @@ static void ui_input(void)
             ui.fx = 1;
         }
         ui.env_page = ui.bb_page = ui.bl_page = 0;
-        ui.ses_page = 0;
+        ui.ses_page = ui.snap_page = 0;
         ui.pre_page = ui.set_page = 0;
         ui.sc_page = 0;
         ui.force = 1;
@@ -940,7 +1047,7 @@ static void ui_input(void)
             ui.pre_eng = ui.engine[ui.sel];
             if (!ui.pre_ix)
                 ui.pre_ix = 1;
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.env_page = ui.bb_page = ui.bl_page = ui.set_page = ui.mod_page = 0;
+            ui.rv_page = ui.ses_page = ui.snap_page = ui.sc_page = ui.env_page = ui.bb_page = ui.bl_page = ui.set_page = ui.mod_page = 0;
         }
         ui.force = 1;
     } else if (btn_bit(press, B_ARP) && ui.pre_page) {   /* the PRESETS page (where SHIFT + ARP opens it): ARP held saves
@@ -952,15 +1059,19 @@ static void ui_input(void)
         ui.sc_page = (uint8_t)!ui.sc_page;
         ui.rv_page = 0;
         ui.env_page = ui.bb_page = ui.bl_page = 0;
-        ui.ses_page = 0;
+        ui.ses_page = ui.snap_page = 0;
         ui.pre_page = ui.set_page = ui.mod_page = 0;
         ui.force = 1;
     }
-    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: GLOBAL SETUP; in it, back */
+    if (btn_bit(press, B_SAVE) && shift_held()) {   /* SHIFT and SAVE: the SESSIONS page; held, GLOBAL SETUP; in
+                                                     * it, back */
         if (ui.set_page)
             setup_press(1);
-        else if (!ui.ses_page)
-            setup_open();
+        else {
+            ui.ssv_t0 = fm1_ms;
+            ui.ssv_down = 1;
+            ui.ssv_long = 0;
+        }
     } else if (btn_bit(press, B_SAVE) && ui.set_page)
         setup_press(0);                          /* (SAVE in GLOBAL SETUP: into, or set) */
     else if (btn_bit(press, B_SAVE)) {
@@ -979,6 +1090,17 @@ static void ui_input(void)
                 pre_long();
         }
     }
+    if (ui.ssv_down) {
+        if (!btn_bit(fm1_in.buttons, B_SAVE)) {
+            ui.ssv_down = 0;
+            if (!ui.ssv_long)
+                ses_page_toggle();
+        } else if (!ui.ssv_long && (uint32_t)(fm1_ms - ui.ssv_t0) >= 800u) {
+            ui.ssv_long = 1;
+            ui.ses_page = ui.snap_page = 0;
+            setup_open();
+        }
+    }
     if (ui.save_down) {
         if (!btn_bit(fm1_in.buttons, B_SAVE)) {
             ui.save_down = 0;
@@ -990,7 +1112,16 @@ static void ui_input(void)
         }
     }
     sh = shift_held();  /* (SHIFT read once: the knobs below all see the same) */
-    if (ui.env_page) {                           /* KNOB 1 .. 4: the track's own envelope, A D S R; the first turn
+    if (ui.snap_page) {                          /* the SNAPSHOTS page: the first page knob the morph time (its dial);
+                                                  * the other three nothing */
+        if ((s = enc_take(PAGE_K[0])) != 0) {
+            ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS);
+            ui.morph_until = fm1_ms + 1500u;
+        }
+        enc_take(PAGE_K[1]);
+        enc_take(PAGE_K[2]);
+        enc_take(PAGE_K[3]);
+    } else if (ui.env_page) {                    /* KNOB 1 .. 4: the track's own envelope, A D S R; the first turn
                                                   * takes it from the sound's own (as drawn) */
         const uint8_t *K = PAGE_K;
         uint32_t j, l = ui.sel, e = ui.engine[l];
@@ -1137,6 +1268,8 @@ static void ui_input(void)
             say(m, 1200);
         } else if (p->rec == LR_IDLE && p->ntrk >= LOOP_USE)
             say("8 LOOPS", 1500);                /* full (a pad each): not armed */
+        else if (p->rec == LR_IDLE && p->nev >= LOOP_N - 32u)
+            say("LOOPER FULL", 1500);            /* (its notes, and the snapshots' loops: not armed) */
     }
     if (ui.blrec_down) {                         /* (BRICKLAYER: held 1 s, emptied; let go soon, entry on or off) */
         if (!btn_bit(fm1_in.buttons, B_REC)) {
@@ -1158,7 +1291,8 @@ static void ui_input(void)
     if (ui.rec_down && !btn_bit(fm1_in.buttons, B_REC))
         ui.rec_down = 0;
     if (ui.rec_down && !ui.rec_done && (uint32_t)(fm1_ms - ui.rec_t0) >= 1000u) {   /* held: emptied */
-        ev_post(EV_LOOP_CLEAR, ui.sel, 0, 0);
+        ev_post(EV_LOOP_EMPTY, ui.sel, 0, 0);    /* (the events the snapshots hold stay) */
+        snap_loop_emptied(ui.sel);
         ui.lxt[ui.sel] = 0;                      /* (emptied: its own transposition gone too) */
         lx_post();
         char d[8] = "LOOP  ";
@@ -1312,10 +1446,10 @@ static void ui_input(void)
     } else if (s && sh) {                        /* SHIFT + PRESETS: the family before or after, a new sound of it (the
                                                   * track's view only) */
         if (!ui.rv_page && !ui.mod_page && !ui.sc_page && !ui.env_page && !(ui.bb_page && bb.on[ui.sel]) && !(ui.bl_page && bl.on[ui.sel]) &&
-            !ui.pre_page && !ui.ses_page && !ui.ovd) {
+            !ui.pre_page && !ui.ses_page && !ui.snap_page && !ui.ovd) {
             uint32_t e = ui.engine[ui.sel];
             int32_t n = e == ENG_FM ? FF_N : e == ENG_ANIMA ? AK_N : e == ENG_CAL ? CS_N : e == ENG_RUS ? RK_N
-                        : e == ENG_DRUID ? DK_N : e == ENG_BAY ? BK_N : HK_N;
+                        : e == ENG_DRUID ? DK_N : e == ENG_BAY ? BK_N : e == ENG_OB ? OBK_N : HK_N;
             {
                 int32_t k = clampi(cur_kind(ui.sel) + s, 0, n - 1);
                 while (e == ENG_FM && fm_retired(k) && k + s >= 0 && k + s < n)
@@ -1325,6 +1459,10 @@ static void ui_input(void)
                 new_sound_of(k, 0);          /* (at the first or last: that one again) */
             }
         }
+        s = 0;
+    } else if (s && ui.snap_page) {              /* PRESETS: the SNAPSHOTS page's frame (SAVE held stores into it) */
+        ui.snap_ix = (uint8_t)clampi((int32_t)ui.snap_ix + s, 0, NSNAP - 1);
+        ui.force = 1;
         s = 0;
     } else if (s && ui.pre_page == SP_LIST) {           /* PRESETS: through the presets */
         ui.pre_ix = (uint8_t)clampi((int32_t)ui.pre_ix + s, 1, PRE_SLOTS);
@@ -1348,6 +1486,8 @@ static void ui_input(void)
         }
     }
     fk = fn_keys();                              /* (the black-key functions: fn_keys) */
+    if (ui.snap_page)
+        fk &= ~(1u << FN_AMB | 1u << FN_EXP);    /* (the path pads: snapshots 7 and 8 there) */
     fch = fk ^ ui.fkeys;
     {   /* the bottom row of pads, by its page: the chosen track's chord (pads 9 .. 16), or the loops' direction and
          * speed (as presses of those functions) */
@@ -1470,7 +1610,7 @@ static void ui_input(void)
         } else {
             ui.rx_page = 1;
             ui.pad_page = PP_REACT;
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
+            ui.rv_page = ui.ses_page = ui.snap_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
             ui.env_page = 0;
         }
         ui.force = 1;
@@ -1478,7 +1618,7 @@ static void ui_input(void)
     if (rx.rdown && !(fk >> FN_ENV & 1u)) {
         if (rx.rdown == 1u && !rx.rdone) {       /* pressed alone: the ENVELOPE page up or down (K3 .. K6 its A D S R) */
             ui.env_page = (uint8_t)!ui.env_page;
-            ui.rv_page = ui.ses_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
+            ui.rv_page = ui.ses_page = ui.snap_page = ui.sc_page = ui.pre_page = ui.set_page = ui.bb_page = ui.bl_page = ui.mod_page = 0;
             ui.rx_page = 0;
             ui.force = 1;
         }
@@ -1687,7 +1827,16 @@ static void pads_show(void)
 {
     uint32_t p;
     for (p = 0; p < 16u; p++) {
-        if (p < NLAYER) {                        /* (another track sounding: half way, PAD_SOUND) */
+        if (ui.snap_page) {                      /* the SNAPSHOTS page: each stored dim, the last stored or recalled lit,
+                                                  * the one a morph goes to blinking, the framed one half; empty, dark */
+            int32_t tg = snap_morph_target();
+            if (!snap_has(p))
+                pad_rgb(p, RGB(255, 255, 255), p == ui.snap_ix ? PAD_DIM : 0u);
+            else if ((int32_t)p == tg)
+                pad_rgb(p, C_SNAP, (fm1_ms / 250u) & 1u ? 256u : PAD_DIM);
+            else
+                pad_rgb(p, C_SNAP, (int32_t)p == snap_current() && tg < 0 ? 256u : p == ui.snap_ix ? 96u : PAD_DIM * 2u);
+        } else if (p < NLAYER) {                        /* (another track sounding: half way, PAD_SOUND) */
             int on = clip_from() == (int)p ? (int)((fm1_ms / 250u) & 1u) : p == ui.sel;
             pad_rgb(p, LAYER_COL[p], on ? 256u : layer_sounding(p) ? PAD_SOUND : PAD_DIM);
         } else if (p >= 8u && p - 8u < CH_N && ui.pad_page == PP_CHORD)   /* the chords: the chosen one lit */
@@ -1748,7 +1897,8 @@ static void ui_leds(void)
     }
     fm1_led_key(PANEL_BTN[B_HOME], btn_bit(fm1_in.buttons, B_HOME));   /* (a momentary button: lit while held) */
     fm1_led_key(PANEL_BTN[B_SEQ], ui.rv_page || ui.mod_page);
-    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.set_page);   /* (the SESSIONS page or GLOBAL SETUP up) */
+    fm1_led_key(PANEL_BTN[B_SAVE], ui.ses_page || ui.set_page || ui.snap_page);   /* (SESSIONS, SNAPSHOTS or GLOBAL SETUP
+                                                                                   * up) */
     fm1_led_key(PANEL_BTN[B_ARP], ui.sc_page || ui.pre_page);   /* (the SCALE page or the PRESETS up) */
     fm1_led_key(PANEL_BTN[B_OCTDN], ui.oct[ui.sel] < 0);
     fm1_led_key(PANEL_BTN[B_OCTUP], ui.oct[ui.sel] > 0);
@@ -2509,10 +2659,27 @@ static const char *kind_name(uint32_t e, int32_t k)
 {
     return e == ENG_FM ? FF_NAME[k % FF_N] : e == ENG_ANIMA ? AK_NAME[k % AK_N] : e == ENG_CAL ? CS_NAME[k % CS_N]
            : e == ENG_RUS ? RK_NAME[k % RK_N] : e == ENG_DRUID ? DK_NAME[k % DK_N]
-           : e == ENG_BAY ? BK_NAME[k % BK_N] : HK_NAME[k % HK_N];
+           : e == ENG_BAY ? BK_NAME[k % BK_N] : e == ENG_OB ? OBK_NAME[k % OBK_N] : HK_NAME[k % HK_N];
+}
+/* engine e's preset in slot: its family's name and its number among that engine's presets of the family, in the
+ * order of the slots (BRASS 1, BRASS 2 ..); EMPTY */
+static void pre_name(uint32_t e, uint32_t slot, char *b, uint32_t nb)
+{
+    int32_t k = pre_kind(e, slot), n = 1;
+    uint32_t s;
+    if (k < 0) {
+        str_cpy(b, "EMPTY", nb);
+        return;
+    }
+    for (s = 1; s < slot; s++)
+        n += pre_kind(e, s) == k;
+    str_cpy(b, kind_name(e, k), nb);
+    str_cpy(b + str_len(b), " ", nb - str_len(b));
+    fmt_int(b + str_len(b), n);
 }
 /* the PRESETS page: the engine's name over four slots (the page of the one chosen), the chosen one in white; a
- * full slot's number in red with its sound's name, an empty one grey. Or, asked: OVERWRITE?, the slot, NO | YES */
+ * full slot's number in red with its sound's name and number (BRASS 2), an empty one grey. Or, asked: OVERWRITE?,
+ * the slot, NO | YES */
 static void draw_pre_page(void)
 {
     char t[20], n[8];
@@ -2534,8 +2701,7 @@ static void draw_pre_page(void)
             draw_noyes(ui.pre_yes);
         return;
     }
-    str_cpy(t, ENG_NAME[ui.pre_eng], sizeof t);
-    str_cpy(t + str_len(t), " PRESETS", 9);
+    str_cpy(t, ENG_NAME[ui.pre_eng], sizeof t);   /* (the engine alone: "OBRADOR PRESETS" was wider than the screen) */
     cv_begin(240, 52, C_BLACK);
     cv_text_in(-1, 228, 52, t, C_SES);
     cv_blit(0, 0);
@@ -2544,11 +2710,15 @@ static void draw_pre_page(void)
         int sel = slot == ui.pre_ix;
         int32_t k = pre_kind(ui.pre_eng, slot);
         uint16_t bg = sel ? C_WHITE : C_BLACK;
+        char nm[20];
+        pre_name(ui.pre_eng, slot, nm, sizeof nm);
         cv_begin(240, 47, bg);                   /* (47: the rows meet, nothing of the screen before between) */
-        n[0] = 'P';
-        fmt_int(n + 1, (int32_t)slot);
-        cv_text_in(6, 84, 47, n, k >= 0 ? C_FULL : sel ? C_BLACK : C_GREY);
-        cv_text_in(92, 142, 47, k >= 0 ? kind_name(ui.pre_eng, k) : "EMPTY", sel ? C_BLACK : k >= 0 ? C_WHITE : C_GREY);
+        fmt_int(n, (int32_t)slot);
+        cv_text(6, (47 - (int32_t)FONT_S.h) / 2, &FONT_S, n, k >= 0 ? C_FULL : sel ? C_BLACK : C_GREY);
+        {   /* the name, in the largest size it fits whole (182 px: UNDERTOW 12 in the smallest) */
+            const font_t *f = text_w(&FONT_M, nm) <= 182 ? &FONT_M : text_w(&FONT_S, nm) <= 182 ? &FONT_S : &FONT_XS;
+            cv_text(54, (47 - (int32_t)f->h) / 2, f, nm, sel ? C_BLACK : k >= 0 ? C_WHITE : C_GREY);
+        }
         cv_blit(0, 52 + 47 * j);
     }
 }
@@ -2619,6 +2789,75 @@ static void draw_ses_page(void)
     ui.shown_ses_ix = (int16_t)(ui.ses_page == SP_ASK ? ui.ses_yes : ui.ses_ix);
 }
 
+/* the SNAPSHOTS page: 1 .. 16 in two rows of eight, as the pads -- holding a state, filled (the one last stored or
+ * recalled in white; the one a morph goes to, white and grey by turns); empty, a grey frame; the one framed (< >, a
+ * pad) in a white frame */
+static void draw_snap_page(void)
+{
+    uint32_t r, c, used = 0;
+    int32_t key, cur = snap_current(), tg = snap_morph_target();
+    for (r = 0; r < NSNAP; r++)
+        used |= (uint32_t)snap_has(r) << r;
+    key = (int32_t)(used ^ (uint32_t)ui.snap_ix << 16 ^ (uint32_t)(cur + 1) << 21 ^
+                    (uint32_t)(tg >= 0 ? (tg + 1) * 2 + ((fm1_ms / 250u) & 1u) : 0) << 26);
+    if (!ui.force && ui.shown_snap == key)
+        return;
+    ui.shown_snap = key;
+    cv_begin(240, 52, C_BLACK);
+    cv_text_fit((52 - band_font("SNAPSHOTS")->h) / 2, band_font("SNAPSHOTS"), "SNAPSHOTS", C_SNAP);
+    cv_blit(0, 0);
+    for (r = 0; r < 2u; r++)
+        CV_AREA(0, 52 + 94 * r, 240, 94, C_BLACK)
+        for (c = 0; c < 8u; c++) {
+            uint32_t k = r * 8u + c;
+            int32_t x = (int32_t)c * 30;
+            char n[4], d[2] = {0, 0};
+            uint16_t fill = (int32_t)k == cur ? C_WHITE : C_SNAP, ink;
+            int32_t full = (int32_t)((used >> k) & 1u), j, nd, h = (int32_t)FONT_S.h;
+            if ((int32_t)k == tg)
+                fill = (fm1_ms / 250u) & 1u ? C_WHITE : C_GREY;
+            fmt_int(n, (int32_t)k + 1);
+            nd = (int32_t)str_len(n);
+            ink = full ? C_BLACK : C_GREY;
+            if (full) {
+                cv_rect(x + 2, 8, 26, 78, fill);
+                cv_bg_set(fill);
+            } else
+                cv_frame(x + 2, 8, 26, 78, 2, C_GREY);
+            for (j = 0; j < nd; j++) {           /* (10 .. 16: the digits one over the other, the box narrow) */
+                d[0] = n[j];
+                cv_text(x + 2 + (26 - text_w(&FONT_S, d)) / 2, 8 + (78 - nd * h) / 2 + j * h, &FONT_S, d, ink);
+            }
+            cv_bg_set(C_BLACK);
+            if (k == ui.snap_ix)
+                cv_frame(x, 6, 30, 82, 2, C_WHITE);
+        }
+}
+/* the first page knob on the SNAPSHOTS page: the morph time over the page while it turns and 1.5 s after -- MORPH,
+ * the time large (4.5, or OFF: at once), SECONDS, a bar of its reach (0 .. 30 s) */
+static void draw_morph_dial(void)
+{
+    char v[8];
+    if (!ui.force && ui.shown_morph == ui.morph)
+        return;
+    ui.shown_morph = ui.morph;
+    if (ui.morph)
+        fmt_fix(v, ui.morph * 5, 1);
+    else
+        str_cpy(v, "OFF", sizeof v);
+    CV_AREA(0, 0, 240, 50, C_BLACK)
+        cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "MORPH", C_SNAP);
+    CV_AREA(0, 50, 240, 112, C_BLACK)            /* (FONT_XL has no point, no O or F) */
+        cv_text_c((112 - FONT_L.h) / 2, &FONT_L, v, C_WHITE);
+    CV_AREA(0, 162, 240, 40, C_BLACK)
+        if (ui.morph)
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "SECONDS", C_GREY);
+    CV_AREA(0, 202, 240, 38, C_BLACK) {
+        cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
+        cv_rect(12, 8, ui.morph * 216 / MORPH_STEPS, 22, C_SNAP);
+    }
+}
+
 static void ui_draw(void)
 {
     const char *name = sound_name(ui.sel, ui.engine[ui.sel]);
@@ -2643,6 +2882,22 @@ static void ui_draw(void)
         if (ui.force || (uint32_t)(fm1_ms - ui.mod_drawn_at) >= 40u)
             draw_mod_page();
         ui.shown_page = 11;
+        ui.force = 0;
+        return;
+    }
+    if (ui.snap_page && (int32_t)(ui.morph_until - fm1_ms) > 0) {   /* (the morph time turning there) */
+        if (ui.shown_page != 15)
+            ui.force = 1;
+        draw_morph_dial();
+        ui.shown_page = 15;
+        ui.force = 0;
+        return;
+    }
+    if (ui.snap_page) {
+        if (ui.shown_page != 14)
+            ui.force = 1;
+        draw_snap_page();
+        ui.shown_page = 14;
         ui.force = 0;
         return;
     }
@@ -2812,7 +3067,9 @@ static void sounds_init(void)
         ba_measure(&ba_buf[l][0]);
         hv_design(&hv_buf[l][0], -1, s * 29u + 17u, PATH_OPEN, GEN_NOW);
         hv_measure(&hv_buf[l][0]);
-        fm_pub[l] = fm_use[l] = an_pub[l] = an_use[l] = 0;
+        ob_design(&ob_buf[l][0], -1, s * 31u + 19u, PATH_OPEN, GEN_NOW);
+        ob_measure(&ob_buf[l][0]);
+        fm_pub[l] = fm_use[l] = an_pub[l] = an_use[l] = ob_pub[l] = ob_use[l] = 0;
         cal_pub[l] = cal_use[l] = rus_pub[l] = rus_use[l] = dr_pub[l] = dr_use[l] = ba_pub[l] = ba_use[l] = hv_pub[l] = hv_use[l] = 0;
         gran_profile(l, next_seed());            /* the granulator's character, drawn */
     }

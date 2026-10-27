@@ -2,6 +2,46 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 33
+
+27 October 2026
+
+Brought in from Tonitor for the FM-1 (its builds 63 to 67), fitted to the SMK-37's panel.
+
+Added
+- OBRADOR, an eighth engine: an analog polysynth after the Oberheim SEM and the two-voice Oberheims. Two
+  band-limited oscillators a voice (saw, pulse; detune, intervals, hard sync, cross-modulation), a second voice card
+  in the lush kinds, the SEM's 12 dB filter morphing low-pass, notch, high-pass (24 dB and band-pass too), filter and
+  amplifier envelopes on analog curves, a delayed LFO, each card's own offsets and drift. Ten kinds: STRINGS, BRASS,
+  PWM PAD, BASS, SYNC, NOTCH, METAL, DRONE, KEYS, SWELL. Eight macros: CUTOFF, MORPH, RESONANCE, DETUNE (as on the
+  FM-1) and, on K5 to K8, FILTER ENV, LFO, DRIVE, VINTAGE. The pitch wheel and the mod wheel move it as the others.
+- Snapshots: 16 a session, one on each pad, each the whole machine at a moment: every track's engine, the sound
+  on each of its eight engines with its macros and envelope, level, pan, sends, filter, granulator, crush,
+  distortion, octave, transposition, path, chord mode, modulation, latched notes and chords (and their
+  velocities), BALLSY and BRICKLAYER (its notes, STUTTER and climbs), and the loops (which loops, where each stood
+  against the others, which are taken out, play, direction, speed, VARY, STUTTER, climbs); the reverb, the delay,
+  the scale, the root, the loops' transposition and REACT, SHADOW and ARP. SAVE opens the SNAPSHOTS page: a pad
+  let go soon recalls its snapshot, held 0.8 s stores the current state, with SHIFT held empties it; < > frame one
+  and SAVE held stores into it. K3 sets the morph time, 0 to 30 s: continuous values change gradually, pitch and
+  what has no in-between change at once halfway, a track whose sound changes fades out and back in.
+- Loops held by a snapshot stay in memory after the looper is emptied, sharing its room (LOOPER FULL when there is
+  none left).
+- Sessions (format 32) keep OBRADOR's sounds, the snapshots with the loops they hold, the morph time, and REACT,
+  SHADOW and ARP (not kept before). Earlier sessions load as before, with a new OBRADOR sound and no snapshots.
+- The PRESETS page names each preset by its family, numbered within it in the order of the slots (BRASS 1, BRASS 2,
+  STRINGS 1), each name in the largest size it fits; the title is the engine's name alone.
+
+Changed
+- SHIFT + SAVE opens the SESSIONS page (SAVE did before). GLOBAL SETUP is now SHIFT + SAVE held 0.8 s.
+
+Fixed
+- A sound chosen by family (SHIFT + < / >, SHIFT + HOME) came back as another sound, often of another family, when
+  kept as its seed: from a preset, and from a session for the engines the track was not playing. Each engine now
+  draws the family from the seed whether one is given or not, and sessions and presets keep the family with the
+  seed, so the seed and the family make the same sound again. Sounds drawn without a family are unchanged. A
+  preset saved by an earlier build from a sound chosen by family now loads in that family, but not as the same
+  sound.
+
 ## BUILD 32
 
 23 October 2026

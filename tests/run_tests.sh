@@ -27,6 +27,9 @@ build/host overdubs build/screens
 build/host transpose
 build/host tracktransp
 build/host loopmodes
+build/host obrador
+build/host famseed
+build/host snaps build/screens
 build/host delay build/screens
 build/host glow
 build/host samefam

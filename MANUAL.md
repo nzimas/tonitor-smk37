@@ -49,7 +49,7 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | --- | --- |
 | **track pads 1–6** | choose track **1 to 6**. The chosen track's pad is lit in its colour; a track that sounds is half lit; the others are dim. Choosing a track closes any page and goes back to the track view. **Held** (0.8 s): **copy** the track, or **paste** the copy onto it (see Copying a track). |
 | **AMBIENT** (pad 7), **EXPERIMENTAL** (pad 8) | the chosen track's **generative path** (white: lit while chosen, dim while not). Pressing the lit one goes back to **OPEN**. The screen says AMBIENT, EXPERIMENTAL or OPEN. See Generative paths. |
-| **<** and **>** | the chosen track's **engine**: **FM**, **ANIMA**, **CALIGULA**, **RUSSOLO**, **DRUID**, **BAYAREA** or **HIVE**, a step a press. Each track keeps a sound of each engine, so stepping back finds the sound it had. On the pages that use them, < and > do the page's job instead (sessions, presets, GLOBAL SETUP, the MOD page, the REACT page). |
+| **<** and **>** | the chosen track's **engine**: **FM**, **ANIMA**, **CALIGULA**, **RUSSOLO**, **DRUID**, **BAYAREA**, **HIVE** or **OBRADOR**, a step a press. Each track keeps a sound of each engine, so stepping back finds the sound it had. On the pages that use them, < and > do the page's job instead (sessions, presets, GLOBAL SETUP, the MOD page, the REACT page). |
 | **SHIFT + < / >** | in the track view, a **new sound of the family before or after** on the track's engine. At the first or last family, a new sound of that family again. |
 | **HOME** | a **new sound** for the chosen track, on its engine and path. The screen says NEW. HOME is lit while held. |
 | **SHIFT + HOME** | a **new sound of the same family** (kind, species) as the chosen track's sound. The screen says SAME FAMILY. |
@@ -81,9 +81,10 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | **SHIFT + PLAY** | from any track: if any loop or sequencer plays, every loop and sequencer of every track stops (ALL STOPPED; the loops are kept). If none plays, every loop and every sequencer that is on starts, together, from their starts (ALL PLAYING). |
 | **SCALE** | the **SCALE page** (SCALE lit): K1 the root, K2 the scale. SCALE again, or a track pad, goes back. See Scales. |
 | **SHIFT + SCALE** | the **PRESETS** page of the chosen track's engine. See Presets. |
-| **SAVE** | the **SESSIONS** page (SAVE lit). See Sessions. |
-| **SAVE held** (0.8 s) | **save** the session. See Sessions. |
-| **SHIFT + SAVE** | **GLOBAL SETUP** (SAVE lit). See Global setup and MIDI. |
+| **SAVE** | the **SNAPSHOTS** page (SAVE lit): the 16 pads are the session's snapshots. See Snapshots. |
+| **SAVE held** (0.8 s) | **save** the session (on the SNAPSHOTS page: store the snapshot framed). See Sessions. |
+| **SHIFT + SAVE** | the **SESSIONS** page (SAVE lit). See Sessions. |
+| **SHIFT + SAVE held** (0.8 s) | **GLOBAL SETUP** (SAVE lit). See Global setup and MIDI. |
 | **SEQ** | pressed again and again: the **DELAY** page, the **REVERB** page, the **MOD** page, then back to playing (SEQ lit while one is up). On the DELAY and REVERB pages, K3–K6 set their four values. |
 | **SHIFT + SEQ** | the chosen track's **modulation thrown anew** (MOD RANDOM). See Modulation. |
 | **pitch wheel** | bends the chosen track ±2 semitones. |
@@ -147,6 +148,7 @@ The macros are chosen for each engine, and for some by the kind of sound:
 | **DRUID** | STRUCTURE | BRIGHTNESS | DAMPING | POSITION |
 | **BAYAREA** | SHAPE | FOLDS | FM | DECAY |
 | **HIVE** | DETUNE | MOVEMENT | MIX (NOISE on GROUND and AIR) | CUTOFF |
+| **OBRADOR** | CUTOFF | MORPH | RESONANCE | DETUNE |
 
 | | K5 | K6 | K7 | K8 |
 | --- | --- | --- | --- | --- |
@@ -157,9 +159,10 @@ The macros are chosen for each engine, and for some by the kind of sound:
 | **DRUID** | EXCITATION | BOW | DUST | MUTE |
 | **BAYAREA** | ATTACK | FM RATIO | SPRING | DRIVE |
 | **HIVE** | RESONANCE | FILTER ENV | RING | SHIMMER |
+| **OBRADOR** | FILTER ENV | LFO | DRIVE | VINTAGE |
 
 Each engine's section below says what its macros do. The **mod wheel** pushes the first macro up, on top of its
-knob. Each track keeps the macros of each of its seven sounds. **HOME** draws a new sound with its macros in the
+knob. Each track keeps the macros of each of its eight sounds. **HOME** draws a new sound with its macros in the
 middle. Sessions and presets keep the macros with the sound. MIDI CC 16–19 and 20–23 set macros 1–4 and 5–8.
 
 The macros act only in the track view. On a page (ENVELOPE, DELAY, REVERB, MOD, BALLSY, BRICKLAYER, REACT), the
@@ -191,7 +194,7 @@ envelopes and ANIMA's envelope are then held at full; CALIGULA and RUSSOLO are k
 and then let go. Once the track's envelope is in use, turning the knobs also changes the notes that sound.
 
 **HOME** (a new sound) or loading a preset gives the sound's own envelope back. Each track keeps an envelope for
-each of its seven engines. Sessions store them and copying a track copies them; presets do not.
+each of its eight engines. Sessions store them and copying a track copies them; presets do not.
 
 ### The bottom row of pads
 
@@ -558,7 +561,7 @@ blinks. Choose another track and hold its pad until **PASTED / TRACK n**: it now
 sequencers and loops. The clipboard is then empty: the next hold copies again. Holding the copied track's own pad
 again copies it again (as it is now), pasting nothing.
 
-What is copied: the **tone** (the engine, the sounds of all seven engines with their macros and envelopes, the
+What is copied: the **tone** (the engine, the sounds of all eight engines with their macros and envelopes, the
 filter, the granulator, the crush, the distortion, the delay and reverb sends, the octave, the path, the
 modulation and the chord mode), **BALLSY** and **BRICKLAYER** with their settings, and **all the loops** with
 their options and VARY, every overdub, those taken out still out. The copy is taken when you hold the pad: what
@@ -602,7 +605,7 @@ track's colour, a white pointer, and in large type what it does (LP 1.2 KHZ, DAR
 macros show the same dial. K1 and K2 say their value in the message band.
 
 Saving, loading, emptying a looper, copying and pasting flash the whole screen for 1.5 s. The pages (SCALE,
-ENVELOPE, DELAY, REVERB, MOD, SESSIONS, PRESETS, GLOBAL SETUP, BALLSY, BRICKLAYER, the loops while PLAY is held,
+ENVELOPE, DELAY, REVERB, MOD, SNAPSHOTS, SESSIONS, PRESETS, GLOBAL SETUP, BALLSY, BRICKLAYER, the loops while PLAY is held,
 REACT) each take the whole screen and are described in their sections. On every page, the value just turned is
 drawn black on white for a moment.
 
@@ -652,9 +655,10 @@ CHROMA- TIC) rather than squeezing the letters together. MIDI notes are not quan
 ### Presets
 
 Each engine has **64 presets**, P1 to P64, for the sounds you want to keep and bring back on any track. Hold
-**SHIFT** and press **SCALE**: the PRESETS page of the chosen track's engine opens (FM PRESETS, ANIMA PRESETS, …),
-four slots a page. **<** and **>** step through them; a slot holding a sound shows its number in red and the
-sound's family, an empty one EMPTY in grey. SHIFT + SCALE again, or a track pad, goes back.
+**SHIFT** and press **SCALE**: the PRESETS page of the chosen track's engine opens (the engine's name over the
+slots), four slots a page. **<** and **>** step through them; a slot holding a sound shows its number in red and
+the sound's family numbered among that engine's presets of the family, in the order of the slots (BRASS 1,
+BRASS 2, STRINGS 1); an empty one EMPTY in grey. SHIFT + SCALE again, or a track pad, goes back.
 
 - **SCALE held** (0.8 s), or **SAVE held**, saves the track's sound into the slot chosen. Over a sound already
   there it asks **OVERWRITE?** first, on **NO** until **>** turns it to YES (**<** back to NO); SCALE (or SAVE)
@@ -662,23 +666,81 @@ sound's family, an empty one EMPTY in grey. SHIFT + SCALE again, or a track pad,
 - **SCALE** pressed, or **SAVE** pressed, loads the slot chosen into the track (which crossfades to it, as to a
   new sound) and goes back to playing. An empty slot says EMPTY.
 
-A preset keeps what draws the sound again exactly (its seed, its path and the generation of the generators that
-drew it), its level and its eight macros. It does not keep the track's envelope: a preset loads with the sound's
+A preset keeps what draws the sound again exactly (its seed, its family, its path and the generation of the
+generators that drew it), its level and its eight macros. A sound chosen by family (SHIFT + < / >, SHIFT + HOME)
+comes back the same from a preset or a session. It does not keep the track's envelope: a preset loads with the sound's
 own. A preset loaded draws the same modulation as HOME would with that sound. Saving erases flash, which
 silences the audio for a moment.
+
+### Snapshots
+
+A snapshot is the state of the machine at one moment. Each session holds 16 of them, one on each pad.
+
+Press **SAVE** (lit while the page is up): the **SNAPSHOTS** page opens, 16 boxes in two rows of eight, as the
+pads. A filled box holds a snapshot; the one last stored or recalled is white. While the page is up, the 16 pads
+are the snapshots, the top row 1 to 8 and the bottom row 9 to 16: they choose no track and no path. A pad holding
+a snapshot glows; the one last stored or recalled is lit; an empty pad is dark.
+
+| To | Do this |
+| --- | --- |
+| Recall a snapshot | press and release its pad |
+| Store the current state | hold its pad 0.8 s, or frame it with **<** and **>** and hold **SAVE** |
+| Empty a snapshot | hold **SHIFT** and hold its pad 0.8 s |
+| Set the morph time (0 to 30 s) | **K3** |
+| Leave the page | **SAVE** again |
+
+The keys go on playing while the page is up, and K1 and K2 stay the track's level and pan.
+
+**What a snapshot holds.** The whole state of the machine. For each track: the engine it plays; the sound on every
+one of its eight engines, each with its eight macros and its envelope; level, pan, reverb and delay sends, filter,
+granulator, crush, distortion, octave, the track's transposition, its path, chord mode and modulation; its latched
+notes and chords, with their velocities; BALLSY's and BRICKLAYER's settings (BRICKLAYER's STUTTER and climbs
+too), BRICKLAYER's notes, and whether each plays; and its loops: which loops there are, where each stood against
+the others, which are taken out, whether they play, and their direction, speed, VARY, STUTTER and climbs. For the
+machine: the reverb, the delay, the scale, the root, the loops' transposition and REACT, SHADOW and ARP (on or off,
+the mode, the tracks taken in, the values on their pages). Not stored: the track chosen, MACRO and which page is
+up.
+
+For example: record a loop and store snapshot 1; record an overdub and store snapshot 2. Snapshot 1 brings back the
+loop alone and snapshot 2 brings back both. Loops that are in both snapshots keep playing when you switch; a loop
+that comes back is placed where it stood against the others when it was stored.
+
+A loop that a snapshot holds stays in memory even after you empty the looper (hold REC). It shares the looper's
+room with what you record: when the looper has no room left, REC says LOOPER FULL. Snapshots that share sounds,
+latched notes or loops store them once. If there is no room for a new snapshot, the screen says FULL; empty
+snapshots you no longer need (SHIFT + hold the pad).
+
+**Morph.** With a morph time of 0 (OFF), a recalled snapshot is applied at once. With a longer time, the machine
+moves to it over that time; the snapshot's box and pad blink until it is reached:
+
+- Levels, pans, sends, filter, granulator, crush, distortion, the macros and envelope of a sound that stays, the
+  modulation amounts, LFO rates and fades, the reverb's DECAY, DAMP and MIX, the delay's REPEATS, DAMP and MIX, and
+  the sequencers' speed, rate, harmony and instability change gradually.
+- Everything that affects pitch changes at once, halfway through: scale, root, octaves and transpositions. So do
+  the delay's TIME and the reverb's SIZE, the loops, the latched notes, chord mode, the sequencers and their notes,
+  the loops' and BRICKLAYER's STUTTER and climbs, the modulation routings and LFO shapes, and REACT, SHADOW and ARP.
+- A track whose sound changes fades out from a quarter of the way, switches sound halfway and fades back in by three
+  quarters.
+
+Recalling another snapshot during a morph starts a new morph from the current state. The morph runs in the main
+loop and adds no load to the audio.
+
+Snapshots are saved in the flash with the session (hold **SAVE**, off the SNAPSHOTS page, to save). A new session
+has none; sessions saved before BUILD 33 load with none.
 
 ### Sessions
 
 The keyboard always starts with no session loaded. There are 64 slots, numbered 1 to 64.
 
-A session is the whole machine: every track's engine and its seven sounds with their macros and envelopes, its
+A session is the whole machine: every track's engine and its eight sounds with their macros and envelopes, its
 path, octave, level, pan, filter, granulator (and the character it was drawn with), crush, distortion, delay and
 reverb sends, modulation, chord mode, latched notes, BALLSY, BRICKLAYER, and its loops (playing or stopped, each
 overdub in or out, with their options and VARY); the scale and root, the moves along the scale, the delay, the
-reverb, and the track chosen. A session stores in full the sound of the engine each track is on, and the others
+reverb, REACT, SHADOW and ARP, the 16 snapshots with the loops they hold, the morph time, and the track chosen.
+A session stores in full the sound of the engine each track is on, and the others
 as the seed that made them and their level, so they come back the same.
 
-**Choosing and loading.** Press **SAVE**: the **SESSIONS** page opens, on the session loaded if there is one.
+**Choosing and loading.** Press **SHIFT + SAVE**: the **SESSIONS** page opens, on the session loaded if there is one.
 **<** and **>** step through the slots. The number is very large: **red** when the slot holds a session, **grey**
 with EMPTY under it when it does not; the session loaded says LOADED. Press **SAVE**:
 
@@ -688,7 +750,7 @@ with EMPTY under it when it does not; the session loaded says LOADED. Press **SA
   settings at their defaults, and the scale, the delay, the reverb and the moves along the scale too. The
   session you were in stays saved as it was, and the next save goes to the new slot.
 
-Either way the page closes. A track pad closes it without either.
+Either way the page closes. A track pad, or SHIFT + SAVE again, closes it without either.
 
 **Saving.** Hold **SAVE** (0.8 s):
 
@@ -716,7 +778,7 @@ number. As each one arrives, the screen shows RESTORED and its number.
 
 ### Global setup and MIDI
 
-**SHIFT + SAVE** opens **GLOBAL SETUP**, the keyboard's own settings, kept apart from the sessions. It has two
+**SHIFT + SAVE held** (0.8 s) opens **GLOBAL SETUP**, the keyboard's own settings, kept apart from the sessions. It has two
 sections, **MIDI** and **VELOCITY**. **<** and **>** move through the entries and **SAVE** goes into one. On a
 setting, SAVE puts the focus on its value (a white field), < and > change it, and SAVE sets it; **SHIFT + SAVE**
 leaves it as it was, or goes back a level, and at the top level closes GLOBAL SETUP. Each level below the top
@@ -907,7 +969,7 @@ start RESCUE; hold them 5 seconds once Tonitor has started.
 
 ## The engines
 
-Each track plays one of seven engines, and keeps a sound of each. **HOME** draws a new sound on the track's
+Each track plays one of eight engines, and keeps a sound of each. **HOME** draws a new sound on the track's
 engine, leaning to its path; **SHIFT + HOME** draws one of the same family; **SHIFT + < / >** draws one of the
 family before or after. Every sound is drawn from a seed, measured as it is made, and given the gain that brings
 it to one loudness. What each engine costs on the SMK-37's chip is in
@@ -1303,3 +1365,43 @@ sometimes, a ring modulation. AIR is the lightest kind; LEAD the heaviest.
 | K6 | **FILTER ENV** | how far the filter's envelope sweeps it |
 | K7 | **RING** | the ring modulation's amount |
 | K8 | **SHIMMER** | how deeply the LFOs move the oscillators' levels |
+
+### OBRADOR — an analog polysynth
+
+An analog polysynth voice after the Oberheim SEM and the two-voice Oberheims, written for Tonitor with OberVave
+(an Oberheim-style firmware for the FM-1, by zvenson) as its frame of reference; the same engine as Tonitor's on
+the FM-1, with four more macros here. It plays from the shared pool of voices. Per voice: two oscillators (saw,
+pulse or both, band-limited), the second detuned or an interval away, hard-synced or cross-modulating now and
+then; in the lush kinds a second voice card, detuned against the first; a drive into the SEM's 12 dB filter, its
+output morphing from low-pass through notch to high-pass, its resonance soft-limited; a second low-pass stage for
+24 dB, or the band-pass; filter and amplifier envelopes on analog curves; an LFO that comes in after a delay; and
+each card's own small offsets of tune and cutoff with a slow drift. The pitch wheel bends it.
+
+| Kind | |
+| --- | --- |
+| **STRINGS** | two cards of saws, a slow attack, a delayed vibrato: the string pad |
+| **BRASS** | the envelope opening the 24 dB low-pass |
+| **PWM PAD** | two pulses, their widths moving slowly |
+| **BASS** | the second oscillator an octave down, the 24 dB low-pass, a plucked envelope |
+| **SYNC** | the second oscillator synced, its pitch swept by the envelope |
+| **NOTCH** | the filter near its notch, the LFO moving it: a phasing sweep |
+| **METAL** | cross-modulation at an odd interval through the band-pass: bells, clangs |
+| **DRONE** | two cards a fifth or an octave apart, the cutoff and the morph moving slowly |
+| **KEYS** | a struck filter, no sustain |
+| **SWELL** | the filter opening slowly under a held chord |
+
+On **AMBIENT** it is softer, slower and darker, and favours STRINGS, PWM PAD, DRONE and SWELL. On **EXPERIMENTAL**
+it is harder (more drive, more resonance, cross-modulation now and then), and favours SYNC, NOTCH and METAL.
+
+**Macros.**
+
+| Knob | Macro | |
+| --- | --- | --- |
+| K1 | **CUTOFF** | the filter's cutoff, four octaves either way |
+| K2 | **MORPH** | the filter: low-pass, notch, high-pass |
+| K3 | **RESONANCE** | the filter's resonance |
+| K4 | **DETUNE** | the oscillators' and the cards' detune, from none to three times as wide |
+| K5 | **FILTER ENV** | how far the filter's envelope sweeps it, 24 semitones either way |
+| K6 | **LFO** | the LFO's depth, from none to three times; turned up, a vibrato of its own too |
+| K7 | **DRIVE** | the drive into the filter |
+| K8 | **VINTAGE** | the cards' offsets of tune and cutoff and their drift, from none to twice |

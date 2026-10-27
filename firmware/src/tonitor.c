@@ -12,7 +12,7 @@
 #define TONITOR_ID "SMK-37 Pro_732"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 32"
+#define TONITOR_VERSION "BUILD 33"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY
@@ -58,12 +58,14 @@ bootguard_t bootguard __attribute__((section(".noinit")));
 #include "druid.c"
 #include "bayarea.c"
 #include "hive.c"
+#include "obrador.c"
 #include "smk_uart_tx.h"         /* the TRS jack: MIDI OUT (UART1 TX, PC7) */
 #include "smk_midi_out.h"         /* .. the same stream as USB MIDI out (usb.c midi_out_event) */
 #include "usb.c"
 #include "reverb.c"
 #include "layers.c"
 #include "ui.c"
+#include "snaps.c"
 #include "sessions.c"
 #include "setup.c"
 #include "backup.c"
