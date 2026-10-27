@@ -2,6 +2,17 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 37
+
+27 October 2026
+
+Fixed
+- The track filter (K3) moved in steps: each click of the knob jumped the cutoff about 0.6 of an octave at once,
+  and the filter's settings changed only every 32 samples. Now a click turned slowly moves it a third of an octave
+  (turned fast, two thirds, so the whole way still takes a turn and a half), and the cutoff and resonance glide
+  there over about 25 ms, recalculated four times as often while they move: a smooth, continuous sweep, as an
+  analog filter's knob. Modulation of the filter (MOD) keeps its quick response, so fast LFOs are not smoothed away.
+
 ## BUILD 36
 
 27 October 2026

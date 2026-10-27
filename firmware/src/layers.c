@@ -2115,6 +2115,48 @@ static void blk_render(void)
     an_cache_fill();                             /* (a wavetable missed this block, copied in now: no core rendering) */
 }
 
+/* the DJ filter on a block of track y, at the knob's value v (as the modulation moves it: mod, its glide quick, as
+ * before -- an LFO at up to 20 Hz must not be smoothed away) */
+static void flt_block(layer_t *y, int32_t v, int32_t *buf, int mod)
+{
+    int32_t a = v < 0 ? -v : v;
+    uint32_t i;
+    int32_t amt1 = a >= 4 ? Q15 : a * (Q15 / 4);
+    int32_t q1 = 2896 + (a >= 24 ? 13488 : a * 13488 / 24);         /* Q 0.707 .. 4, Q12 */
+    if (v)
+        y->f_hp = (uint8_t)(v > 0);
+    if (amt1 || y->f_amt) {
+        svf_c c;
+        int32_t a0 = y->f_amt, da = (amt1 - a0) / CTL, o0, o1, q0, nsub, j;
+        if (!y->f_amt) {                      /* coming in: from where the knob is */
+            y->f_oct = flt_oct(v ? v : (y->f_hp ? 1 : -1));
+            y->f_q = q1;
+            y->flt.ic1 = y->flt.ic2 = 0;
+        }
+        /* the cutoff and Q glide to the knob's (as an analog filter's knob: a click is a slide, not a step) --
+         * 1/32 of the way a block, ~23 ms (modulated: 1/4, ~3 ms); across the block in four quarters, each its own
+         * coefficients, while it moves (a block's one set would step again, every 0.73 ms) */
+        int32_t sh = mod ? 2 : 5;
+        o0 = y->f_oct;
+        q0 = y->f_q;
+        if (v)
+            y->f_oct += (flt_oct(v) - y->f_oct) >> sh;
+        y->f_q += (q1 - y->f_q) >> sh;
+        o1 = y->f_oct;
+        nsub = absi(o1 - o0) > 256 || absi(y->f_q - q0) > 16 ? 4 : 1;   /* (still: one set) */
+        for (j = 0; j < nsub; j++) {
+            int32_t oc = o0 + (o1 - o0) * (j + 1) / nsub, qc = q0 + (y->f_q - q0) * (j + 1) / nsub;
+            uint32_t e = (uint32_t)(j + 1) * (CTL / (uint32_t)nsub);
+            svf_coef(&c, (int32_t)exp2_q16(oc - (16 << 16)), qc);   /* 2^oct Hz */
+            for (i = (uint32_t)j * (CTL / (uint32_t)nsub); i < e; i++) {
+                int32_t f = svf_run(&y->flt, &c, buf[i], y->f_hp ? 3 : 1);
+                a0 += da;
+                buf[i] += mulq15(f - buf[i], a0);
+            }
+        }
+        y->f_amt = amt1;
+    }
+}
 #if defined(FELUCCA_UAC) && FELUCCA_UAC && UAC_NBLK > 2u
 static int32_t usb_trk[NLAYER][CTL];             /* (USB audio: each track's block, mono, after its level) */
 #endif
@@ -2265,32 +2307,7 @@ static void layer_block(uint32_t l, int32_t *mixl, int32_t *mixr, int32_t *rvin,
         y->dsd = lay_dsend[l];
         return;
     }
-    {   /* the DJ filter */
-        int32_t v = mod_val(l, MD_FLT, lay_flt[l], -FLT_MAX, FLT_MAX), a = v < 0 ? -v : v;
-        int32_t amt1 = a >= 4 ? Q15 : a * (Q15 / 4);
-        int32_t q1 = 2896 + (a >= 24 ? 13488 : a * 13488 / 24);         /* Q 0.707 .. 4, Q12 */
-        if (v)
-            y->f_hp = (uint8_t)(v > 0);
-        if (amt1 || y->f_amt) {
-            svf_c c;
-            int32_t a0 = y->f_amt, da = (amt1 - a0) / CTL;
-            if (!y->f_amt) {                      /* coming in: from where the knob is */
-                y->f_oct = flt_oct(v ? v : (y->f_hp ? 1 : -1));
-                y->f_q = q1;
-                y->flt.ic1 = y->flt.ic2 = 0;
-            }
-            if (v)
-                y->f_oct += (flt_oct(v) - y->f_oct) >> 2;   /* (glides: a knob's click is a step) */
-            y->f_q += (q1 - y->f_q) >> 2;
-            svf_coef(&c, (int32_t)exp2_q16(y->f_oct - (16 << 16)), y->f_q);   /* 2^oct Hz */
-            for (i = 0; i < CTL; i++) {
-                int32_t f = svf_run(&y->flt, &c, buf[i], y->f_hp ? 3 : 1);
-                a0 += da;
-                buf[i] += mulq15(f - buf[i], a0);
-            }
-            y->f_amt = amt1;
-        }
-    }
+    flt_block(y, mod_val(l, MD_FLT, lay_flt[l], -FLT_MAX, FLT_MAX), buf, mst[l].off[MD_FLT] != 0);   /* the DJ filter */
     gran_block(l, buf, CTL, m_gr, (int)any);             /* the granulator */
     crush_block(y, buf, CTL, mod_val(l, MD_CR, lay_cr[l], -FLT_MAX, FLT_MAX));   /* the crush */
     for (i = 0; i < CTL; i++)

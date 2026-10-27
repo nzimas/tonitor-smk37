@@ -1226,8 +1226,12 @@ static void ui_input(void)
         }
     } else {
         s = enc_take(EN_K1);                     /* KNOB 1: the layer's filter; its dial over the screen */
-        if (s) {
-            ui.flt[ui.sel] = (int8_t)clampi(ui.flt[ui.sel] + 2 * s, -FLT_MAX, FLT_MAX);
+        if (s) {                                 /* (a step a click, a third of an octave, the filter gliding through
+                                                  * it; turned fast, two: the whole way in a turn and a half) */
+            static uint32_t flt_at;
+            int32_t st = (s > 1 || s < -1 || (uint32_t)(fm1_ms - flt_at) < 60u) ? 2 * s : s;
+            flt_at = fm1_ms;
+            ui.flt[ui.sel] = (int8_t)clampi(ui.flt[ui.sel] + st, -FLT_MAX, FLT_MAX);
             level_pan_apply(ui.sel);
             ui.dial = DIAL_FLT;
             ui.dial_until = fm1_ms + 1000u;

@@ -1343,34 +1343,12 @@ static double flt_run(uint32_t l, uint32_t hz, double *jump)
     double sa = 0, prev = 0;
     *jump = 0;
     for (b = 0; b < 1378u; b++) {
-        int32_t buf[CTL], vv = lay_flt[l], a = vv < 0 ? -vv : vv;
-        int32_t amt1 = a >= 4 ? Q15 : a * (Q15 / 4);
-        int32_t q1 = 2896 + (a >= 24 ? 13488 : a * 13488 / 24);
+        int32_t buf[CTL];
         for (i = 0; i < CTL; i++) {
             ph += inc;
             buf[i] = hz ? sin_ph(ph) >> 2 : rnd_bi(&r) >> 3;
         }
-        if (vv)
-            y->f_hp = (uint8_t)(vv > 0);
-        if (amt1 || y->f_amt) {
-            svf_c c;
-            int32_t a0 = y->f_amt, da = (amt1 - a0) / CTL;
-            if (!y->f_amt) {
-                y->f_oct = flt_oct(vv ? vv : (y->f_hp ? 1 : -1));
-                y->f_q = q1;
-                y->flt.ic1 = y->flt.ic2 = 0;
-            }
-            if (vv)
-                y->f_oct += (flt_oct(vv) - y->f_oct) >> 2;
-            y->f_q += (q1 - y->f_q) >> 2;
-            svf_coef(&c, (int32_t)exp2_q16(y->f_oct - (16 << 16)), y->f_q);
-            for (i = 0; i < CTL; i++) {
-                int32_t f = svf_run(&y->flt, &c, buf[i], y->f_hp ? 3 : 1);
-                a0 += da;
-                buf[i] += mulq15(f - buf[i], a0);
-            }
-            y->f_amt = amt1;
-        }
+        flt_block(y, lay_flt[l], buf, 0);           /* (the track's own filter: layers.c) */
         for (i = 0; i < CTL; i++) {
             double x = buf[i];
             if (b > 300)
@@ -1424,7 +1402,47 @@ static int cmd_filter(const char *dir)
             printf("FAIL filter: runs away at %d\n", v), fail++;
     }
     printf("filter sweep on noise: largest step between samples %.0f (of 32768)\n", worst);
+    {   /* a knob's click (two steps, the fastest turn's): the cutoff slides there over ~25 ms, in small moves (each
+         * block's four quarters a 1/150 octave at most), never a jump */
+        uint32_t b, n = 0;
+        int32_t was, big = 0, target = flt_oct(-38);
+        lay_flt[0] = -40;
+        flt_run(0, 0, &j);
+        was = lay[0].f_oct;
+        lay_flt[0] = -38;
+        for (b = 0; b < 400u && absi(lay[0].f_oct - target) > 655; b++) {
+            int32_t blk[CTL] = {0};
+            flt_block(&lay[0], lay_flt[0], blk, 0);
+            big = absi(lay[0].f_oct - was) > big ? absi(lay[0].f_oct - was) : big;
+            was = lay[0].f_oct;
+            n++;
+        }
+        printf("filter: a click glides over %.1f ms, its largest move a block %.3f octave\n", n * CTL * 1000.0 / 44100.0,
+               big / 65536.0);
+        if (n < 10u || n > 200u || big > 65536 / 30)
+            printf("FAIL filter: a click is a jump, or too slow (%u blocks, %.3f octave a block)\n", n, big / 65536.0), fail++;
+    }
     lay_flt[0] = 0;
+    {   /* the knob: a click turned slowly, one step; clicks coming fast, two each */
+        int8_t f0;
+        layers_init();
+        ui_init();
+        sounds_init();
+        press_btn(B_FX);
+        f0 = ui.flt[0];
+        fm1_ms += 500u;
+        host_enc[PANEL_ENC[EN_K1]] = -1;
+        ui_input();
+        if (ui.flt[0] != f0 - 1)
+            printf("FAIL filter: a slow click is not one step (%d -> %d)\n", f0, ui.flt[0]), fail++;
+        fm1_ms += 20u;
+        host_enc[PANEL_ENC[EN_K1]] = -1;
+        ui_input();
+        if (ui.flt[0] != f0 - 3)
+            printf("FAIL filter: a fast click is not two steps (%d)\n", ui.flt[0]), fail++;
+        ui.flt[0] = 0;
+        level_pan_apply(0);
+    }
     /* the dial on the screen */
     sounds_init();
     ui.force = 1;

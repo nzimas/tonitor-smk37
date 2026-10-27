@@ -12,7 +12,7 @@
 #define TONITOR_ID "SMK-37 Pro_732"    /* the package identity (tools/build.py sets it) */
 #endif
 #ifndef TONITOR_VERSION
-#define TONITOR_VERSION "BUILD 36"
+#define TONITOR_VERSION "BUILD 37"
 #endif
 #define FELUCCA_ID TONITOR_ID
 #ifndef TELEMETRY

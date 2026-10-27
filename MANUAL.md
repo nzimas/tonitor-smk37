@@ -849,7 +849,9 @@ a preset loaded draws the same modulation again.
 
 **K3** is the chosen track's **filter**. From the middle (off), left is a resonant **low-pass** coming down from
 20 kHz to about 35 Hz; right is a resonant **high-pass** going up from 16 Hz to about 12 kHz. The further from the
-middle, the more resonant. Its dial reads the mode and cutoff (LP 1.2 KHZ, HP 400 HZ, OFF).
+middle, the more resonant. Its dial reads the mode and cutoff (LP 1.2 KHZ, HP 400 HZ, OFF). The cutoff glides
+smoothly as you turn, like an analog filter's: each click of the knob moves it about a third of an octave, turned
+fast two clicks' worth, and the filter slides there over about 25 ms rather than jumping.
 
 **K5** is the chosen track's **crush**. The middle is off. **Left** takes the bit depth down from 16 to 1.5 bits
 (the sound coarsens, then breaks up, quiet tails gating out); **right** takes the sample rate down from 44.1 kHz
