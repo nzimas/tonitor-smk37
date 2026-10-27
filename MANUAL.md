@@ -307,9 +307,15 @@ track's knobs while it records: the **filter**, the **granulator**, the **crush*
 and **reverb sends**, the **level**, the **pan** and the **eight macros** (with MACRO on) of the sound it plays.
 Then it plays them back, over and over.
 
-- Press an **empty** gesture pad (dark): it **records** at once (the pad blinks red; G1 REC). Turn the knobs.
-- Press it **again** to end it: the layer is as long as from your first press to this one, and it plays at once
-  (G1). One layer records at a time.
+- **With REC**, as a loop: press **REC** to arm, then, before playing any note, **turn a knob**. The take is of
+  the knobs, not of notes: it goes into the first empty gesture layer and starts with that turn (REC lights; the
+  band shows G1 REC). Press **REC** again to end it: the layer is as long as from that first turn to this press,
+  and it plays at once. Play a note first instead, and it is a loop as ever. With five loops already (REC would
+  say 5 LOOPS), REC arms for a take of the knobs alone (ARMED G); REC again lets it go, and holding REC still
+  empties the looper. With all three layers taken, the turn says 3 GESTURES.
+- **With the pads**: press an **empty** gesture pad (dark): it **records** at once (the pad blinks red; G1 REC).
+  Turn the knobs. Press it, or REC, **again** to end it: the layer is as long as from your first press to this
+  one, and it plays at once (G1). One layer records at a time.
 - Press a **recorded** pad to switch the layer **off** (dim) or back **on** (lit, sky blue).
 - **Hold** a recorded pad (0.8 s) to **empty** it.
 

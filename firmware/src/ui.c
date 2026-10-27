@@ -586,6 +586,9 @@ static void gest_tick(void);
 static int gest_has(uint32_t l, uint32_t k);
 static int gest_rec_on(uint32_t l, uint32_t k);
 static int gest_is_on(uint32_t l, uint32_t k);
+static int gest_rec_press(uint32_t l, int loops_full);
+static int gest_armed(uint32_t l);
+static int gest_rec_track(uint32_t l);
 static void fmorph_set(int32_t f);
 static int fmorph_on(void);
 static uint32_t fmorph_pair(void);              /* (its two snapshots: x, y << 8) */
@@ -1364,7 +1367,15 @@ static void ui_input(void)
         say(v ? "VARY" : "VARY OFF", 1200);
         ui.vary_shown = (uint8_t)(v + 1u);
         ui.force = 1;
-    } else if (btn_bit(press, B_REC)) {          /* the looper: at once (the loop ends exactly here) */
+    } else if (btn_bit(press, B_REC) &&
+               (k = (uint32_t)gest_rec_press(ui.sel, loop[ui.sel].rec == LR_IDLE &&
+                                                         (loop[ui.sel].ntrk >= LOOP_USE || loop[ui.sel].nev >= LOOP_N - 32u))) != 0u) {
+        ui.rec_t0 = fm1_ms;                      /* (a take of the knobs ended: held on, it empties nothing; REC armed
+                                                  * for one, the loops full: held, it empties them, as ever) */
+        ui.rec_down = 1;
+        ui.rec_done = (uint8_t)(k == 1u);
+    } else if (btn_bit(press, B_REC)) {          /* the looper: at once (the loop ends exactly here) -- or, armed and a
+                                                  * knob turned before any note, a take of the knobs (gest.c) */
         const looper_t *p = &loop[ui.sel];
         char m[12] = "LOOP ";
         ev_post(EV_LOOP_REC, ui.sel, 0, 0);
@@ -1400,6 +1411,7 @@ static void ui_input(void)
         ui.rec_down = 0;
     if (ui.rec_down && !ui.rec_done && (uint32_t)(fm1_ms - ui.rec_t0) >= 1000u) {   /* held: emptied */
         ev_post(EV_LOOP_EMPTY, ui.sel, 0, 0);    /* (the events the snapshots hold stay) */
+        gest_rec_press(ui.sel, 0);               /* (armed for a take of the knobs: no more) */
         snap_loop_emptied(ui.sel);
         ui.lxt[ui.sel] = 0;                      /* (emptied: its own transposition gone too) */
         lx_post();
@@ -2013,7 +2025,8 @@ static void ui_leds(void)
         if (ui.bl_page && bl.on[ui.sel])         /* (BRICKLAYER's page: REC lit while entry is on) */
             fm1_led_key(PANEL_BTN[B_REC], bl.rec[ui.sel]);
         else
-            fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || (p->rec == LR_ARMED && (fm1_ms / 250u) & 1u));
+            fm1_led_key(PANEL_BTN[B_REC], p->rec == LR_REC || gest_rec_track(ui.sel) ||
+                                              ((p->rec == LR_ARMED || gest_armed(ui.sel)) && (fm1_ms / 250u) & 1u));
         if (rx.on && !seq_page())                /* (REACT, SHADOW or ARP on: PLAY flashes with each of the guide's notes) */
             fm1_led_key(PANEL_BTN[B_PLAY], rx.flash && fm1_ms + 1u - rx.flash < 70u);
         else
@@ -3208,6 +3221,16 @@ static void ui_draw(void)
     if (ui.shown_page) {                         /* back from a page: everything again */
         ui.shown_page = 0;
         ui.force = 1;
+    }
+    if (!msg && gest_rec_track(ui.sel)) {        /* a take of the knobs: G2 REC, as a loop's */
+        str_cpy(lp, "G1 REC", sizeof lp);
+        lp[1] = (char)('0' + gest_rec_track(ui.sel));
+        c = lp;
+        msg = 2;
+    } else if (!msg && gest_armed(ui.sel)) {
+        str_cpy(lp, "ARMED G", sizeof lp);
+        c = lp;
+        msg = (fm1_ms / 250u) & 1u ? 2 : 3;
     }
     if (!msg && st != LR_IDLE) {                 /* the looper over the sound: red, unmissable; REC 3 */
         str_cpy(lp, st == LR_REC ? "REC " : "ARMED ", sizeof lp);

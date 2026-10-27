@@ -2,6 +2,17 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 40
+
+27 October 2026
+
+Changed
+- Gesture layers record with REC too, as loops do: REC armed, then a knob turned before any note, the take is of
+  the knobs. It goes into the first empty gesture layer, starting with that turn (REC lit, G1 REC on the screen);
+  REC again ends it and it plays at once. A note played first makes it a loop as before. With five loops already,
+  REC arms for a take of the knobs alone (ARMED G); held, REC still empties the looper. Before, only the gesture
+  pads recorded, and arming REC and turning a knob recorded nothing.
+
 ## BUILD 39
 
 27 October 2026

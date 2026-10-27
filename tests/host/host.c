@@ -713,7 +713,8 @@ static int cmd_flows(void)
     }
     press_btn(B_REC);
     run_blocks(2, 0);
-    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "5 LOOPS"))
+    if (loop[4].ntrk != LOOP_USE || loop[4].rec != LR_IDLE || !str_eq(ui.msg, "ARMED G"))   /* (the loops full: REC
+                                                                                        * arms a take of the knobs) */
         printf("FAIL flows: not five loops and no more (%u, rec %d, %s)\n", loop[4].ntrk, loop[4].rec, ui.msg), fail++;
     run_blocks(3000, 0);
     press_btn(B_PLAY);                        /* stopped */
@@ -8858,6 +8859,33 @@ static int cmd_gestures(void)
     ui.level[1] = LEVEL_UNITY;
     if (gflt_at(fm1_ms, 600) , ui.level[1] != LEVEL_UNITY - 3)
         printf("FAIL gestures: track 2's layer does not play after the store closed up (%d)\n", ui.level[1]), fail++;
+    /* REC armed (track 3, a loop on it), then a knob turned before any note: a take of the knobs, into G1, the loop
+     * disarmed; REC again ends it. No loops recorded */
+    press_btn(B_ENV);
+    press_btn(B_REC);
+    press_key(0, 1);
+    run_blocks(200, 0);
+    press_key(0, 0);
+    press_btn(B_REC);                                /* (loop 1) */
+    run_blocks(20, 0);
+    press_btn(B_REC);                                /* armed again */
+    run_blocks(4, 0);
+    if (loop[2].rec != LR_ARMED)
+        printf("FAIL gestures: REC does not arm\n"), fail++;
+    t0 = fm1_ms;
+    gknob(100, 3);
+    run_blocks(4, 0);
+    if (!gest_rec_on(2, 0) || loop[2].rec != LR_IDLE)
+        printf("FAIL gestures: a knob turned while armed does not start a take of the knobs (%d)\n", loop[2].rec), fail++;
+    if (!host_led[PANEL_BTN[B_REC]] && (ui_leds(), !host_led[PANEL_BTN[B_REC]]))
+        printf("FAIL gestures: REC is not lit while the knobs record\n"), fail++;
+    gknob(300, -6);
+    fm1_ms += 500u;
+    press_btn(B_REC);
+    run_blocks(4, 0);
+    if (gest_rec_on(2, 0) || !gest_has(2, 0) || !gest_is_on(2, 0) || gl[2][0].n != 2u || loop[2].ntrk != 1u ||
+        loop[2].rec != LR_IDLE)
+        printf("FAIL gestures: REC does not end the take of the knobs (%u events, %u loops)\n", gl[2][0].n, loop[2].ntrk), fail++;
     /* a session keeps them; a new one has none */
     if (ses_save(1) != SES_OK)
         printf("FAIL gestures: not saved\n"), fail++;

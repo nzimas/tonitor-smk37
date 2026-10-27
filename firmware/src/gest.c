@@ -7,6 +7,9 @@
  *
  *   an empty gesture pad pressed      recording, at once: every turn of those knobs on that track kept, from now
  *   the same pad again                its end: the layer's length (from the first press), on and playing
+ *   REC armed, then a knob turned     (before any note) recording into the first empty layer, from that turn; REC
+ *                                     again ends it -- as a loop is recorded, but of the knobs (loops full: REC
+ *                                     arms for this alone)
  *   a recorded pad pressed            on or off
  *   a recorded pad held 0.8 s         emptied
  *
@@ -44,6 +47,7 @@ static struct {
     uint32_t t0;
 } gpad = {-1, 0, 0, 0};
 static uint32_t gtick_at;
+static uint8_t garm;                     /* REC armed for a gesture alone (the loops full): its track + 1 */
 static uint8_t gplay_was[NLAYER];
 
 static int gest_has(uint32_t l, uint32_t k) { return gl[l][k].len != 0u; }
@@ -71,12 +75,43 @@ static void gest_apply(uint32_t l, uint32_t p, int32_t v)
     level_pan_apply(l);
 }
 
+/* track l's layer k recording, from now */
+static void gest_start(uint32_t l, uint32_t k)
+{
+    char m[16] = "G";
+    glayer_t *g = &gl[l][k];
+    memset(g, 0, sizeof *g);
+    g->first = (uint16_t)gev_used;
+    grec.on = 1;
+    grec.l = (uint8_t)l;
+    grec.k = (uint8_t)k;
+    grec.full = 0;
+    grec.t0 = fm1_ms;
+    garm = 0;
+    m[1] = (char)('1' + k);
+    str_cpy(m + 2, " REC", 5);
+    say(m, 1500);
+    ui.force = 1;
+}
 /* the knobs (ui.c): control p of track l turned to v -- kept if that layer records (turns 15 ms apart or less: the
- * last one's value) */
+ * last one's value). REC armed and no note played yet: this turn starts a take of the knobs, in the first empty
+ * layer (the loop's arming let go) */
 static void gest_rec(uint32_t l, uint32_t p, int32_t v)
 {
     glayer_t *g;
     uint32_t t;
+    if (!grec.on && l == ui.sel && (loop[l].rec == LR_ARMED || garm == l + 1u)) {
+        uint32_t k;
+        for (k = 0; k < GL_N && gl[l][k].len; k++)
+            ;
+        if (k == GL_N) {
+            say("3 GESTURES", 1500);             /* (every layer taken: empty one first) */
+            return;
+        }
+        if (loop[l].rec == LR_ARMED)
+            ev_post(EV_LOOP_REC, l, 0, 0);       /* (the loop's arming let go: this take is of the knobs) */
+        gest_start(l, k);
+    }
     if (!grec.on || grec.l != l)
         return;
     g = &gl[l][grec.k];
@@ -129,8 +164,31 @@ static void gest_empty(uint32_t l, uint32_t k)
     }
     memset(g, 0, sizeof *g);
 }
+/* REC pressed on track l (ui.c): a take of the knobs ended (1); or, the loops full, REC armed for one (2), or that
+ * let go (3); or nothing of the gestures' (0: the looper's) */
+static int gest_rec_press(uint32_t l, int loops_full)
+{
+    if (grec.on) {
+        gest_rec_end();
+        return 1;
+    }
+    if (garm) {                                  /* (armed for a gesture alone: let go) */
+        garm = 0;
+        say("REC OFF", 900);
+        return 3;
+    }
+    if (loops_full) {
+        garm = (uint8_t)(l + 1u);
+        say("ARMED G", 1200);
+        return 2;
+    }
+    return 0;
+}
+static int gest_armed(uint32_t l) { return garm == l + 1u; }
+static int gest_rec_track(uint32_t l) { return grec.on && grec.l == l ? (int)grec.k + 1 : 0; }
 static void gest_reset(void)                    /* (a session loaded or begun: none) */
 {
+    garm = 0;
     memset(gl, 0, sizeof gl);
     gev_used = 0;
     grec.on = 0;
@@ -148,19 +206,7 @@ static void gest_pad_down(uint32_t k)
         return;
     }
     if (!gest_has(l, k)) {                       /* empty: recording, from now */
-        char m[16] = "G";
-        glayer_t *g = &gl[l][k];
-        memset(g, 0, sizeof *g);
-        g->first = (uint16_t)gev_used;
-        grec.on = 1;
-        grec.l = (uint8_t)l;
-        grec.k = (uint8_t)k;
-        grec.full = 0;
-        grec.t0 = fm1_ms;
-        m[1] = (char)('1' + k);
-        str_cpy(m + 2, " REC", 5);
-        say(m, 1500);
-        ui.force = 1;
+        gest_start(l, k);
         return;
     }
     gpad.k = (int8_t)k;                          /* recorded: on or off when let go soon, emptied when held */
