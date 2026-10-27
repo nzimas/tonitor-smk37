@@ -44,6 +44,43 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the <a href="https://nzimas.github.io/tonitor/changelog.html">FM-1 Tonitor changelog</a>.</p>
+<h2 id="build-36">BUILD 36</h2>
+<p>27 October 2026</p>
+<p>Brought in from Tonitor for the FM-1 (its builds 55, 61, 62 and 68).</p>
+<p>Added</p>
+<ul>
+<li>GLOBAL SETUP has an AUDIO section: USB, OUT: STEREO (the master, as before) or TRACKS (tracks 1 to 6, each on its own mono channel, after its level, before its pan and the master delay and reverb), to record the tracks apart. Changed, the keyboard leaves the USB a moment and comes back as the new device. Settings kept by earlier builds load as they were, at STEREO.</li>
+<li>While REACT, SHADOW or ARP is on, PLAY flashes with each note the guide plays (keys, chords, loops, BALLSY, BRICKLAYER, MIDI in), on every page but BALLSY's and BRICKLAYER's.</li>
+</ul>
+<p>Changed</p>
+<ul>
+<li>The DELAY and REVERB pages: every row's name and value in one size (it changed from row to row). The delay's TIME in seconds, without the unit (0.02 .. 0.99, then 1.0 .. 2.0); FEEDBACK is named REPEATS.</li>
+<li>USB audio: the next packet is queued within 0.1 ms of the last (looked to 10 000 times a second, 2 000 before), so six channels never miss a frame; the ring is kept fuller.</li>
+</ul>
+<p>Fixed</p>
+<ul>
+<li>USB audio on macOS 12 to 15: the keyboard now lists its audio streaming interface before its MIDI one. macOS up to 15 drops the MIDI interface from that list as it reads it, and with MIDI listed first no audio input appeared there (MIDI still worked). The device's version number changes, so a computer reads its description again.</li>
+</ul>
+<h2 id="build-35">BUILD 35</h2>
+<p>27 October 2026</p>
+<p>Brought in from Tonitor for the FM-1 (its builds 58 and 61).</p>
+<p>Fixed</p>
+<ul>
+<li>Starting up and starting a new (empty) session were slow: every track drew a sound for each of the eight engines, 48 in all, and measured each one by rendering seconds of it. Now only the sound each track plays is measured; another engine's is measured the first time the track moves to it (a moment, then), or a snapshot moves it there. On the computer an empty session now takes about a fifth of the work. Sessions, snapshots and copy and paste keep sounds not yet measured as they are; presets are always saved measured.</li>
+<li>A loop's first note could be heard only in the first round. A note held from the loop's first moment to its last was tied over the end as a drone, never struck again, so a plucked sound (DRUID's PLUCK) died away and stayed silent. Now a tied note that has died away (more than 18 dB under its loudest) is let go at the end and struck again at the start; one still sounding goes on as one note. The same note struck at the start and again, held, at the end is no longer taken for one note.</li>
+</ul>
+<h2 id="build-34">BUILD 34</h2>
+<p>27 October 2026</p>
+<p>Brought in from Tonitor for the FM-1 (its builds 59, 65 and 66), fitted to the SMK-37's panel.</p>
+<p>Added</p>
+<ul>
+<li>SCALE held 0.8 s draws a new scale and root at random. The SCALE page shows them for 1.5 s, over any page, then the page that was up returns; the loops follow the new scale. SCALE pressed and let go still opens and closes the SCALE page (on release now). On the FM-1 this is SHIFT + black key 1.</li>
+</ul>
+<p>Changed</p>
+<ul>
+<li>At start, and in a new (empty) session, the scale and root are drawn at random (until now C major).</li>
+<li>The splash screen shows the Tonitor logo: the ring mark in the middle, in the six tracks' colours, the lettering under it, the build below. It is drawn from the logo's shapes at start, with smoothed edges, not kept as an image.</li>
+</ul>
 <h2 id="build-33">BUILD 33</h2>
 <p>27 October 2026</p>
 <p>Brought in from Tonitor for the FM-1 (its builds 63 to 67), fitted to the SMK-37's panel.</p>

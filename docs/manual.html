@@ -97,7 +97,7 @@
 </nav>
 <h2 id="playing-it">Playing it</h2>
 <p>Tonitor turns the SMK-37 Pro into six tracks. Each track has its own engine and sound, its own level, pan, filter, granulator, crush and distortion, and its own sends to a master delay and a master reverb. You choose a track on the top row of pads and play it on the keys. The other tracks go on sounding: held notes, latched notes, loops and sequencers keep playing while you choose and play another track.</p>
-<p>The tracks start on FM, ANIMA, CALIGULA, HIVE, DRUID and BAYAREA (tracks 1 to 6), with a new sound each, on the OPEN path, in C MAJOR. Each track has a colour: 1 yellow, 2 cyan, 3 pink, 4 green, 5 orange, 6 lilac.</p>
+<p>The tracks start on FM, ANIMA, CALIGULA, HIVE, DRUID and BAYAREA (tracks 1 to 6), with a new sound each, on the OPEN path, in a scale and root drawn at random. Each track has a colour: 1 yellow, 2 cyan, 3 pink, 4 green, 5 orange, 6 lilac.</p>
 <h3 id="the-panel">The panel</h3>
 <p>This manual calls each control by its Tonitor name. Several buttons carry another word printed on the SMK-37: the button printed SCALE is MACRO in Tonitor, and the button printed FX opens the SCALE page. The table gives both.</p>
 <table>
@@ -161,6 +161,7 @@
 <tr><td><b>PLAY held</b> (0.6 s)</td><td>the chosen track's <b>loops on the bottom row of pads</b>, to take each out or bring it back (OVERDUBS); held again, the pads freed (PADS FREE). While PLAY is held, the screen shows the loops and the keys take them in and out too.</td></tr>
 <tr><td><b>SHIFT + PLAY</b></td><td>from any track: if any loop or sequencer plays, every loop and sequencer of every track stops (ALL STOPPED; the loops are kept). If none plays, every loop and every sequencer that is on starts, together, from their starts (ALL PLAYING).</td></tr>
 <tr><td><b>SCALE</b></td><td>the <b>SCALE page</b> (SCALE lit): K1 the root, K2 the scale. SCALE again, or a track pad, goes back. See Scales.</td></tr>
+<tr><td><b>SCALE held</b> (0.8 s)</td><td>a <b>new scale and root</b>, drawn at random; the SCALE page shows them for 1.5 s. See Scales.</td></tr>
 <tr><td><b>SHIFT + SCALE</b></td><td>the <b>PRESETS</b> page of the chosen track's engine. See Presets.</td></tr>
 <tr><td><b>SAVE</b></td><td>the <b>SNAPSHOTS</b> page (SAVE lit): the 16 pads are the session's snapshots. See Snapshots.</td></tr>
 <tr><td><b>SAVE held</b> (0.8 s)</td><td><b>save</b> the session (on the SNAPSHOTS page: store the snapshot framed). See Sessions.</td></tr>
@@ -372,7 +373,7 @@
 <h3 id="react-shadow-and-arp">REACT, SHADOW and ARP</h3>
 <p>In these three modes the other tracks play along with the one you play. The chosen track is the <b>guide</b>. The tracks you take in listen to everything the guide sounds (its keys, latches, chords, MIDI in, loops, BALLSY and BRICKLAYER) and play their own sounds in answer, in the scale. Choosing another track makes it the guide.</p>
 <ul>
-<li><b>SHIFT + FADER BANK</b> turns the mode on or off at once (REACT, REACT OFF; SHADOW, SHADOW OFF; ARP, ARP OFF). FADER BANK blinks slowly while it is on.</li>
+<li><b>SHIFT + FADER BANK</b> turns the mode on or off at once (REACT, REACT OFF; SHADOW, SHADOW OFF; ARP, ARP OFF). FADER BANK blinks slowly while it is on, and <b>PLAY</b> flashes with each note the guide plays (keys, chords, loops, BALLSY, BRICKLAYER, MIDI in), on every page but BALLSY's and BRICKLAYER's.</li>
 <li><b>FADER BANK held</b> (0.6 s) puts its page up, with its pads on the bottom row. Held again while the page is up, both go down. A track pad also puts the page down; the mode goes on running, and its pads stay up.</li>
 <li>On the page, <b>&lt;</b> and <b>&gt;</b> choose the mode: <b>REACT</b>, <b>SHADOW</b> or <b>ARP</b>. Changing the mode lets go of the notes the tracks are playing.</li>
 <li>On the pads, <b>pads 9–14 are tracks 1–6</b>. Press a pad to take that track in or out (2 IN, 2 OUT): lit in the mode's colour while in, dim while out. At first no track is in. The guide's pad is dark; pressed, it lights red for a moment and the screen says GUIDE TRACK (a track cannot follow itself).</li>
@@ -442,7 +443,8 @@
 <p>Saving, loading, emptying a looper, copying and pasting flash the whole screen for 1.5 s. The pages (SCALE, ENVELOPE, DELAY, REVERB, MOD, SNAPSHOTS, SESSIONS, PRESETS, GLOBAL SETUP, BALLSY, BRICKLAYER, the loops while PLAY is held, REACT) each take the whole screen and are described in their sections. On every page, the value just turned is drawn black on white for a moment.</p>
 <p>If the chip's second core did not start, the screen says <b>1 CORE</b> for a few seconds: the instrument plays, with half the room for voices.</p>
 <h3 id="scales">Scales</h3>
-<p>One scale and root for the whole keyboard, saved with the session; C MAJOR at the start. Press <b>SCALE</b> to open the SCALE page: <b>K1</b> chooses the root (C to B, round the octave), <b>K2</b> the scale. The page shows SCALE, the root very large, and the scale's name under it; what you just turned is drawn black on white for a moment. SCALE again, or a track pad, goes back.</p>
+<p>One scale and root for the whole keyboard, saved with the session. At start, and in a new (empty) session, both are drawn at random. Press <b>SCALE</b> to open the SCALE page: <b>K1</b> chooses the root (C to B, round the octave), <b>K2</b> the scale. The page shows SCALE, the root very large, and the scale's name under it; what you just turned is drawn black on white for a moment. SCALE again, or a track pad, goes back.</p>
+<p>Hold <b>SCALE</b> (0.8 s) to draw a new scale and root at random, as at start, from any page. The SCALE page shows them for 1.5 s, then the page that was up comes back. The loops and latched notes follow the new scale, as when you turn K1 or K2.</p>
 <p>The root sits on the lowest key and the scale climbs from there across all 37 keys, black keys included (see The keys for where each scale starts).</p>
 <table>
 <tr><th>Scale</th><th>Steps</th></tr>
@@ -508,7 +510,7 @@
 <p><b>Choosing and loading.</b> Press <b>SHIFT + SAVE</b>: the <b>SESSIONS</b> page opens, on the session loaded if there is one. <b>&lt;</b> and <b>&gt;</b> step through the slots. The number is very large: <b>red</b> when the slot holds a session, <b>grey</b> with EMPTY under it when it does not; the session loaded says LOADED. Press <b>SAVE</b>:</p>
 <ul>
 <li>on a slot holding a session, it <b>loads</b> (LOADING, then LOADED and the number);</li>
-<li>on an empty slot, it starts a <b>new session</b> there (NEW and the number): a clean slate, as when the keyboard is switched on. The loops and latches go, every track is on its starting engine with new sounds and its settings at their defaults, and the scale, the delay, the reverb and the moves along the scale too. The session you were in stays saved as it was, and the next save goes to the new slot.</li>
+<li>on an empty slot, it starts a <b>new session</b> there (NEW and the number): a clean slate, as when the keyboard is switched on. The loops and latches go, every track is on its starting engine with new sounds and its settings at their defaults, a scale and root drawn at random, and the delay, the reverb and the moves along the scale too. The session you were in stays saved as it was, and the next save goes to the new slot.</li>
 </ul>
 <p>Either way the page closes. A track pad, or SHIFT + SAVE again, closes it without either.</p>
 <p><b>Saving.</b> Hold <b>SAVE</b> (0.8 s):</p>
@@ -521,7 +523,7 @@
 <p>A session also keeps the seeds its sounds were made from, with the path and the <i>generation</i> of the generators that drew them. Every generation is kept exactly as it was, so sessions and presets saved under an older build load with the same sounds after an update that brings new generators. Erasing flash silences the audio for a moment: a save uses blank flash when there is some, and the keyboard blanks free flash by itself while nothing sounds.</p>
 <p><b>Backing up.</b> The <a href="https://nzimas.github.io/tonitor-smk37/backup.html">backup page</a> saves them to a file on your computer and puts them back, over USB MIDI: it lists, sends and receives the sessions, the presets and GLOBAL SETUP, each record checked whole before it replaces the one with the same number. As each one arrives, the screen shows RESTORED and its number.</p>
 <h3 id="global-setup-and-midi">Global setup and MIDI</h3>
-<p><b>SHIFT + SAVE held</b> (0.8 s) opens <b>GLOBAL SETUP</b>, the keyboard's own settings, kept apart from the sessions. It has two sections, <b>MIDI</b> and <b>VELOCITY</b>. <b>&lt;</b> and <b>&gt;</b> move through the entries and <b>SAVE</b> goes into one. On a setting, SAVE puts the focus on its value (a white field), &lt; and &gt; change it, and SAVE sets it; <b>SHIFT + SAVE</b> leaves it as it was, or goes back a level, and at the top level closes GLOBAL SETUP. Each level below the top starts with <b>BACK</b>. A track pad also closes it. What changed is written to the flash when you leave.</p>
+<p><b>SHIFT + SAVE held</b> (0.8 s) opens <b>GLOBAL SETUP</b>, the keyboard's own settings, kept apart from the sessions. It has three sections, <b>MIDI</b>, <b>VELOCITY</b> and <b>AUDIO</b>. <b>&lt;</b> and <b>&gt;</b> move through the entries and <b>SAVE</b> goes into one. On a setting, SAVE puts the focus on its value (a white field), &lt; and &gt; change it, and SAVE sets it; <b>SHIFT + SAVE</b> leaves it as it was, or goes back a level, and at the top level closes GLOBAL SETUP. Each level below the top starts with <b>BACK</b>. A track pad also closes it. What changed is written to the flash when you leave.</p>
 <table>
 <tr><th>Section</th><th>Part</th><th>Settings</th><th>At the start</th></tr>
 <tr><td><b>MIDI</b></td><td><b>IN CHAN</b></td><td>TRACK 1 to 6: the channel each track listens to (OFF, 1–16); AUTO: the channel that plays the chosen track</td><td>1 to 6; AUTO 16</td></tr>
@@ -532,6 +534,7 @@
 <tr><td><b>VELOCITY</b></td><td><b>KEYS</b></td><td>CURVE: EVEN, SOFT (soft playing louder, for a light touch), HARD (for a firm touch), FIXED</td><td>EVEN</td></tr>
 <tr><td></td><td></td><td>LOWEST, HIGHEST: the range the curve maps into (1–127)</td><td>1, 127</td></tr>
 <tr><td></td><td></td><td>FIXED: the velocity of every note when the curve is FIXED (1–127)</td><td>100</td></tr>
+<tr><td><b>AUDIO</b></td><td><b>USB</b></td><td>OUT: STEREO (the master) or TRACKS (tracks 1 to 6, each on its own channel). See USB audio</td><td>STEREO</td></tr>
 </table>
 <p><b>MIDI in</b> comes over USB only (the SMK-37 has no MIDI IN jack). A note plays every track whose IN channel it is on, and the chosen track on the AUTO channel, at its velocity (the VELOCITY settings apply to the keys only). The CCs a track answers to, on the same channels, and sends when SEND CC is on:</p>
 <table>
@@ -578,8 +581,8 @@
 <p>The first press of <b>SEQ</b> opens the <b>DELAY page</b>: the title and its four values in rows, each with a bar.</p>
 <table>
 <tr><th>Knob</th><th></th><th></th><th>At the start</th></tr>
-<tr><td><b>K3</b></td><td><b>TIME</b></td><td>20 ms to 2 s, on a logarithmic scale (shown in ms). Turning it glides the delay over about 0.1 s, so the repeats bend in pitch rather than click</td><td>65 (400 ms)</td></tr>
-<tr><td><b>K4</b></td><td><b>FEEDBACK</b></td><td>how much of each repeat comes back: 0 (one repeat) to 0.95</td><td>40</td></tr>
+<tr><td><b>K3</b></td><td><b>TIME</b></td><td>20 ms to 2 s, on a logarithmic scale (shown in seconds: 0.02 to 0.99, then 1.0 to 2.0). Turning it glides the delay over about 0.1 s, so the repeats bend in pitch rather than click</td><td>65 (0.40)</td></tr>
+<tr><td><b>K4</b></td><td><b>REPEATS</b></td><td>the feedback: how much of each repeat comes back: 0 (one repeat) to 0.95</td><td>40</td></tr>
 <tr><td><b>K5</b></td><td><b>DAMP</b></td><td>a low-pass in the feedback path: each repeat darker than the one before</td><td>40</td></tr>
 <tr><td><b>K6</b></td><td><b>MIX</b></td><td>the level of the echoes</td><td>50</td></tr>
 </table>
@@ -597,6 +600,7 @@
 <p>The reverb's values are kept in sessions. It costs nothing while nothing goes into it and its tail has died away.</p>
 <h3 id="usb-audio">USB audio</h3>
 <p>Connected to a computer (or a phone or tablet that takes USB audio), the keyboard is also a <b>USB audio input</b>: choose "SMK-37 Tonitor" as the input in the recording program. It carries the master output, stereo, 16-bit, at <b>44.1 kHz</b> (the rate Tonitor renders at; there is no 48 kHz). It is class compliant: no driver is needed, and MIDI goes on over the same cable. The stream is taken before <b>fader 4</b>, so the fader sets the headphones' level and not the recording's.</p>
+<p><b>TRACKS.</b> In GLOBAL SETUP, AUDIO &gt; USB &gt; OUT chooses what goes out: <b>STEREO</b>, the master as above, or <b>TRACKS</b>, six mono channels, track 1 on channel 1 to track 6 on channel 6, to record the tracks apart. Each track is taken after its level, before its pan and before the master delay and reverb. When you change it, the keyboard leaves the USB for a moment and comes back as the new device (with six channels, or two); the recording program may need to choose it again. The setting is kept, and the keyboard starts as it was left.</p>
 <h3 id="voices-and-load">Voices and load</h3>
 <p>The six tracks are rendered a block of 32 samples (0.73 ms) at a time. Every sounding voice takes a share of that block. When the total passes <b>82 %</b>, Tonitor protects the audio: it ends the quietest fading tails first, then the quietest voices, each faded over a few milliseconds so nothing clicks. A latched note is never ended this way. Below 82 % nothing is cut. What each engine costs, and how much you can stack, is measured in <a href="https://github.com/nzimas/tonitor-smk37/blob/main/docs/smk37/engine-costs.md">docs/smk37/engine-costs.md</a>.</p>
 <p>With all twelve voices busy, a new note takes the release tail that has rung longest (on any track), else the oldest note held on its own track, else the oldest held anywhere, never a latched one.</p>
