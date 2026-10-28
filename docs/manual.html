@@ -69,7 +69,9 @@
 <a href="#shadow" class="sub">SHADOW</a>
 <a href="#arp" class="sub">ARP</a>
 <a href="#copying-a-track" class="sub">Copying a track</a>
+<a href="#gesture-loops" class="sub">Gesture loops</a>
 <a href="#the-wheels-and-the-master" class="sub">The wheels and the master</a>
+<a href="#the-faders" class="sub">The faders</a>
 <a href="#the-screen" class="sub">The screen</a>
 <a href="#scales" class="sub">Scales</a>
 <a href="#presets" class="sub">Presets</a>
@@ -171,6 +173,9 @@
 <tr><td><b>SHIFT + SEQ</b></td><td>the chosen track's <b>modulation thrown anew</b> (MOD RANDOM). See Modulation.</td></tr>
 <tr><td><b>pitch wheel</b></td><td>bends the chosen track ±2 semitones.</td></tr>
 <tr><td><b>mod wheel</b></td><td>on the chosen track: a vibrato (5.5 Hz, up to 0.4 semitone) and the first macro pushed up.</td></tr>
+<tr><td><b>fader 1</b></td><td><b>MORPH</b> by hand: with the morph time at MANUAL, from the snapshot you are on to the one whose pad you tapped. See The faders.</td></tr>
+<tr><td><b>fader 2</b></td><td><b>SPACE</b>: every track's reverb and delay sends, the reverb's decay and the delay's repeats, raised together.</td></tr>
+<tr><td><b>fader 3</b></td><td>the <b>master filter</b>: low-pass below the middle, off at the middle, high-pass above.</td></tr>
 <tr><td><b>fader 4</b></td><td>the <b>master level</b>.</td></tr>
 <tr><td><b>OCTAVE− at power-on</b></td><td>the <b>RESCUE</b> mode. <b>OCTAVE− and OCTAVE+ held 5 s</b>: <b>UBOOT</b>. See Starting, rescue and UBOOT.</td></tr>
 <tr><td>MIDI in (USB)</td><td>notes play the tracks by channel; CCs set level, pan, macros, filter and sends. See Global setup and MIDI.</td></tr>
@@ -426,9 +431,27 @@
 <h3 id="copying-a-track">Copying a track</h3>
 <p>Hold a track's pad until the screen flashes <b>COPIED / TRACK n</b>: the track is on the clipboard, and its pad blinks. Choose another track and hold its pad until <b>PASTED / TRACK n</b>: it now has the copied track's tone, sequencers and loops. The clipboard is then empty: the next hold copies again. Holding the copied track's own pad again copies it again (as it is now), pasting nothing.</p>
 <p>What is copied: the <b>tone</b> (the engine, the sounds of all eight engines with their macros and envelopes, the filter, the granulator, the crush, the distortion, the delay and reverb sends, the octave, the path, the modulation and the chord mode), <b>BALLSY</b> and <b>BRICKLAYER</b> with their settings, and <b>all the loops</b> with their options and VARY, every overdub, those taken out still out. The copy is taken when you hold the pad: what the track does afterwards is not pasted. The track pasted onto keeps its <b>level</b> and <b>pan</b>; whatever it had before is replaced, and its latched notes are let go. The clipboard is kept in the flash beside the sessions (writing it may hush the audio for a moment); it is emptied when the keyboard is switched off.</p>
+<h3 id="gesture-loops">Gesture loops</h3>
+<p>Besides its note loops, each track has <b>eight gesture loops</b>: recordings of your hands on the knobs and faders, played back round and round. They have nothing to do with the note loops: they run whatever else plays, held notes, latched chords, loops, sequencers, each at <b>its own length</b>, so they drift against everything else. A filter sweep made over the end of a phrase comes back, next time, over another part of it, and further along each time. That is the point: the gestures are not tied to the notes, and they bring the unexpected, even to you.</p>
+<p>Press the <b>sixth button of the top row</b> (GESTURES; lit while it is up): the chosen track's eight gesture loops are on the bottom row of pads, 9 to 16, all glowing faintly sky blue even while empty, so you know the pads are theirs. Press it again to free the pads.</p>
+<ul>
+<li><b>Hold a pad</b> (0.8 s) to <b>arm</b> it: it blinks red and the band says <b>ARMED</b>. Whatever it held is emptied.</li>
+<li><b>Move a knob or a fader</b>: the recording starts with that move (the pad turns red; the band says G1 REC). Everything you move after it is kept, as long as you go on.</li>
+<li><b>Press the pad</b> to end it: the gesture loop is as long as from that first move to this press, and it plays at once, round and round (sky blue).</li>
+<li><b>Press a recorded pad</b> to switch it <b>off</b> (dim) or back <b>on</b> (lit; it starts from its beginning).</li>
+<li><b>Press an armed pad</b> before moving anything to let it go (NOT ARMED).</li>
+</ul>
+<p>What a gesture loop records: the track's <b>filter</b> (K3), <b>granulator</b>, <b>crush</b>, <b>distortion</b>, <b>delay</b> and <b>reverb sends</b>, <b>level</b> and <b>pan</b>, the <b>eight macros</b> (with MACRO on) of the sound it plays, and <b>faders 2 and 3</b> (SPACE and the master filter). It records the track you armed it on; switching tracks while it records, the other track's knobs are not recorded, the faders still are. One gesture loop is armed or records at a time: arming another ends the one recording.</p>
+<p>What it plays moves those values as your hand would: you can move them between its events, and it takes them over again at its next one. A fader's own position is left where it is until you move it again. All the gesture loops of all the tracks share one store of about a thousand moves; when it is full the screen says GESTURES FULL (empty one by arming it). Sessions keep them; snapshots and copying a track do not (yet).</p>
 <h3 id="the-wheels-and-the-master">The wheels and the master</h3>
 <p>The <b>pitch wheel</b> bends the chosen track up to 2 semitones either way. Every engine bends. The <b>mod wheel</b> adds a vibrato (5.5 Hz, up to 0.4 semitone) and pushes the first macro of the sound up, up to its full turn. Both act on the chosen track only; choosing another track lets go of them on the one left. The wheels calibrate themselves: the pitch wheel's rest is taken at power-on.</p>
 <p><b>Fader 4</b> (the rightmost) is the master level. It sets what reaches the headphones and the outputs, not the USB audio (see USB audio).</p>
+<h3 id="the-faders">The faders</h3>
+<p>Faders 1 to 3 are live controls over the whole instrument. They act on top of what is stored and are never saved: sessions, snapshots and presets keep what they kept before, and the faders act on them wherever they stand. While a fader moves, and a moment after, the screen shows its dial.</p>
+<p><b>Fader 1, MORPH.</b> A morph by hand between snapshots. Set the morph time (K3 on the SNAPSHOTS page) to <b>MANUAL</b>, its lowest setting, below OFF. Then a pad on the SNAPSHOTS page no longer recalls its snapshot at once: tapping it makes it the <b>target</b> (its pad and box blink; the screen says FADER 1 UP or FADER 1 DOWN), and nothing changes yet. Move fader 1 from wherever it stands to the end it is furthest from (the top; or, if it stands near the top, the bottom): levels, pans, sends, filters, macros and the other values that glide follow the fader from the snapshot you are on to the target; what has no in-between (scale, root, octaves, loops, latched notes, sequencers, engines) switches at the half-way, in either direction; a track whose sound differs goes down to silence there and comes back. You can go back and forth on the way. At the end the machine is the target exactly, and it becomes the snapshot you are on; the fader then does nothing until you tap another pad. Tapping another pad on the way starts again from whichever of the two the machine is nearer. With any other morph time, a pad recalls as before (at once, or over that time) and fader 1 does nothing (its dial says OFF, K3 TO MANUAL).</p>
+<p><b>Fader 2, SPACE.</b> At the bottom, everything as set. Pushing it up raises every track's reverb and delay sends together, lengthens the reverb's decay and adds repeats to the delay, towards a wash at the top. Pulling it back brings the mix back to dry. The values you set on the DELAY and REVERB pages and each track's sends stay as they are.</p>
+<p><b>Fader 3, the master filter.</b> One filter over the whole mix, after the delay and the reverb, before the master level (and in the USB audio's STEREO too). The middle is off, with a small zone either side so the fader finds it easily. Below, a low-pass comes down from 20 kHz to about 60 Hz; above, a high-pass goes up from 20 Hz to about 8 kHz; a little resonant towards the ends. It glides as the track filter does. Its dial reads LP 1.2K, HP 400 or OFF.</p>
+<p>The faders act from where they are at power-on: fader 2 up means SPACE is already on, fader 3 away from the middle means the master filter is already on.</p>
 <h3 id="the-screen">The screen</h3>
 <p>The screen is made for low vision: few words, very large type, high contrast.</p>
 <p>From top to bottom, the track view shows:</p>
@@ -489,7 +512,7 @@
 <tr><td>Recall a snapshot</td><td>press and release its pad</td></tr>
 <tr><td>Store the current state</td><td>hold its pad 0.8 s, or frame it with <b>&lt;</b> and <b>&gt;</b> and hold <b>SAVE</b></td></tr>
 <tr><td>Empty a snapshot</td><td>hold <b>SHIFT</b> and hold its pad 0.8 s</td></tr>
-<tr><td>Set the morph time (0 to 30 s)</td><td><b>K3</b></td></tr>
+<tr><td>Set the morph time (0 to 30 s), or MANUAL (fader 1)</td><td><b>K3</b></td></tr>
 <tr><td>Leave the page</td><td><b>SAVE</b> again</td></tr>
 </table>
 <p>The keys go on playing while the page is up, and K1 and K2 stay the track's level and pan.</p>
@@ -556,7 +579,7 @@
 <p><b>SHIFT + SEQ</b> throws the chosen track's modulation anew (MOD RANDOM): both LFOs (any shape, rate, mode and fade) and two to four slots, from any source to any destination, by amounts that may go far. It takes risks on purpose; press it again for another, or set what you like on the MOD page.</p>
 <p><b>HOME</b> draws a modulation with some sounds, by engine and family: mostly with the slow, sustained families of FM, HIVE, BAYAREA and DRUID (a slow LFO on the tone, sometimes a fade in, sometimes a second, slower one in the stereo field or the reverb); now and then a struck or plucked sound gets its brightness on the velocity; never ANIMA or CALIGULA, whose sounds already move by themselves. A new sound with none clears the track's modulation; a preset loaded draws the same modulation again.</p>
 <h3 id="the-filter-and-the-crush">The filter and the crush</h3>
-<p><b>K3</b> is the chosen track's <b>filter</b>. From the middle (off), left is a resonant <b>low-pass</b> coming down from 20 kHz to about 35 Hz; right is a resonant <b>high-pass</b> going up from 16 Hz to about 12 kHz. The further from the middle, the more resonant. Its dial reads the mode and cutoff (LP 1.2 KHZ, HP 400 HZ, OFF).</p>
+<p><b>K3</b> is the chosen track's <b>filter</b>. From the middle (off), left is a resonant <b>low-pass</b> coming down from 20 kHz to about 35 Hz; right is a resonant <b>high-pass</b> going up from 16 Hz to about 12 kHz. The further from the middle, the more resonant. Its dial reads the mode and cutoff (LP 1.2 KHZ, HP 400 HZ, OFF). The cutoff glides smoothly as you turn, like an analog filter's: each click of the knob moves it about a third of an octave, turned fast two clicks' worth, and the filter slides there over about 25 ms rather than jumping.</p>
 <p><b>K5</b> is the chosen track's <b>crush</b>. The middle is off. <b>Left</b> takes the bit depth down from 16 to 1.5 bits (the sound coarsens, then breaks up, quiet tails gating out); <b>right</b> takes the sample rate down from 44.1 kHz to about 300 Hz (metallic aliasing, then a stepped buzz). Both follow curves that keep the first half of the way playable; the rate glides, it does not jump. Its dial reads BITS 6.5 or RATE 2.6K. It comes after the granulator, before the track's limiter.</p>
 <p>Both are saved with the session.</p>
 <h3 id="the-granulator">The granulator</h3>

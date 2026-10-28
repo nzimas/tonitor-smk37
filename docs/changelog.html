@@ -44,6 +44,59 @@
     <main>
 <h1 id="changelog">Changelog</h1>
 <p>This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the <a href="https://nzimas.github.io/tonitor/changelog.html">FM-1 Tonitor changelog</a>.</p>
+<h2 id="build-43">BUILD 43</h2>
+<p>28 October 2026</p>
+<p>Changed</p>
+<ul>
+<li>Fader 1's morph by hand has its own setting: the morph time (K3 on the SNAPSHOTS page) goes below OFF to MANUAL. In MANUAL, tapping a snapshot's pad does not recall it: it becomes the target (its pad blinks) and nothing changes until fader 1 moves. From wherever the fader stands to the end furthest from it (the top, or near the top the bottom), it takes the machine from the snapshot it is at to the target, back and forth as you move; at the end the target is reached exactly and becomes the current snapshot, and the fader lets go until the next tap. With any other morph time, a pad recalls as before and fader 1 does nothing. (Before, fader 1 morphed to the snapshot framed with &lt; &gt;, starting from the bottom, which a tap on a pad could not reach.)</li>
+</ul>
+<h2 id="build-42">BUILD 42</h2>
+<p>27 October 2026</p>
+<p>Changed</p>
+<ul>
+<li>The GESTURES pads glow faintly sky blue while the page is up, the empty ones too, so the pads show they are the gesture loops' before any is recorded. A recorded loop that is off is half-lit; on, lit.</li>
+</ul>
+<h2 id="build-41">BUILD 41</h2>
+<p>27 October 2026</p>
+<p>Changed</p>
+<ul>
+<li>Gestures are now <b>gesture loops</b>, apart from the note loops altogether: eight a track, on the bottom row of pads when the sixth button of the top row is pressed (GESTURES; lit while up). A pad held 0.8 s is armed (blinking red, ARMED); the first move of a knob or fader records from there; the pad pressed ends it and it loops at once, at its own length, whatever else plays. A recorded pad pressed switches it off or on (from its beginning); an armed one pressed lets it go. Besides the track's knobs (filter, granulator, crush, distortion, sends, level, pan, the eight macros), faders 2 and 3 (SPACE, the master filter) are recorded too. Sessions (format 34) keep them; the gesture layers of build 39 load into the first three.</li>
+<li>The note loops are as before build 39: eight a track on the OVERDUBS page, REC arming them alone.</li>
+</ul>
+<h2 id="build-40">BUILD 40</h2>
+<p>27 October 2026</p>
+<p>Changed</p>
+<ul>
+<li>Gesture layers record with REC too, as loops do: REC armed, then a knob turned before any note, the take is of the knobs. It goes into the first empty gesture layer, starting with that turn (REC lit, G1 REC on the screen); REC again ends it and it plays at once. A note played first makes it a loop as before. With five loops already, REC arms for a take of the knobs alone (ARMED G); held, REC still empties the looper. Before, only the gesture pads recorded, and arming REC and turning a knob recorded nothing.</li>
+</ul>
+<h2 id="build-39">BUILD 39</h2>
+<p>27 October 2026</p>
+<p>Added</p>
+<ul>
+<li>Gesture layers: three a track, G1 to G3, on pads 14 to 16 of the OVERDUBS page (PLAY held). An empty pad pressed records the track's knobs as they are turned (the filter, granulator, crush, distortion, delay and reverb sends, level, pan and the eight macros); pressed again it ends, its length the time between the two presses, and it plays them back, round and round, at that length. A recorded pad pressed switches the layer off or on; held 0.8 s, empties it. A layer's own length drifts against the loops', so its gestures fall on other parts of the loop at every round: by design. A layer plays while the track's loops play, or freely on a track without loops. The layers share a store of 1024 moves (GESTURES FULL). Sessions (format 33) keep them; earlier sessions load with none.</li>
+</ul>
+<p>Changed</p>
+<ul>
+<li>A track records up to five loops (the first and four overdubs: pads 9 to 13), eight before. A session with more still loads and plays them all; pads 14 to 16 are the gesture layers.</li>
+</ul>
+<h2 id="build-38">BUILD 38</h2>
+<p>27 October 2026</p>
+<p>Added</p>
+<ul>
+<li>Faders 1 to 3, live controls over the whole instrument, never saved (fader 4 stays the master level):
+<ul>
+<li>Fader 1, MORPH: a morph by hand between the snapshot you are on (bottom) and the one framed on the SNAPSHOTS page (top). Values that glide follow the fader; what has no in-between switches at the middle, in either direction; a track whose sound differs passes through silence there. It takes hold only once it has been at the bottom.</li>
+<li>Fader 2, SPACE: every track's reverb and delay sends, the reverb's decay and the delay's repeats raised together, towards a wash at the top. The stored values are left as they are.</li>
+<li>Fader 3, the master filter: low-pass below the middle, off at the middle (with a small dead zone), high-pass above, over the whole mix after the delay and the reverb. It glides smoothly.</li>
+<li>Each fader shows its dial while it moves: MORPH 1 TO 3 and how far, SPACE and its share, FILTER LP 1.2K.</li>
+</ul></li>
+</ul>
+<h2 id="build-37">BUILD 37</h2>
+<p>27 October 2026</p>
+<p>Fixed</p>
+<ul>
+<li>The track filter (K3) moved in steps: each click of the knob jumped the cutoff about 0.6 of an octave at once, and the filter's settings changed only every 32 samples. Now a click turned slowly moves it a third of an octave (turned fast, two thirds, so the whole way still takes a turn and a half), and the cutoff and resonance glide there over about 25 ms, recalculated four times as often while they move: a smooth, continuous sweep, as an analog filter's knob. Modulation of the filter (MOD) keeps its quick response, so fast LFOs are not smoothed away.</li>
+</ul>
 <h2 id="build-36">BUILD 36</h2>
 <p>27 October 2026</p>
 <p>Brought in from Tonitor for the FM-1 (its builds 55, 61, 62 and 68).</p>
