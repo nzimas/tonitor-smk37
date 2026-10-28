@@ -572,6 +572,7 @@ static int ses_load_slot(uint32_t num);
 /* snaps.c (after this file) */
 #define NSNAP 16u                /* a session's snapshots (a pad each) */
 #define MORPH_STEPS 60u          /* the morph time: 0 .. 60 half seconds */
+#define MORPH_MANUAL 61u         /* .. or MANUAL (below OFF on the knob): a pad picks the target, fader 1 morphs */
 static int snap_store(uint32_t i);
 static void snap_loop_emptied(uint32_t l);
 static void snap_recall(uint32_t i, uint32_t morph_half_s);
@@ -579,6 +580,7 @@ static void snap_clear(uint32_t i);
 static int snap_has(uint32_t i);
 static int snap_current(void);
 static int snap_morph_target(void);
+static void fmorph_begin(uint32_t i);
 static void morph_poll(void);
 /* gest.c (after this file): the gesture layers */
 enum { GP_FLT, GP_GR, GP_CR, GP_DIST, GP_DSEND, GP_SEND, GP_LEVEL, GP_PAN, GP_MAC0, GP_SPACE = GP_MAC0 + 8, GP_MFLT };
@@ -594,6 +596,7 @@ static int gest_rec_track(uint32_t l);
 static void fmorph_set(int32_t f);
 static int fmorph_on(void);
 static uint32_t fmorph_pair(void);              /* (its two snapshots: x, y << 8) */
+static int32_t fmorph_u(void);
 static void mac_apply(uint32_t l);
 static int pre_kind(uint32_t e, uint32_t slot);   /* the kind of sound in engine e's slot, -1 if none */
 static int pre_save(uint32_t l, uint32_t e, uint32_t slot);
@@ -987,8 +990,11 @@ static uint32_t snap_pads(uint32_t press)
             else
                 flash("FULL", n, C_BAD);       /* (the snapshots' room taken: emptying some makes more) */
             ui.force = 1;
-        } else if (!down) {                      /* let go soon: recalled (over the morph time) */
-            if (!ui.snap_done && snap_has((uint32_t)ui.snap_pad))
+        } else if (!down) {                      /* let go soon: recalled (over the morph time); MANUAL, the target,
+                                                  * fader 1 to take it there */
+            if (!ui.snap_done && snap_has((uint32_t)ui.snap_pad) && ui.morph == MORPH_MANUAL)
+                fmorph_begin((uint32_t)ui.snap_pad);
+            else if (!ui.snap_done && snap_has((uint32_t)ui.snap_pad))
                 snap_recall((uint32_t)ui.snap_pad, ui.morph);
             ui.snap_pad = -1;
         }
@@ -1006,6 +1012,7 @@ static uint8_t host_fader[3] = {0, 0, 64};      /* (the host tests set them: fad
 #define FADER(i) ((int32_t)fm1_in.fader[i])
 #define FADERS_READY (fm1_in.frames >= 300u)    /* (the readings settled) */
 #endif
+static int32_t fader1_now(void) { return FADERS_READY ? FADER(0) : 0; }   /* (snaps.c: where fader 1 stands) */
 static void faders_poll(void)
 {
     static int16_t was[3] = {-1, -1, -1};
@@ -1035,7 +1042,7 @@ static void faders_poll(void)
             gest_rec(ui.sel, GP_MFLT, mflt_v);
         }
     }
-    fmorph_set(FADER(0));                        /* (each pass: it takes hold only from the bottom) */
+    fmorph_set(FADER(0));                        /* (each pass: MANUAL, a target tapped -- snaps.c) */
 }
 static void ui_input(void)
 {
@@ -1219,7 +1226,9 @@ static void ui_input(void)
     if (ui.snap_page) {                          /* the SNAPSHOTS page: the first page knob the morph time (its dial);
                                                   * the other three nothing */
         if ((s = enc_take(PAGE_K[0])) != 0) {
-            ui.morph = (uint8_t)clampi((int32_t)ui.morph + s, 0, MORPH_STEPS);
+            int32_t m = ui.morph == MORPH_MANUAL ? -1 : (int32_t)ui.morph;   /* (MANUAL below OFF) */
+            m = clampi(m + s, -1, MORPH_STEPS);
+            ui.morph = (uint8_t)(m < 0 ? MORPH_MANUAL : m);
             ui.morph_until = fm1_ms + 1500u;
         }
         enc_take(PAGE_K[1]);
@@ -2993,16 +3002,18 @@ static void draw_fader_dial(void)
     const char *t = ui.fd_dial == 1u ? "MORPH" : ui.fd_dial == 2u ? "SPACE" : "FILTER";
     w[0] = 0;
     if (ui.fd_dial == 1u) {
-        pct = FADER(0) * 100 / 127;
-        if (fmorph_on()) {
+        pct = fmorph_u() * 100 / Q15;
+        if (fmorph_on()) {                       /* how far from the one it was at to the target */
             fmt_int(v, (int32_t)(fmorph_pair() & 255u) + 1);
             str_cpy(v + str_len(v), " TO ", 5);
             fmt_int(v + str_len(v), (int32_t)(fmorph_pair() >> 8) + 1);
             fmt_int(w, pct);
             str_cpy(w + str_len(w), " %", 3);
-        } else {
-            str_cpy(v, FADER(0) <= 2 ? "READY" : "DOWN", sizeof v);   /* (it takes hold from the bottom) */
-            str_cpy(w, FADER(0) <= 2 ? "" : "FIRST", sizeof w);
+        } else if (ui.morph == MORPH_MANUAL) {   /* (nothing to morph to: a snapshot's pad picks one) */
+            str_cpy(v, "TAP A PAD", sizeof v);
+        } else {                                 /* (not MANUAL: fader 1 does nothing) */
+            str_cpy(v, "OFF", sizeof v);
+            str_cpy(w, "K3 TO MANUAL", sizeof w);
         }
     } else if (ui.fd_dial == 2u) {
         pct = fd_space;
@@ -3043,27 +3054,31 @@ static void draw_fader_dial(void)
     }
 }
 /* the first page knob on the SNAPSHOTS page: the morph time over the page while it turns and 1.5 s after -- MORPH,
- * the time large (4.5, or OFF: at once), SECONDS, a bar of its reach (0 .. 30 s) */
+ * the time large (4.5, or OFF: at once; or MANUAL: fader 1), SECONDS, a bar of its reach (0 .. 30 s) */
 static void draw_morph_dial(void)
 {
     char v[8];
+    int man = ui.morph == MORPH_MANUAL;
     if (!ui.force && ui.shown_morph == ui.morph)
         return;
     ui.shown_morph = ui.morph;
-    if (ui.morph)
+    if (man)
+        str_cpy(v, "MANUAL", sizeof v);
+    else if (ui.morph)
         fmt_fix(v, ui.morph * 5, 1);
     else
         str_cpy(v, "OFF", sizeof v);
     CV_AREA(0, 0, 240, 50, C_BLACK)
         cv_text_c((50 - FONT_M.h) / 2, &FONT_M, "MORPH", C_SNAP);
     CV_AREA(0, 50, 240, 112, C_BLACK)            /* (FONT_XL has no point, no O or F) */
-        cv_text_c((112 - FONT_L.h) / 2, &FONT_L, v, C_WHITE);
+        cv_text_fit((112 - band_font(v)->h) / 2, band_font(v), v, C_WHITE);
     CV_AREA(0, 162, 240, 40, C_BLACK)
         if (ui.morph)
-            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, "SECONDS", C_GREY);
+            cv_text_c((40 - FONT_S.h) / 2, &FONT_S, man ? "FADER 1" : "SECONDS", C_GREY);
     CV_AREA(0, 202, 240, 38, C_BLACK) {
         cv_rect(12, 8, 216, 22, RGB(60, 60, 60));
-        cv_rect(12, 8, ui.morph * 216 / MORPH_STEPS, 22, C_SNAP);
+        if (!man)
+            cv_rect(12, 8, ui.morph * 216 / MORPH_STEPS, 22, C_SNAP);
     }
 }
 

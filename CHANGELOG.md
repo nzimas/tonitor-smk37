@@ -2,6 +2,19 @@
 
 This is the changelog of the Tonitor port for the M-VAVE SMK-37 Pro, newest first. The port began from Tonitor 0.53 for the FM-1 (commit c39d18f of nzimas/tonitor). Build 1 never shipped, so the list starts at BUILD 2. For the history before the port, see the [FM-1 Tonitor changelog](https://nzimas.github.io/tonitor/changelog.html).
 
+## BUILD 43
+
+28 October 2026
+
+Changed
+- Fader 1's morph by hand has its own setting: the morph time (K3 on the SNAPSHOTS page) goes below OFF to MANUAL.
+  In MANUAL, tapping a snapshot's pad does not recall it: it becomes the target (its pad blinks) and nothing changes
+  until fader 1 moves. From wherever the fader stands to the end furthest from it (the top, or near the top the
+  bottom), it takes the machine from the snapshot it is at to the target, back and forth as you move; at the end
+  the target is reached exactly and becomes the current snapshot, and the fader lets go until the next tap. With any
+  other morph time, a pad recalls as before and fader 1 does nothing. (Before, fader 1 morphed to the snapshot
+  framed with < >, starting from the bottom, which a tap on a pad could not reach.)
+
 ## BUILD 42
 
 27 October 2026

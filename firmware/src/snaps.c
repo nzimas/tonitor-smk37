@@ -675,7 +675,6 @@ static void snap_lerp(const snap_t *a, const snap_t *b, int32_t u, uint32_t skip
 
 /* ------------------------------------------------------------- the morph --- */
 static snap_t morph_a POOL;      /* where it came from (the machine when recalled: what glides) */
-static int snap_morph_target(void) { return morph.on ? morph.to : -1; }
 static void morph_end(void)
 {
     uint32_t l;
@@ -814,16 +813,18 @@ static int snap_store(uint32_t i)
     snap.loop_dirty = (uint8_t)((1u << NLAYER) - 1u);
     return 1;
 }
-/* fader 1 (ui.c faders_poll): a morph by hand between two snapshots -- at the bottom the one last stored or
- * recalled (x), at the top the one framed on the SNAPSHOTS page (y; < > frame it). Moved up from the bottom it takes
- * hold: what glides follows the fader between the two, what has no in-between (snap_discrete) is x's below the
- * middle and y's above, either way; a track whose sound differs goes down to silence at the middle. At the top the
- * machine is y, back at the bottom x. A recall, a session, or either emptied lets go: the fader to the bottom again
- * to take hold */
+/* fader 1 (ui.c faders_poll): a morph by hand, the morph time set to MANUAL (below OFF). A pad tapped does not recall
+ * its snapshot: it is the target (its pad blinks), x the snapshot the machine is at. From where the fader then stands
+ * to the end it is furthest from (the top, or -- standing near the top -- the bottom), it takes the machine from x to
+ * the target: what glides follows the fader, what has no in-between (snap_discrete) is x's before the half-way and
+ * the target's after, either way; a track whose sound differs goes down to silence at the half-way and back. Back
+ * where it started: x. At the end: the target exactly, the snapshot the machine is at; the fader lets go until a pad
+ * is tapped again. A recall, a session, or either snapshot emptied lets go too */
 static struct {
-    uint8_t armed;               /* it has been at the bottom: it may take hold */
-    uint8_t on, x, y, top;       /* holding x .. y; above the middle (y's discrete state given) */
+    uint8_t on, x, y, top;       /* holding x .. y; past the half-way (y's discrete state given) */
     uint8_t chg;                 /* the tracks whose sound differs */
+    uint8_t up;                  /* towards the top (else the bottom) */
+    int32_t f0;                  /* where the fader stood when the target was tapped */
     int32_t u;                   /* where it is, Q15 */
 } fmo;
 static int fmorph_on(void) { return fmo.on; }
@@ -835,57 +836,72 @@ static void fmorph_end(void)
     for (l = 0; l < NLAYER; l++)
         lay_duck[l] = 0;
 }
-static void fmorph_set(int32_t f)                /* the fader, 0 .. 127 */
+static int32_t fader1_now(void);                 /* (ui.c) */
+/* MANUAL: snapshot i tapped -- the target, from the snapshot the machine is at (none: recalled at once) */
+static void fmorph_begin(uint32_t i)
 {
     uint32_t l;
-    int32_t u, top;
-    const snap_t *a, *b;
-    if (f <= 2) {                                /* the bottom: x exactly, and ready to take hold again */
-        if (fmo.on) {
-            if (fmo.top) {
-                morph_b = snap_s[fmo.x];
-                snap_discrete(&morph_b, fmo.chg);
-            }
-            snap_lerp(&snap_s[fmo.x], &snap_s[fmo.x], Q15, 0);
+    int32_t x;
+    if (i >= NSNAP || !snap_has(i))
+        return;
+    if (fmo.on) {                                /* (another tapped on the way: from the side it is nearer) */
+        if (fmo.top) {
+            snap.cur = (int8_t)fmo.y;
+            snap_lerp(&snap_s[fmo.y], &snap_s[fmo.y], Q15, fmo.chg);
+        } else {
+            snap_lerp(&snap_s[fmo.x], &snap_s[fmo.x], Q15, fmo.chg);
             snap.cur = (int8_t)fmo.x;
-            fmorph_end();
-            ui.force = 1;
         }
-        fmo.armed = 1;
+        fmorph_end();
+    }
+    x = snap.cur;
+    if (x < 0 || !snap_has((uint32_t)x)) {       /* (no snapshot to start from: at once) */
+        snap_recall(i, 0);
         return;
     }
-    if (!fmo.on) {
-        int32_t x = snap.cur, y = ui.snap_ix;
-        if (!fmo.armed)
-            return;
-        fmo.armed = 0;                           /* (taken hold of, or not: the bottom again first) */
-        if (x < 0 || y == x || !snap_has((uint32_t)x) || !snap_has((uint32_t)y))
-            return;
-        morph_end();
-        memset(snap_pend, 0, sizeof snap_pend);
-        fmo.x = (uint8_t)x;
-        fmo.y = (uint8_t)y;
-        fmo.top = 0;
-        fmo.chg = 0;
-        fmo.u = -1;
-        for (l = 0; l < NLAYER; l++) {
-            const snap_trk_t *tx = &snap_s[x].t[l], *ty = &snap_s[y].t[l];
-            const snd_ent_t *e = &snd_tab[tx->snd[tx->engine]];
-            if (tx->engine != ty->engine || tx->snd[tx->engine] != ty->snd[ty->engine])
-                fmo.chg |= (uint8_t)(1u << l);
-            memcpy(morph_ma[l], e->mac, NMAC);   /* (what glides from: x's) */
-            memcpy(morph_ea[l], e->env, 4u);
-        }
-        fmo.on = 1;
+    if ((uint32_t)x == i) {
+        say("ALREADY", 900);
+        return;
     }
-    u = f >= 125 ? Q15 : f * Q15 / 125;
+    morph_end();
+    memset(snap_pend, 0, sizeof snap_pend);
+    fmo.x = (uint8_t)x;
+    fmo.y = (uint8_t)i;
+    fmo.top = 0;
+    fmo.chg = 0;
+    fmo.u = 0;
+    fmo.f0 = fader1_now();
+    fmo.up = (uint8_t)(fmo.f0 < 64);
+    for (l = 0; l < NLAYER; l++) {
+        const snap_trk_t *tx = &snap_s[x].t[l], *ty = &snap_s[i].t[l];
+        const snd_ent_t *e = &snd_tab[tx->snd[tx->engine]];
+        if (tx->engine != ty->engine || tx->snd[tx->engine] != ty->snd[ty->engine])
+            fmo.chg |= (uint8_t)(1u << l);
+        memcpy(morph_ma[l], e->mac, NMAC);       /* (what glides from: x's) */
+        memcpy(morph_ea[l], e->env, 4u);
+    }
+    fmo.on = 1;
+    say(fmo.up ? "FADER 1 UP" : "FADER 1 DOWN", 1500);
+    ui.force = 1;
+}
+static int32_t fmorph_u(void) { return fmo.on ? fmo.u : 0; }   /* (how far, Q15: its dial) */
+static void fmorph_set(int32_t f)                /* the fader, 0 .. 127 (each pass) */
+{
+    uint32_t l;
+    int32_t u, top, span;
+    const snap_t *a, *b;
+    if (!fmo.on)
+        return;
+    span = fmo.up ? 127 - fmo.f0 : fmo.f0;
+    u = fmo.up ? f - fmo.f0 : fmo.f0 - f;
+    u = span < 4 ? Q15 : clampi(u, 0, span) * Q15 / span;
     if (u == fmo.u)
         return;
     fmo.u = u;
     a = &snap_s[fmo.x];
     b = &snap_s[fmo.y];
     top = u >= Q15 / 2;
-    if (top != fmo.top) {                        /* across the middle: the other one's discrete state */
+    if (top != fmo.top) {                        /* across the half-way: the other one's discrete state */
         fmo.top = (uint8_t)top;
         morph_b = top ? *b : *a;
         snap_discrete(&morph_b, fmo.chg);
@@ -896,23 +912,21 @@ static void fmorph_set(int32_t f)                /* the fader, 0 .. 127 */
             int32_t d = u < Q15 / 4 || u >= Q15 * 3 / 4 ? 0 : u < Q15 / 2 ? (u - Q15 / 4) * 4 : (Q15 * 3 / 4 - u) * 4;
             lay_duck[l] = (int16_t)clampi(d, 0, Q15 - 1);
         }
-    if (u >= Q15) {
+    if (u >= Q15) {                              /* the end: the target, the snapshot the machine is at */
         snap.cur = (int8_t)fmo.y;
-        for (l = 0; l < NLAYER; l++)
-            lay_duck[l] = 0;
+        fmorph_end();
     }
     ui.force = 1;
 }
+static int snap_morph_target(void) { return morph.on ? morph.to : fmo.on ? fmo.y : -1; }
 /* snapshot i recalled: over the morph time (half seconds), or at once */
 static void snap_recall(uint32_t i, uint32_t morph_half_s)
 {
     uint32_t l;
     if (i >= NSNAP || !((snap.used >> i) & 1u))
         return;
-    if (fmo.on) {                                /* (fader 1's morph let go: the bottom again to take hold) */
+    if (fmo.on)                                  /* (fader 1's morph let go) */
         fmorph_end();
-        fmo.armed = 0;
-    }
     morph_end();
     memset(snap_pend, 0, sizeof snap_pend);
     morph_b = snap_s[i];                         /* (a copy: stored over on the way, it still goes where it went) */
@@ -946,10 +960,8 @@ static void snap_clear(uint32_t i)
 {
     if (i >= NSNAP)
         return;
-    if (fmo.on && (i == fmo.x || i == fmo.y)) {
+    if (fmo.on && (i == fmo.x || i == fmo.y))
         fmorph_end();
-        fmo.armed = 0;
-    }
     snap.used &= (uint16_t)~(1u << i);
     if (snap.cur == (int8_t)i)
         snap.cur = -1;
@@ -961,7 +973,6 @@ static int snap_current(void) { return snap.cur; }
 static void snap_reset(void)
 {
     fmorph_end();
-    fmo.armed = 0;
     morph_end();
     memset(snap_pend, 0, sizeof snap_pend);
     snap.used = 0;
@@ -1040,7 +1051,7 @@ static void snap_load(void)
     uint32_t i, l;
     uint8_t c, ix;
     ses_in(w, sizeof w);
-    ui.morph = (uint8_t)(w[1] <= MORPH_STEPS ? w[1] : 0u);
+    ui.morph = (uint8_t)(w[1] <= MORPH_STEPS || w[1] == MORPH_MANUAL ? w[1] : 0u);
     if (!w[0] || w[3] != sizeof(snap_t) || w[4] != sizeof(snd_ent_t) || w[5] != sizeof(lat_ent_t) ||
         w[6] != sizeof(bln_ent_t) || w[7] != sizeof(take_t))
         return;                                  /* (none, or of another layout: left out) */

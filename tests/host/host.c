@@ -8717,43 +8717,68 @@ static int cmd_faders(void)
     new_cal(2, 0xBEEFu, PATH_OPEN);                  /* (track 3 another sound: through silence at the middle) */
     snap_store(1);
     machine_get(&snap_m2);
-    host_fader[0] = 60;                              /* (the fader up when snapshot 1 is recalled) */
+    /* not MANUAL: a pad recalls at once; fader 1 does nothing */
     snap_recall(0, 0);
     snap_settle();
-    ui.snap_ix = 1;                                  /* (snapshot 2 framed: the top) */
-    host_fader[0] = 70;                              /* moved, not from the bottom: nothing */
-    ui_input();
-    if (fmorph_on())
-        printf("FAIL faders: the morph takes hold without starting at the bottom\n"), fail++;
+    ui.snap_page = 1;
+    ui.morph = 0;
     host_fader[0] = 0;
     ui_input();
-    for (b = 1; b <= 127u; b += 6u) {
+    snap_tap(1, 30);
+    snap_settle();
+    if (snap_current() != 1 || fmorph_on())
+        printf("FAIL faders: not MANUAL, a pad does not recall at once\n"), fail++;
+    snap_tap(0, 30);
+    snap_settle();
+    /* MANUAL (the morph knob below OFF): a pad tapped is the target, nothing changes until fader 1 moves */
+    host_enc[PANEL_ENC[PAGE_K[0]]] = -1;
+    ui_input();
+    if (ui.morph != MORPH_MANUAL)
+        printf("FAIL faders: the morph knob below OFF is not MANUAL (%u)\n", ui.morph), fail++;
+    host_fader[0] = 20;                              /* (the fader somewhere low) */
+    ui_input();
+    snap_tap(1, 30);
+    snap_settle();
+    machine_get(&snap_now);
+    if (!fmorph_on() || snap_morph_target() != 1 || snap_current() != 0)
+        printf("FAIL faders: MANUAL, a pad tapped is not the target\n"), fail++;
+    fail += machine_diff("MANUAL, the target tapped, the fader not moved", &snap_now, &snap_m1);
+    for (b = 20; b <= 127u; b += 6u) {               /* from where it stood to the top */
         host_fader[0] = (uint8_t)b;
         ui_input();
         run_blocks(2, 0);
         for (l = 0; l < NLAYER; l++)
             if (ui.level[l] < 10 || ui.level[l] > 20)
                 printf("FAIL faders: the morph goes beyond the two (track %u, %d)\n", l + 1u, ui.level[l]), fail++;
-        if ((b >= 2u * 125u / 4u) != (ui.scale == 4u) && b != 1u)
-            printf("FAIL faders: the scale is not switched at the middle (fader %u, scale %u)\n", b, ui.scale), fail++;
-        if (b > 40u && b < 85u && !lay_duck[2])
+        if ((b >= 20u + (127u - 20u) / 2u + 1u) != (ui.scale == 4u))
+            printf("FAIL faders: the scale is not switched at the half-way (fader %u, scale %u)\n", b, ui.scale), fail++;
+        if (b > 55u && b < 85u && !lay_duck[2])
             printf("FAIL faders: the new sound does not go through silence (fader %u)\n", b), fail++;
         if (lay_duck[0])
             printf("FAIL faders: a track whose sound stays goes down\n"), fail++;
+        if (b == 80u) {
+            ui.force = 1;
+            ui_draw();
+            ppm("build/screens/screen-50-fader-morph.ppm");
+        }
     }
-    host_fader[0] = 80;                              /* (its dial on the way) */
-    ui_input();
-    ui.force = 1;
-    ui_draw();
-    ppm("build/screens/screen-50-fader-morph.ppm");
     host_fader[0] = 127;
     ui_input();
     snap_settle();
     machine_get(&snap_now);
     fail += machine_diff("fader 1 at the top", &snap_now, &snap_m2);
-    if (snap_current() != 1)
-        printf("FAIL faders: at the top, snapshot 2 is not the current one\n"), fail++;
-    for (b = 127; b > 7u; b -= 7u) {                 /* and back down */
+    if (snap_current() != 1 || fmorph_on())
+        printf("FAIL faders: at the top, snapshot 2 is not the current one, or the morph holds on\n"), fail++;
+    host_fader[0] = 40;                              /* (moved after: nothing) */
+    ui_input();
+    snap_settle();
+    machine_get(&snap_now);
+    fail += machine_diff("fader 1 moved after the end", &snap_now, &snap_m2);
+    /* the fader near the top: snapshot 1 tapped, down to the bottom takes the machine there */
+    host_fader[0] = 120;
+    ui_input();
+    snap_tap(0, 30);
+    for (b = 120; b > 6u; b -= 6u) {
         host_fader[0] = (uint8_t)b;
         ui_input();
         run_blocks(2, 0);
@@ -8762,9 +8787,11 @@ static int cmd_faders(void)
     ui_input();
     snap_settle();
     machine_get(&snap_now);
-    fail += machine_diff("fader 1 back at the bottom", &snap_now, &snap_m1);
+    fail += machine_diff("fader 1 down to the bottom", &snap_now, &snap_m1);
     if (snap_current() != 0 || fmorph_on())
         printf("FAIL faders: at the bottom, snapshot 1 is not the current one, or the morph holds on\n"), fail++;
+    ui.snap_page = 0;
+    ui.morph = 0;
     host_fader[2] = 30;                              /* (the master filter's dial) */
     ui_input();
     ui.force = 1;

@@ -90,7 +90,7 @@ is on. SHIFT is lit while held. Faders 1 to 3 and the pedal input have no functi
 | **SHIFT + SEQ** | the chosen track's **modulation thrown anew** (MOD RANDOM). See Modulation. |
 | **pitch wheel** | bends the chosen track ±2 semitones. |
 | **mod wheel** | on the chosen track: a vibrato (5.5 Hz, up to 0.4 semitone) and the first macro pushed up. |
-| **fader 1** | **MORPH** by hand, from the snapshot you are on (bottom) to the one framed on the SNAPSHOTS page (top). See The faders. |
+| **fader 1** | **MORPH** by hand: with the morph time at MANUAL, from the snapshot you are on to the one whose pad you tapped. See The faders. |
 | **fader 2** | **SPACE**: every track's reverb and delay sends, the reverb's decay and the delay's repeats, raised together. |
 | **fader 3** | the **master filter**: low-pass below the middle, off at the middle, high-pass above. |
 | **fader 4** | the **master level**. |
@@ -621,15 +621,17 @@ Faders 1 to 3 are live controls over the whole instrument. They act on top of wh
 sessions, snapshots and presets keep what they kept before, and the faders act on them wherever they stand. While a
 fader moves, and a moment after, the screen shows its dial.
 
-**Fader 1, MORPH.** A morph by hand between two snapshots. The bottom is the snapshot you are on (the one last
-stored or recalled); the top is the one framed on the SNAPSHOTS page (move the frame with **<** and **>**; pressing a
-pad recalls it). Start with the fader at the bottom (the dial says READY), then push it up: levels, pans, sends,
-filters, macros and the other values that glide follow the fader between the two snapshots; what has no in-between
-(scale, root, octaves, loops, latched notes, sequencers, engines) is the bottom one's below the middle and the top
-one's above it, in either direction; a track whose sound differs goes down to silence at the middle and comes back.
-At the top the machine is the top snapshot; back at the bottom it is the bottom one again. Recalling a snapshot,
-loading a session or emptying either snapshot lets go of the fader: bring it to the bottom to take hold again (the
-dial says DOWN FIRST until you do).
+**Fader 1, MORPH.** A morph by hand between snapshots. Set the morph time (K3 on the SNAPSHOTS page) to
+**MANUAL**, its lowest setting, below OFF. Then a pad on the SNAPSHOTS page no longer recalls its snapshot at once:
+tapping it makes it the **target** (its pad and box blink; the screen says FADER 1 UP or FADER 1 DOWN), and nothing
+changes yet. Move fader 1 from wherever it stands to the end it is furthest from (the top; or, if it stands near the
+top, the bottom): levels, pans, sends, filters, macros and the other values that glide follow the fader from the
+snapshot you are on to the target; what has no in-between (scale, root, octaves, loops, latched notes, sequencers,
+engines) switches at the half-way, in either direction; a track whose sound differs goes down to silence there and
+comes back. You can go back and forth on the way. At the end the machine is the target exactly, and it becomes the
+snapshot you are on; the fader then does nothing until you tap another pad. Tapping another pad on the way starts
+again from whichever of the two the machine is nearer. With any other morph time, a pad recalls as before (at once,
+or over that time) and fader 1 does nothing (its dial says OFF, K3 TO MANUAL).
 
 **Fader 2, SPACE.** At the bottom, everything as set. Pushing it up raises every track's reverb and delay sends
 together, lengthens the reverb's decay and adds repeats to the delay, towards a wash at the top. Pulling it back
@@ -756,7 +758,7 @@ a snapshot glows; the one last stored or recalled is lit; an empty pad is dark.
 | Recall a snapshot | press and release its pad |
 | Store the current state | hold its pad 0.8 s, or frame it with **<** and **>** and hold **SAVE** |
 | Empty a snapshot | hold **SHIFT** and hold its pad 0.8 s |
-| Set the morph time (0 to 30 s) | **K3** |
+| Set the morph time (0 to 30 s), or MANUAL (fader 1) | **K3** |
 | Leave the page | **SAVE** again |
 
 The keys go on playing while the page is up, and K1 and K2 stay the track's level and pan.
